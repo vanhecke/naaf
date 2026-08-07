@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 require_relative "helper"
-require "wgcp/config_builder"
+require "naaf/config_builder"
 
-describe WGCP::ConfigBuilder do
+describe Naaf::ConfigBuilder do
   before do
     @db = reset_db!(
       server_pubkey: "SRVPUB", server_ip: "10.8.0.1",
@@ -15,7 +15,7 @@ describe WGCP::ConfigBuilder do
   end
 
   def build(flavor, **opts)
-    WGCP::ConfigBuilder.new(@db, @client).render(flavor, **opts)
+    Naaf::ConfigBuilder.new(@db, @client).render(flavor, **opts)
   end
 
   it "split has a DNS line and routes only the vpn subnet" do

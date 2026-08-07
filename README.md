@@ -1,4 +1,4 @@
-# wgcp — a WireGuard control plane in Ruby
+# Naaf — a WireGuard control plane in Ruby
 
 A single-admin control plane for a WireGuard hub. It gives you a web UI to manage
 clients, intra-VPN port policy, host port-forwards, split-tunnel routes, a private
@@ -11,7 +11,7 @@ a small root helper.
 - **One privilege boundary.** A ~120-line root helper on a Unix socket is the only
   privileged code. It speaks a fixed four-command JSON vocabulary
   (`genkeys` / `apply` / `dump` / `ping`) and never builds a shell string.
-- **Safe firewall model.** The app owns only nftables table `inet wgcp`,
+- **Safe firewall model.** The app owns only nftables table `inet naaf`,
   regenerated wholesale and applied atomically via `nft -f`. The static base
   firewall in `/etc/nftables.conf` is off-limits — that is what keeps SSH alive.
 - **Structural key custody.** Client private keys are generated server-side, shown
@@ -47,11 +47,11 @@ The `Endpoint` is `settings.endpoint_host:listen_port` when an endpoint host is 
 ## Layout
 
 ```
-bin/wgcp                single-reactor entrypoint (web + dns + reconcile)
-bin/wgcp-helper         privileged root helper (separate systemd unit)
+bin/naaf                single-reactor entrypoint (web + dns + reconcile)
+bin/naaf-helper         privileged root helper (separate systemd unit)
 bin/bootstrap.rb        one-time: server keys + admin pw + endpoint (env-driven)
 bin/ci                  standardrb + sus + nft render check
-lib/wgcp/               app, renderers (pure), reconciler, zone, ipam, helper client,
+lib/naaf/               app, renderers (pure), reconciler, zone, ipam, helper client,
                         config_builder, bootstrap (env-var provisioning helpers)
 db/schema.rb            idempotent SQLite schema (settings, clients, exposed_ports,
                         port_forwards, dns_records, extra_routes), run on boot
@@ -73,7 +73,7 @@ Requires **Ruby 4.0.6** (via ruby-install + chruby) and Bundler.
 ```bash
 bundle install
 cp .env.example .env && chmod 600 .env
-ruby -rsecurerandom -e 'puts SecureRandom.hex(64)'   # paste into WGCP_SESSION_SECRET
+ruby -rsecurerandom -e 'puts SecureRandom.hex(64)'   # paste into NAAF_SESSION_SECRET
 
 bundle exec sus            # tests
 bundle exec standardrb     # lint (or --fix)
@@ -81,7 +81,7 @@ bin/ci                     # full gate: standardrb + sus + nft render check
 ```
 
 The renderers, IPAM, Zone, ConfigBuilder, and bootstrap helpers are pure/DB-only and
-are tested directly without root or a live kernel. Running the full server (`bin/wgcp`)
+are tested directly without root or a live kernel. Running the full server (`bin/naaf`)
 binds the WireGuard IP and port 53, so it is exercised on the target host, not the dev box.
 
 ## Deploying
@@ -104,16 +104,16 @@ The same idempotent `deploy/provision/*.sh` steps run in both stages, so there i
 drift between "hand-run" and "automated". Ruby 4.0.6 is compiled from source with YJIT
 (~15–30 min on 1 vCPU + swap) — the long pole.
 
-**Update flow on a running box:** `git pull` (or rsync) into `/opt/wgcp` then
-`sudo systemctl restart wgcp` (the helper only needs a restart if `bin/wgcp-helper` changed).
+**Update flow on a running box:** `git pull` (or rsync) into `/opt/naaf` then
+`sudo systemctl restart naaf` (the helper only needs a restart if `bin/naaf-helper` changed).
 
 ## Operations
 
 ```bash
-sudo systemctl status wgcp wgcp-helper wg-quick@wg0
+sudo systemctl status naaf naaf-helper wg-quick@wg0
 sudo wg show wg0                       # peers, handshakes, transfer
-sudo nft list table inet wgcp          # app-owned firewall (NAT + spoke policy)
-journalctl -u wgcp -f                  # app logs
+sudo nft list table inet naaf          # app-owned firewall (NAT + spoke policy)
+journalctl -u naaf -f                  # app logs
 ```
 
 First-run / recovery access before any tunnel exists (admin UI is tunnel-only):

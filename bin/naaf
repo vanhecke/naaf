@@ -8,17 +8,17 @@ require "async/http/endpoint" # NOTE: not autoloaded by `require "falcon"` (veri
 require "rack/builder"
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
-require "wgcp/db"
-require "wgcp/zone"
-require "wgcp/dns_server"
-require "wgcp/reconciler"
-require "wgcp/app"
+require "naaf/db"
+require "naaf/zone"
+require "naaf/dns_server"
+require "naaf/reconciler"
+require "naaf/app"
 
-db       = WGCP.db
-settings = WGCP.settings
-zone     = WGCP::Zone.new(db)
-recon    = WGCP::Reconciler.new(db, zone)
-WGCP::App.reconciler = recon
+db       = Naaf.db
+settings = Naaf.settings
+zone     = Naaf::Zone.new(db)
+recon    = Naaf::Reconciler.new(db, zone)
+Naaf::App.reconciler = recon
 
 # Two binds, never 0.0.0.0. The loopback bind exists so first-run setup works
 # over `ssh -L 8080:127.0.0.1:8080 <vps>` before any tunnel exists.
@@ -35,13 +35,13 @@ Async do |task|
   begin
     recon.apply!
   rescue => e
-    Console.warn("wgcp", "boot apply failed; will retry via reconcile loop", exception: e)
+    Console.warn("naaf", "boot apply failed; will retry via reconcile loop", exception: e)
   end
 
   task.async do
     endpoint = Async::DNS::Endpoint.for(settings[:server_ip], port: 53)
-    Console.info("wgcp", "DNS listening", on: "#{settings[:server_ip]}:53")
-    WGCP::DNSServer.new(
+    Console.info("naaf", "DNS listening", on: "#{settings[:server_ip]}:53")
+    Naaf::DNSServer.new(
       zone: zone,
       upstream: settings[:dns_upstream],
       endpoint: endpoint
@@ -64,7 +64,7 @@ Async do |task|
   WEB_BINDS.each do |bind|
     task.async do
       endpoint = Async::HTTP::Endpoint.parse(bind)
-      Console.info("wgcp", "web listening", on: bind)
+      Console.info("naaf", "web listening", on: bind)
       Falcon::Server.new(middleware, endpoint).run
     end
   end
@@ -75,7 +75,7 @@ Async do |task|
       begin
         recon.poll!
       rescue => e
-        Console.error("wgcp", "reconcile failed", exception: e)
+        Console.error("naaf", "reconcile failed", exception: e)
       end
     end
   end

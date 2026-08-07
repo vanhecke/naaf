@@ -2,14 +2,14 @@
 
 require "erb"
 
-module WGCP
+module Naaf
   class ConfigBuilder
     FLAVORS = %w[split split-nodns full].freeze
 
     def initialize(db, client)
       @db = db
       @client = client
-      @s = WGCP.settings
+      @s = Naaf.settings
     end
 
     def render(flavor, private_key: nil)

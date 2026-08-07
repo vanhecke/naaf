@@ -6,20 +6,20 @@
 #
 # SSH source defaults to anywhere (SSH is key-only after hardening, so this is
 # safe and avoids locking yourself out behind a CGNAT/WARP egress IP). Set
-# WGCP_SSH_SRC_IP=<your.ip> to restrict SSH to a single address.
+# NAAF_SSH_SRC_IP=<your.ip> to restrict SSH to a single address.
 #
 # Logs go to stderr; the firewall group ID is printed to stdout so callers can do:
 #   GID=$(deploy/vultr/ensure-firewall.sh)
 set -euo pipefail
 
-DESC="${WGCP_FW_DESC:-wgcp}"
-WG_PORT="${WGCP_LISTEN_PORT:-51820}"
+DESC="${NAAF_FW_DESC:-naaf}"
+WG_PORT="${NAAF_LISTEN_PORT:-51820}"
 
 log() { printf '[fw] %s\n' "$*" >&2; }
 
-# SSH source: a single /32 if WGCP_SSH_SRC_IP is set, else anywhere.
-if [ -n "${WGCP_SSH_SRC_IP:-}" ]; then
-  ssh_subnet="$WGCP_SSH_SRC_IP"; ssh_size=32
+# SSH source: a single /32 if NAAF_SSH_SRC_IP is set, else anywhere.
+if [ -n "${NAAF_SSH_SRC_IP:-}" ]; then
+  ssh_subnet="$NAAF_SSH_SRC_IP"; ssh_size=32
 else
   ssh_subnet="0.0.0.0"; ssh_size=0
 fi

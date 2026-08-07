@@ -1,0 +1,29 @@
+# Install as /etc/systemd/system/naaf.service
+[Unit]
+Description=naaf control plane (web + dns + reconciler)
+After=naaf-helper.service wg-quick@wg0.service
+Requires=naaf-helper.service
+
+[Service]
+Type=simple
+User=naaf
+Group=naaf
+WorkingDirectory=/opt/naaf
+EnvironmentFile=/opt/naaf/.env
+Environment=BUNDLE_GEMFILE=/opt/naaf/Gemfile
+Environment=RUBY_YJIT_ENABLE=1
+ExecStart=/opt/rubies/ruby-4.0.6/bin/ruby /opt/naaf/bin/naaf
+Restart=on-failure
+RestartSec=2
+
+# Only capability needed: bind DNS to port 53.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/naaf
+
+[Install]
+WantedBy=multi-user.target

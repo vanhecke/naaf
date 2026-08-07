@@ -3,7 +3,7 @@
 require_relative "helper"
 require "bcrypt"
 require "rack/mock"
-require "wgcp/app"
+require "naaf/app"
 
 # Stubs so routes run without a live helper/kernel. genkeys returns a distinct,
 # predictable key per call so we can trace which client's key ends up where.
@@ -31,15 +31,15 @@ class StubReconciler
   def apply! = true
 end
 
-describe "WGCP::App integration" do
+describe "Naaf::App integration" do
   before do
     reset_db!(
       server_pubkey: "SRVPUB", server_ip: "10.8.0.1", endpoint_v4: "203.0.113.5",
       wg_subnet: "10.8.0.0/24", mtu: 1420, listen_port: 51820, dns_domain: "vpn",
       admin_pw_hash: BCrypt::Password.create("secret")
     )
-    WGCP::App.reconciler = StubReconciler.new
-    @app = WGCP::App.app
+    Naaf::App.reconciler = StubReconciler.new
+    @app = Naaf::App.app
     @cookie = nil
   end
 
@@ -82,7 +82,7 @@ describe "WGCP::App integration" do
     body = get("/").body
     post("/clients", "name" => name, "hostname" => name, "pubkey" => pubkey,
       "_csrf" => csrf_for(body, "/clients"))
-    WGCP.db[:clients].where(name: name).get(:id)
+    Naaf.db[:clients].where(name: name).get(:id)
   end
 
   # Fetch the form on `list_path`, lift the token bound to `action`, then post to
@@ -103,7 +103,7 @@ describe "WGCP::App integration" do
   it "renders the dashboard for a client that has actually handshaked" do
     login!
     add_client("nas")
-    WGCP.db[:clients].where(name: "nas").update(
+    Naaf.db[:clients].where(name: "nas").update(
       last_handshake_at: Time.now - 7200, endpoint: "81.82.83.84:51820",
       rx_bytes: 12_345_678, tx_bytes: 9_876_543
     )
@@ -122,7 +122,7 @@ describe "WGCP::App integration" do
   # method+path, and looks the entry up before checking whether the request is
   # cacheable — so it ignores the session cookie on the way in. A logged-out
   # GET / (302 -> /login, no Set-Cookie) would be stored and then replayed to
-  # authenticated users forever, since the entry carries no max-age. bin/wgcp
+  # authenticated users forever, since the entry carries no max-age. bin/naaf
   # passes cache: false; no-store is the second, in-app barrier that also keeps
   # the pages out of browser and proxy caches.
   it "marks every app response no-store, including redirects" do
@@ -176,7 +176,7 @@ describe "WGCP::App integration" do
   # return_to would redirect off-site after login. Rack::MockRequest normalizes
   # the "//" away, so drive the guard directly — verified against a live server too.
   it "refuses to bounce the post-login redirect off-site" do
-    scope = WGCP::App.allocate
+    scope = Naaf::App.allocate
     def scope.session = @session ||= {}
 
     scope.session["return_to"] = "//evil.example.com/"
@@ -250,7 +250,7 @@ describe "WGCP::App integration" do
     body = get("/").body
     res = post("/clients/#{dave}/delete", "_csrf" => csrf_for(body, "/clients/#{dave}/delete"))
     expect(res.status).to be == 302
-    expect(WGCP.db[:clients][id: dave]).to be_nil
+    expect(Naaf.db[:clients][id: dave]).to be_nil
   end
 
   # --- resource management UIs: exposed ports / port forwards / DNS records ---
@@ -269,13 +269,13 @@ describe "WGCP::App integration" do
     res = post_form("/exposed-ports", "/exposed-ports",
       "client_id" => nas, "proto" => "tcp", "port" => "22", "description" => "ssh")
     expect(res.status).to be == 302
-    row = WGCP.db[:exposed_ports].where(client_id: nas).first
+    row = Naaf.db[:exposed_ports].where(client_id: nas).first
     expect(row[:proto]).to be == "tcp"
     expect(row[:port]).to be == 22
     expect(row[:description]).to be == "ssh"
 
     post_form("/exposed-ports", "/exposed-ports/#{row[:id]}/delete", {})
-    expect(WGCP.db[:exposed_ports][id: row[:id]]).to be_nil
+    expect(Naaf.db[:exposed_ports][id: row[:id]]).to be_nil
   end
 
   it "rejects an out-of-range port and an unknown proto without writing a row" do
@@ -283,7 +283,7 @@ describe "WGCP::App integration" do
     nas = add_client("nas")
     post_form("/exposed-ports", "/exposed-ports", "client_id" => nas, "proto" => "tcp", "port" => "70000")
     post_form("/exposed-ports", "/exposed-ports", "client_id" => nas, "proto" => "sctp", "port" => "22")
-    expect(WGCP.db[:exposed_ports].count).to be == 0
+    expect(Naaf.db[:exposed_ports].count).to be == 0
   end
 
   it "stores a single port as a range that starts and ends on itself" do
@@ -291,7 +291,7 @@ describe "WGCP::App integration" do
     nas = add_client("nas")
     post_form("/exposed-ports", "/exposed-ports",
       "client_id" => nas, "proto" => "tcp", "port" => "22")
-    row = WGCP.db[:exposed_ports].first
+    row = Naaf.db[:exposed_ports].first
     expect(row[:port]).to be == 22
     expect(row[:port_end]).to be == 22
   end
@@ -302,7 +302,7 @@ describe "WGCP::App integration" do
     res = post_form("/exposed-ports", "/exposed-ports",
       "client_id" => nas, "proto" => "tcp", "port" => "8000-8100", "description" => "plex")
     expect(res.status).to be == 302
-    row = WGCP.db[:exposed_ports].first
+    row = Naaf.db[:exposed_ports].first
     expect(row[:port]).to be == 8000
     expect(row[:port_end]).to be == 8100
     expect(get("/exposed-ports").body).to be(:include?, "8000-8100")
@@ -316,7 +316,7 @@ describe "WGCP::App integration" do
         post_form("/exposed-ports", "/exposed-ports",
           "client_id" => nas, "proto" => "tcp", "port" => port)
       end
-    expect(WGCP.db[:exposed_ports].count).to be == 0
+    expect(Naaf.db[:exposed_ports].count).to be == 0
   end
 
   # The renderer would silently merge these into one interval, leaving the table
@@ -332,7 +332,7 @@ describe "WGCP::App integration" do
         "client_id" => nas, "proto" => "tcp", "port" => port)
       expect(res.status).to be == 302
     end
-    expect(WGCP.db[:exposed_ports].count).to be == 1
+    expect(Naaf.db[:exposed_ports].count).to be == 1
     expect(get("/exposed-ports").body).to be(:include?, "already exposed")
 
     # A different protocol, and a non-overlapping neighbour, both still fit.
@@ -340,7 +340,7 @@ describe "WGCP::App integration" do
       "client_id" => nas, "proto" => "udp", "port" => "8000-8100")
     post_form("/exposed-ports", "/exposed-ports",
       "client_id" => nas, "proto" => "tcp", "port" => "8101-8200")
-    expect(WGCP.db[:exposed_ports].count).to be == 3
+    expect(Naaf.db[:exposed_ports].count).to be == 3
   end
 
   it "lets two clients expose the same range" do
@@ -351,14 +351,14 @@ describe "WGCP::App integration" do
       "client_id" => nas, "proto" => "tcp", "port" => "8000-8100")
     post_form("/exposed-ports", "/exposed-ports",
       "client_id" => pi, "proto" => "tcp", "port" => "8000-8100")
-    expect(WGCP.db[:exposed_ports].count).to be == 2
+    expect(Naaf.db[:exposed_ports].count).to be == 2
   end
 
   it "rejects an exposed port for an unknown client" do
     login!
     add_client("nas")
     post_form("/exposed-ports", "/exposed-ports", "client_id" => "9999", "proto" => "tcp", "port" => "22")
-    expect(WGCP.db[:exposed_ports].count).to be == 0
+    expect(Naaf.db[:exposed_ports].count).to be == 0
   end
 
   it "adds a port forward enabled, toggles it, and deletes it" do
@@ -366,14 +366,14 @@ describe "WGCP::App integration" do
     nas = add_client("nas")
     post_form("/port-forwards", "/port-forwards",
       "client_id" => nas, "proto" => "tcp", "public_port" => "2222", "target_port" => "22")
-    fwd = WGCP.db[:port_forwards].where(public_port: 2222).first
+    fwd = Naaf.db[:port_forwards].where(public_port: 2222).first
     expect(fwd[:enabled]).to be == true
 
     post_form("/port-forwards", "/port-forwards/#{fwd[:id]}/toggle", {})
-    expect(WGCP.db[:port_forwards][id: fwd[:id]][:enabled]).to be == false
+    expect(Naaf.db[:port_forwards][id: fwd[:id]][:enabled]).to be == false
 
     post_form("/port-forwards", "/port-forwards/#{fwd[:id]}/delete", {})
-    expect(WGCP.db[:port_forwards][id: fwd[:id]]).to be_nil
+    expect(Naaf.db[:port_forwards][id: fwd[:id]]).to be_nil
   end
 
   it "rejects a duplicate public_port/proto forward" do
@@ -383,27 +383,27 @@ describe "WGCP::App integration" do
       "client_id" => nas, "proto" => "tcp", "public_port" => "2222", "target_port" => "22")
     post_form("/port-forwards", "/port-forwards",
       "client_id" => nas, "proto" => "tcp", "public_port" => "2222", "target_port" => "80")
-    expect(WGCP.db[:port_forwards].where(public_port: 2222).count).to be == 1
+    expect(Naaf.db[:port_forwards].where(public_port: 2222).count).to be == 1
   end
 
   it "adds a normalized A record and rejects a non-IPv4 value" do
     login!
     post_form("/dns-records", "/dns-records", "name" => "Service.vpn", "value" => "10.8.0.10", "ttl" => "120")
-    rec = WGCP.db[:dns_records].where(value: "10.8.0.10").first
+    rec = Naaf.db[:dns_records].where(value: "10.8.0.10").first
     expect(rec[:name]).to be == "service.vpn"
     expect(rec[:rtype]).to be == "A"
     expect(rec[:ttl]).to be == 120
 
     post_form("/dns-records", "/dns-records", "name" => "bad.vpn", "value" => "not-an-ip")
-    expect(WGCP.db[:dns_records].where(name: "bad.vpn").count).to be == 0
+    expect(Naaf.db[:dns_records].where(name: "bad.vpn").count).to be == 0
   end
 
   it "deletes a DNS record" do
     login!
     post_form("/dns-records", "/dns-records", "name" => "a.vpn", "value" => "10.8.0.11")
-    id = WGCP.db[:dns_records].where(name: "a.vpn").get(:id)
+    id = Naaf.db[:dns_records].where(name: "a.vpn").get(:id)
     post_form("/dns-records", "/dns-records/#{id}/delete", {})
-    expect(WGCP.db[:dns_records][id: id]).to be_nil
+    expect(Naaf.db[:dns_records][id: id]).to be_nil
   end
 
   it "shows automatic client, gateway and apex records on the DNS page" do
@@ -427,7 +427,7 @@ describe "WGCP::App integration" do
     body = get("/").body
     post("/clients", "name" => "bad", "hostname" => "bad_host!", "pubkey" => "",
       "_csrf" => csrf_for(body, "/clients"))
-    expect(WGCP.db[:clients].where(hostname: "bad_host!").count).to be == 0
+    expect(Naaf.db[:clients].where(hostname: "bad_host!").count).to be == 0
   end
 
   # --- client enable/disable toggle ---
@@ -435,11 +435,11 @@ describe "WGCP::App integration" do
   it "toggles a client between enabled and disabled" do
     login!
     dave = add_client("dave")
-    expect(WGCP.db[:clients][id: dave][:enabled]).to be == true
+    expect(Naaf.db[:clients][id: dave][:enabled]).to be == true
     post_form("/", "/clients/#{dave}/toggle", {})
-    expect(WGCP.db[:clients][id: dave][:enabled]).to be == false
+    expect(Naaf.db[:clients][id: dave][:enabled]).to be == false
     post_form("/", "/clients/#{dave}/toggle", {})
-    expect(WGCP.db[:clients][id: dave][:enabled]).to be == true
+    expect(Naaf.db[:clients][id: dave][:enabled]).to be == true
   end
 
   # --- extra (split-tunnel) routes ---
@@ -457,13 +457,13 @@ describe "WGCP::App integration" do
     nas = add_client("nas")
     post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "192.168.9.0/24")
     post_form("/extra-routes", "/extra-routes", "client_id" => nas, "cidr" => "10.99.5.3/16")
-    glob = WGCP.db[:extra_routes].where(client_id: nil).first
-    perc = WGCP.db[:extra_routes].where(client_id: nas).first
+    glob = Naaf.db[:extra_routes].where(client_id: nil).first
+    perc = Naaf.db[:extra_routes].where(client_id: nas).first
     expect(glob[:cidr]).to be == "192.168.9.0/24"
     expect(perc[:cidr]).to be == "10.99.0.0/16" # host bits masked to the network
 
     post_form("/extra-routes", "/extra-routes/#{glob[:id]}/delete", {})
-    expect(WGCP.db[:extra_routes][id: glob[:id]]).to be_nil
+    expect(Naaf.db[:extra_routes][id: glob[:id]]).to be_nil
   end
 
   it "rejects routes that are not valid CIDR and one for an unknown client" do
@@ -472,7 +472,7 @@ describe "WGCP::App integration" do
     post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "not-a-network")
     post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "10.0.0.0") # no prefix
     post_form("/extra-routes", "/extra-routes", "client_id" => "9999", "cidr" => "192.168.9.0/24")
-    expect(WGCP.db[:extra_routes].count).to be == 0
+    expect(Naaf.db[:extra_routes].count).to be == 0
   end
 
   # --- settings editor ---
@@ -489,7 +489,7 @@ describe "WGCP::App integration" do
   it "saves editable settings, and a client config then uses the new endpoint host" do
     login!
     save_settings("endpoint_host" => "sg.example.com")
-    s = WGCP.settings
+    s = Naaf.settings
     expect(s[:endpoint_host]).to be == "sg.example.com"
     expect(s[:endpoint_v4]).to be == "203.0.113.9"
     expect(s[:dns_upstream]).to be == "9.9.9.9"
@@ -498,24 +498,24 @@ describe "WGCP::App integration" do
     expect(s[:wan_interface]).to be == "ens3"
 
     nas = add_client("nas")
-    conf = WGCP::ConfigBuilder.new(WGCP.db, WGCP.db[:clients][id: nas]).render("split")
+    conf = Naaf::ConfigBuilder.new(Naaf.db, Naaf.db[:clients][id: nas]).render("split")
     expect(conf).to be(:include?, "Endpoint = sg.example.com:51820")
   end
 
   it "rejects an out-of-range MTU or a bad IP without changing any setting" do
     login!
     save_settings("mtu" => "50")
-    expect(WGCP.settings[:mtu]).to be == 1420
-    expect(WGCP.settings[:endpoint_v4]).to be == "203.0.113.5" # unchanged whole-hog
+    expect(Naaf.settings[:mtu]).to be == 1420
+    expect(Naaf.settings[:endpoint_v4]).to be == "203.0.113.5" # unchanged whole-hog
 
     save_settings("endpoint_v4" => "not-an-ip")
-    expect(WGCP.settings[:endpoint_v4]).to be == "203.0.113.5"
+    expect(Naaf.settings[:endpoint_v4]).to be == "203.0.113.5"
   end
 
   it "does not let the read-only subnet be written through the settings form" do
     login!
     save_settings("wg_subnet" => "10.9.0.0/24")
-    expect(WGCP.settings[:wg_subnet]).to be == "10.8.0.0/24"
+    expect(Naaf.settings[:wg_subnet]).to be == "10.8.0.0/24"
   end
 
   it "changes the admin password and swaps which password logs in" do

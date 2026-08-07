@@ -4,7 +4,7 @@ require_relative "helper_client"
 require_relative "renderers/wireguard"
 require_relative "renderers/nftables"
 
-module WGCP
+module Naaf
   class Reconciler
     attr_reader :helper
 

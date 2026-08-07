@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # App setup: .env with a generated session secret, gem install, a load-check of
 # the socketry chain, and installation of both systemd units (with the Ruby path
-# templated in). Assumes the repo is already present at /opt/wgcp. Mirrors
+# templated in). Assumes the repo is already present at /opt/naaf. Mirrors
 # SETUP §3 + the deploy install map.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,7 +9,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/00-lib.sh"
 require_root
 
-APP=/opt/wgcp
+APP=/opt/naaf
 BUNDLE="$RUBY_PREFIX/bin/bundle"
 export BUNDLE_GEMFILE="$APP/Gemfile"
 
@@ -19,7 +19,7 @@ export BUNDLE_GEMFILE="$APP/Gemfile"
 if [ ! -f "$APP/.env" ]; then
   log "writing $APP/.env with a fresh session secret"
   secret="$("$RUBY_BIN" -rsecurerandom -e 'print SecureRandom.hex(64)')"
-  sed "s#^WGCP_SESSION_SECRET=.*#WGCP_SESSION_SECRET=$secret#" "$APP/.env.example" >"$APP/.env"
+  sed "s#^NAAF_SESSION_SECRET=.*#NAAF_SESSION_SECRET=$secret#" "$APP/.env.example" >"$APP/.env"
   chown root:root "$APP/.env"
   chmod 600 "$APP/.env"
 else
@@ -34,7 +34,7 @@ log "load-check the socketry chain"
   'require "falcon"; require "async/dns"; require "roda"; require "sequel"; require "sqlite3"; puts "load ok #{RUBY_VERSION}"')
 
 log "installing systemd units (Ruby path -> $RUBY_BIN)"
-for unit in wgcp-helper.service wgcp.service; do
+for unit in naaf-helper.service naaf.service; do
   sed "s#/opt/rubies/ruby-4.0.6/bin/ruby#$RUBY_BIN#g" "$REPO_ROOT/deploy/$unit" \
     >"/etc/systemd/system/$unit"
 done

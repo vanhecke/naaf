@@ -1,0 +1,25 @@
+# Install as /etc/systemd/system/naaf-helper.service
+[Unit]
+Description=naaf privileged helper
+After=network-online.target
+Before=naaf.service
+
+[Service]
+Type=simple
+User=root
+# Group=naaf so RuntimeDirectory creates /run/naaf as root:naaf — otherwise it is
+# root:root 0750 and the unprivileged naaf app cannot traverse it to the socket.
+Group=naaf
+WorkingDirectory=/opt/naaf
+Environment=BUNDLE_GEMFILE=/opt/naaf/Gemfile
+ExecStart=/opt/rubies/ruby-4.0.6/bin/ruby /opt/naaf/bin/naaf-helper
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=naaf
+RuntimeDirectoryMode=0750
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

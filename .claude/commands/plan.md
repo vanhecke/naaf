@@ -6,7 +6,7 @@ argument-hint: <feature to plan>
 Plan the implementation of: **$ARGUMENTS**
 
 This is a READ-ONLY step. Do not modify any files. Read the relevant sources
-first (`lib/wgcp/`, `db/schema.rb`, `views/`, existing `test/`), then output:
+first (`lib/naaf/`, `db/schema.rb`, `views/`, existing `test/`), then output:
 
 1. **Files to change / create** — each path with a one-line reason. Distinguish
    renderers (pure), the app (Roda routes), the reconciler, and views.

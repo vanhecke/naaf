@@ -10,27 +10,27 @@ source "$DIR/00-lib.sh"
 require_root
 
 log "service user + group"
-getent group wgcp >/dev/null || addgroup --system wgcp
-getent passwd wgcp >/dev/null ||
-  adduser --system --ingroup wgcp --home /var/lib/wgcp --shell /usr/sbin/nologin wgcp
+getent group naaf >/dev/null || addgroup --system naaf
+getent passwd naaf >/dev/null ||
+  adduser --system --ingroup naaf --home /var/lib/naaf --shell /usr/sbin/nologin naaf
 
 log "directories"
-install -d -o wgcp -g wgcp -m 0750 /var/lib/wgcp
-install -d -o root -g wgcp -m 0750 /run/wgcp
-install -d -o root -g root -m 0755 /opt/wgcp
+install -d -o naaf -g naaf -m 0750 /var/lib/naaf
+install -d -o root -g naaf -m 0750 /run/naaf
+install -d -o root -g root -m 0755 /opt/naaf
 
 log "IP forwarding (v4 on, v6 off)"
-install -m 0644 "$REPO_ROOT/deploy/sysctl-99-wgcp.conf" /etc/sysctl.d/99-wgcp.conf
+install -m 0644 "$REPO_ROOT/deploy/sysctl-99-naaf.conf" /etc/sysctl.d/99-naaf.conf
 sysctl --system >/dev/null
 [ "$(sysctl -n net.ipv4.ip_forward)" = "1" ] || die "ip_forward did not enable"
 
-log "tmpfiles for /run/wgcp (tmpfs is wiped on reboot)"
-install -m 0644 "$REPO_ROOT/deploy/tmpfiles-wgcp.conf" /etc/tmpfiles.d/wgcp.conf
+log "tmpfiles for /run/naaf (tmpfs is wiped on reboot)"
+install -m 0644 "$REPO_ROOT/deploy/tmpfiles-naaf.conf" /etc/tmpfiles.d/naaf.conf
 systemd-tmpfiles --create
 
 log "SSH hardening (key-only)"
 install -d -m 0755 /etc/ssh/sshd_config.d
-cat >/etc/ssh/sshd_config.d/99-wgcp.conf <<'EOF'
+cat >/etc/ssh/sshd_config.d/99-naaf.conf <<'EOF'
 PermitRootLogin prohibit-password
 PasswordAuthentication no
 KbdInteractiveAuthentication no
@@ -40,8 +40,8 @@ sshd -t && systemctl reload ssh
 # Many Debian cloud images ship ufw with its service enabled. Its iptables-nft
 # rules sit on the input/forward hooks and silently drop WireGuard (udp 51820),
 # tunnel DNS (udp 53 from wg0), and forwarded full-tunnel traffic — even while
-# `ufw status` reads inactive. wgcp owns the firewall via nftables (inet filter +
-# inet wgcp), so disable ufw and drop its tables to remove the conflict.
+# `ufw status` reads inactive. naaf owns the firewall via nftables (inet filter +
+# inet naaf), so disable ufw and drop its tables to remove the conflict.
 if command -v ufw >/dev/null 2>&1 || systemctl list-unit-files ufw.service >/dev/null 2>&1; then
   log "disabling ufw (its rules conflict with the nftables firewall)"
   ufw --force disable 2>/dev/null || true

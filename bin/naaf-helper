@@ -10,11 +10,11 @@ require "tempfile"
 require "fileutils"
 require "etc"
 
-SOCKET_PATH = ENV.fetch("WGCP_HELPER_SOCKET", "/run/wgcp/helper.sock")
-WG_IF       = ENV.fetch("WGCP_WG_INTERFACE", "wg0")
+SOCKET_PATH = ENV.fetch("NAAF_HELPER_SOCKET", "/run/naaf/helper.sock")
+WG_IF       = ENV.fetch("NAAF_WG_INTERFACE", "wg0")
 WG_CONF     = "/etc/wireguard/#{WG_IF}.conf"
 SOCKET_GID  = begin
-  Etc.getgrnam("wgcp").gid
+  Etc.getgrnam("naaf").gid
 rescue ArgumentError
   nil
 end
@@ -58,14 +58,14 @@ def cmd_apply(req)
 
   # wg syncconf applies only the delta -> existing peer sessions are untouched.
   stripped = run!("wg-quick", "strip", WG_IF)
-  Tempfile.create(["wgcp", ".conf"]) do |f|
+  Tempfile.create(["naaf", ".conf"]) do |f|
     f.write(stripped)
     f.flush
     run!("wg", "syncconf", WG_IF, f.path)
   end
 
-  # The file deletes and recreates table `inet wgcp` in ONE transaction.
-  Tempfile.create(["wgcp", ".nft"]) do |f|
+  # The file deletes and recreates table `inet naaf` in ONE transaction.
+  Tempfile.create(["naaf", ".nft"]) do |f|
     f.write(nft)
     f.flush
     run!("nft", "-c", "-f", f.path)   # check first
@@ -96,7 +96,7 @@ FileUtils.rm_f(SOCKET_PATH)
 server = UNIXServer.new(SOCKET_PATH)
 File.chown(0, SOCKET_GID, SOCKET_PATH) if SOCKET_GID
 File.chmod(0o660, SOCKET_PATH)
-warn "wgcp-helper listening on #{SOCKET_PATH}"
+warn "naaf-helper listening on #{SOCKET_PATH}"
 
 loop do
   conn = server.accept

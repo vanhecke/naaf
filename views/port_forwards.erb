@@ -7,7 +7,7 @@
 <p class="content">
   Inbound DNAT from the public interface to a spoke. A public port is forwarded
   to a client's target port; disabled forwards keep their row but emit no rule.
-  Each change regenerates <code>inet wgcp</code> and applies it atomically.
+  Each change regenerates <code>inet naaf</code> and applies it atomically.
 </p>
 
 <% if @rows.empty? %>

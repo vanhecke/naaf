@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-module WGCP
+module Naaf
   class Zone
     def initialize(db)
       @db = db
@@ -15,7 +15,7 @@ module WGCP
     # apart by the caller. Static dns_records are NOT included here — #reload!
     # overlays them last so they override an auto record of the same name.
     def self.auto_records(db)
-      s = WGCP.settings
+      s = Naaf.settings
       domain = s[:dns_domain]
       recs = []
       recs << {name: domain, rtype: "A", value: s[:server_ip], source: :apex}

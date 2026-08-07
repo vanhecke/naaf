@@ -1,6 +1,6 @@
-# Deploying wgcp to a Debian 13 VPS
+# Deploying Naaf to a Debian 13 VPS
 
-wgcp deploys to **any Debian 13 (trixie) host you can reach as root over SSH** —
+naaf deploys to **any Debian 13 (trixie) host you can reach as root over SSH** —
 there is no provider API in the deployment path. `deploy/provision/` is plain
 Debian + systemd, and `deploy/run-remote.sh` drives it against an IP address.
 
@@ -26,12 +26,12 @@ with Stage 1 as written — skip straight to `run-remote.sh`.
 |---|---|
 | `05-swap` | 2 GB swapfile (guards the Ruby build) |
 | `10-packages` | apt: WireGuard/nftables + Ruby 4.0 build toolchain |
-| `20-system` | `wgcp` user, dirs, IP-forward sysctl, tmpfiles, SSH hardening, static `/etc/nftables.conf` |
+| `20-system` | `naaf` user, dirs, IP-forward sysctl, tmpfiles, SSH hardening, static `/etc/nftables.conf` |
 | `30-ruby` | Ruby 4.0.6 + YJIT via ruby-install → `/opt/rubies/ruby-4.0.6` (slow: 15–30 min on 1 vCPU) |
 | `40-app` | `.env` (generated secret), `bundle install`, install both systemd units |
 | `50-bringup` | helper → `bootstrap.rb` (keys/admin-pw/endpoint host) → app → `wg-quick@wg0` |
 
-Every step logs to `/var/log/wgcp-provision/<step>.log` on the box; Stage-1 runs
+Every step logs to `/var/log/naaf-provision/<step>.log` on the box; Stage-1 runs
 also tee to `deploy/logs/` locally (gitignored).
 
 ## Stage 1 — verify on a vanilla box
@@ -39,7 +39,7 @@ also tee to `deploy/logs/` locally (gitignored).
 ```bash
 IP=<your box's public IP>
 # Optional: a specific key, otherwise your normal ssh config and agent are used.
-export WGCP_SSH_KEY=~/.ssh/id_ed25519
+export NAAF_SSH_KEY=~/.ssh/id_ed25519
 
 # 1. push the repo, then run steps one at a time and read each log
 deploy/run-remote.sh "$IP" sync
@@ -50,18 +50,18 @@ deploy/run-remote.sh "$IP" step 30-ruby        # the long one
 deploy/run-remote.sh "$IP" step 40-app
 
 # 2. bring-up needs the admin password (+ the FQDN clients will dial)
-export WGCP_ADMIN_PASSWORD='choose-a-strong-one'
-export WGCP_ENDPOINT_HOST='vpn.example.com'
+export NAAF_ADMIN_PASSWORD='choose-a-strong-one'
+export NAAF_ENDPOINT_HOST='vpn.example.com'
 deploy/run-remote.sh "$IP" step 50-bringup
 
 # 3. smoke test: admin UI over the SSH forward, then wg/nft state
 ssh -L 8080:127.0.0.1:8080 root@"$IP"          # open http://localhost:8080
-deploy/run-remote.sh "$IP" exec 'wg show wg0; nft list table inet wgcp; ruby -v'
+deploy/run-remote.sh "$IP" exec 'wg show wg0; nft list table inet naaf; ruby -v'
 ```
 
 Fix any failing step and re-run just that step — they are idempotent.
 
-`WGCP_ENDPOINT_HOST` is the hostname baked into every client config. Set it to a
+`NAAF_ENDPOINT_HOST` is the hostname baked into every client config. Set it to a
 name you control and you can migrate to a new box later by repointing DNS, with
 no client reconfiguration. Leave it unset and clients dial the box's public IPv4
 directly, which pins them to that box.
@@ -76,10 +76,10 @@ note below), then hand the provider this user-data script:
 set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update && apt-get install -y git ca-certificates
-git clone --depth 1 --branch main https://github.com/<owner>/<repo>.git /opt/wgcp
-export WGCP_ADMIN_PASSWORD='choose-a-strong-one'
-export WGCP_ENDPOINT_HOST='vpn.example.com'
-bash /opt/wgcp/deploy/provision/provision.sh
+git clone --depth 1 --branch main https://github.com/<owner>/<repo>.git /opt/naaf
+export NAAF_ADMIN_PASSWORD='choose-a-strong-one'
+export NAAF_ENDPOINT_HOST='vpn.example.com'
+bash /opt/naaf/deploy/provision/provision.sh
 ```
 
 Every provider that supports cloud-init accepts a `#!/bin/bash` user-data script,
@@ -90,7 +90,7 @@ Watch it come up, then point DNS at the box:
 
 ```bash
 ssh root@"$IP" 'tail -f /var/log/cloud-init-output.log'
-ssh root@"$IP" 'ls -la /var/log/wgcp-provision/'
+ssh root@"$IP" 'ls -la /var/log/naaf-provision/'
 ```
 
 ### Code delivery (why Stage 2 needs a repo URL)
@@ -106,7 +106,7 @@ provider, so rotate or detach it afterwards.
 
 ```bash
 deploy/run-remote.sh "$IP" sync
-ssh root@"$IP" 'systemctl restart wgcp'   # also restart wgcp-helper if bin/wgcp-helper changed
+ssh root@"$IP" 'systemctl restart naaf'   # also restart naaf-helper if bin/naaf-helper changed
 ```
 
 ## Provider examples

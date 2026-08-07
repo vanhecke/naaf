@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "helper"
-require "wgcp/reconciler"
+require "naaf/reconciler"
 
 # Minimal stand-ins so we can drive the reconciler without a live helper/kernel.
 class FakeHelper
@@ -20,7 +20,7 @@ class FakeZone
   def reload! = self
 end
 
-describe WGCP::Reconciler do
+describe Naaf::Reconciler do
   before { @db = reset_db!(server_privkey: "x", server_pubkey: "y") }
 
   # `wg show wg0 dump`: first line = interface, then per-peer tab-separated:
@@ -31,7 +31,7 @@ describe WGCP::Reconciler do
   end
 
   def reconciler(dump_text)
-    WGCP::Reconciler.new(@db, FakeZone.new, helper: FakeHelper.new(dump_text))
+    Naaf::Reconciler.new(@db, FakeZone.new, helper: FakeHelper.new(dump_text))
   end
 
   it "parses a peer line into endpoint/handshake/rx/tx" do
@@ -56,7 +56,7 @@ describe WGCP::Reconciler do
   it "poll! writes handshake and traffic stats back to the matching client" do
     make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB")
     helper = FakeHelper.new(dump_for("PEERPUB", handshake: 1_700_000_000, rx: 42, tx: 99))
-    r = WGCP::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
     r.poll!
     c = @db[:clients][pubkey: "PEERPUB"]
     expect(c[:rx_bytes]).to be == 42
@@ -68,7 +68,7 @@ describe WGCP::Reconciler do
   it "poll! re-applies when the kernel peer set has drifted from the DB" do
     make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "INDB")
     helper = FakeHelper.new(dump_for("OTHER", handshake: 0)) # DB has INDB, kernel has OTHER
-    r = WGCP::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
     r.poll!
     expect(helper.applies).to be == 1
   end

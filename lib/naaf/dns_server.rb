@@ -3,7 +3,7 @@
 require "resolv"
 require "async/dns"
 
-module WGCP
+module Naaf
   class DNSServer < Async::DNS::Server
     IN = Resolv::DNS::Resource::IN
 

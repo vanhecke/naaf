@@ -1,15 +1,15 @@
 # frozen_string_literal: true
 
 require_relative "helper"
-require "wgcp/zone"
+require "naaf/zone"
 
-describe WGCP::Zone do
+describe Naaf::Zone do
   before do
     @db = reset_db!(server_ip: "10.8.0.1", dns_domain: "vpn")
     make_client(@db, name: "nas", hostname: "nas", wg_ip: "10.8.0.3")
     @db[:dns_records].insert(name: "wiki.vpn", rtype: "A", value: "10.8.0.3", managed: false)
     @db[:dns_records].insert(name: "alias.vpn", rtype: "CNAME", value: "nas.vpn", managed: false)
-    @zone = WGCP::Zone.new(@db)
+    @zone = Naaf::Zone.new(@db)
   end
 
   it "resolves a client fqdn and its bare hostname to the wg ip" do
@@ -36,7 +36,7 @@ describe WGCP::Zone do
   end
 
   it "derives the ordered auto records for clients, gateway and apex" do
-    expect(WGCP::Zone.auto_records(@db)).to be == [
+    expect(Naaf::Zone.auto_records(@db)).to be == [
       {name: "vpn", rtype: "A", value: "10.8.0.1", source: :apex},
       {name: "nas.vpn", rtype: "A", value: "10.8.0.3", source: :client},
       {name: "nas", rtype: "A", value: "10.8.0.3", source: :client_bare},

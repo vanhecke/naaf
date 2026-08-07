@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-module WGCP
+module Naaf
   module Schema
     def self.migrate!(db)
       db.create_table?(:settings) do
@@ -84,7 +84,7 @@ module WGCP
 
     # Idempotent column additions for databases created before a column existed.
     # create_table? only builds missing tables, so a live DB never picks these up
-    # otherwise. Runs on every boot (lib/wgcp/db.rb), so each step must be a
+    # otherwise. Runs on every boot (lib/naaf/db.rb), so each step must be a
     # no-op the second time. Plain ADD COLUMN on SQLite leaves the existing rows,
     # the unique index and the ON DELETE CASCADE intact.
     def self.alter_existing!(db)

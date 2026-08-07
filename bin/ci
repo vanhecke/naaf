@@ -7,11 +7,11 @@ echo "== Standard =="; bundle exec standardrb
 echo "== Tests ==";    bundle exec sus
 
 echo "== nft render check =="
-# Render against a throwaway DB so the check never depends on /var/lib/wgcp.
+# Render against a throwaway DB so the check never depends on /var/lib/naaf.
 tmpdb="$(mktemp -d)/ci.db"
-WGCP_DB="$tmpdb" bundle exec ruby -e '
-  $LOAD_PATH.unshift("lib"); require "wgcp/db"; require "wgcp/renderers/nftables"
-  File.write("/tmp/ci.nft", WGCP::Renderers::Nftables.render(WGCP.db))
+NAAF_DB="$tmpdb" bundle exec ruby -e '
+  $LOAD_PATH.unshift("lib"); require "naaf/db"; require "naaf/renderers/nftables"
+  File.write("/tmp/ci.nft", Naaf::Renderers::Nftables.render(Naaf.db))
 '
 if command -v nft >/dev/null 2>&1; then
   nft -c -f /tmp/ci.nft 2>/dev/null && echo "nft check passed" \

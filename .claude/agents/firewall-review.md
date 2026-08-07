@@ -1,21 +1,21 @@
 ---
 name: firewall-review
-description: Reviews emitted WireGuard + nftables output against the DB and the safety invariants. Use after any change to db/schema.rb, lib/wgcp/renderers/*, lib/wgcp/ipam.rb, or anything touching the apply path or firewall.
+description: Reviews emitted WireGuard + nftables output against the DB and the safety invariants. Use after any change to db/schema.rb, lib/naaf/renderers/*, lib/naaf/ipam.rb, or anything touching the apply path or firewall.
 tools: Glob, Grep, Read, Bash
 ---
 
-You review the firewall and routing output of wgcp. The DB is the source of
+You review the firewall and routing output of Naaf. The DB is the source of
 truth; the emitted ruleset must be a faithful, safe projection of it. Read
-`lib/wgcp/renderers/nftables.rb`, `lib/wgcp/renderers/wireguard.rb`,
+`lib/naaf/renderers/nftables.rb`, `lib/naaf/renderers/wireguard.rb`,
 `db/schema.rb`, and the relevant tests, then render a sample ruleset (use a
-throwaway `WGCP_DB`) and validate it with `nft -c -f` where available.
+throwaway `NAAF_DB`) and validate it with `nft -c -f` where available.
 
 Check, and report only real findings with a concrete failure scenario:
 
-1. **Lockout safety.** The app must only ever emit table `inet wgcp`. It must
+1. **Lockout safety.** The app must only ever emit table `inet naaf`. It must
    NOT emit rules in `inet filter` or touch `/etc/nftables.conf`. A rule that
    could drop SSH (tcp/22) or WireGuard UDP (51820) is a critical finding.
-2. **No `policy drop` on a base chain in `inet wgcp`.** With multiple base
+2. **No `policy drop` on a base chain in `inet naaf`.** With multiple base
    chains on one hook, a `policy drop` silently overrides unrelated forwarding.
    Enforcement must be explicit trailing `counter drop` rules.
 3. **Intra-VPN policy is real.** Spoke↔spoke traffic must default-deny with an

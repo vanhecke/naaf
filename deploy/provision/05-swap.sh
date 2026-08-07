@@ -8,7 +8,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/00-lib.sh"
 require_root
 
-SIZE_GB="${WGCP_SWAP_GB:-2}"
+SIZE_GB="${NAAF_SWAP_GB:-2}"
 
 if [ "$(swapon --show --noheadings | wc -l)" -gt 0 ]; then
   log "swap already active — skipping"

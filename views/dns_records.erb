@@ -32,7 +32,7 @@
   </thead>
   <tbody>
     <% @auto_rows.each do |row| %>
-      <% overridden = @shadowed.include?(WGCP::Zone.normalize(row[:name])) %>
+      <% overridden = @shadowed.include?(Naaf::Zone.normalize(row[:name])) %>
       <tr>
         <td><code><%= row[:name] %></code></td>
         <td><span class="tag"><%= row[:rtype] %></span></td>

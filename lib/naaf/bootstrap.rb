@@ -3,25 +3,25 @@
 require "bcrypt"
 require_relative "db"
 
-module WGCP
+module Naaf
   # First-boot provisioning helpers, split out of bin/bootstrap.rb so the
   # environment-driven paths (unattended cloud-init) are testable without a live
   # helper socket or network. The script gathers side-effectful inputs (helper
   # genkeys, curl/ip detection, the password prompt) and hands them here.
   module Bootstrap
-    # The admin password: prefer WGCP_ADMIN_PASSWORD (unattended provisioning),
+    # The admin password: prefer NAAF_ADMIN_PASSWORD (unattended provisioning),
     # otherwise fall back to the interactive prompt block.
     def self.admin_password(prompt: nil)
-      env = ENV["WGCP_ADMIN_PASSWORD"].to_s
+      env = ENV["NAAF_ADMIN_PASSWORD"].to_s
       return env.strip unless env.strip.empty?
-      raise "WGCP_ADMIN_PASSWORD is unset and no interactive prompt is available" unless prompt
+      raise "NAAF_ADMIN_PASSWORD is unset and no interactive prompt is available" unless prompt
       prompt.call.to_s.strip
     end
 
-    # The client-config Endpoint host from WGCP_ENDPOINT_HOST, or nil to leave the
+    # The client-config Endpoint host from NAAF_ENDPOINT_HOST, or nil to leave the
     # stored value untouched (raw-IP endpoint).
     def self.endpoint_host
-      h = ENV["WGCP_ENDPOINT_HOST"].to_s.strip
+      h = ENV["NAAF_ENDPOINT_HOST"].to_s.strip
       h.empty? ? nil : h
     end
 

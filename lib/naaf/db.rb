@@ -3,10 +3,10 @@
 require "sequel"
 require_relative "../../db/schema"
 
-module WGCP
+module Naaf
   def self.db
     @db ||= begin
-      path = ENV.fetch("WGCP_DB", "/var/lib/wgcp/wgcp.db")
+      path = ENV.fetch("NAAF_DB", "/var/lib/naaf/naaf.db")
       db = Sequel.connect("sqlite://#{path}")
       db.run "PRAGMA journal_mode = WAL"
       db.run "PRAGMA foreign_keys = ON"

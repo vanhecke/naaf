@@ -3,11 +3,11 @@
 require "json"
 require "socket"
 
-module WGCP
+module Naaf
   class HelperClient
     class Error < StandardError; end
 
-    def initialize(path = ENV.fetch("WGCP_HELPER_SOCKET", "/run/wgcp/helper.sock"))
+    def initialize(path = ENV.fetch("NAAF_HELPER_SOCKET", "/run/naaf/helper.sock"))
       @path = path
       @mutex = Mutex.new
     end

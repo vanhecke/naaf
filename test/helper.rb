@@ -1,24 +1,24 @@
 # frozen_string_literal: true
 
 # Shared test setup. Required (idempotently) at the top of every test file.
-# The renderers, IPAM, Zone and ConfigBuilder all read WGCP.settings from the
-# memoized WGCP.db singleton, so tests share one SQLite file and reset it
+# The renderers, IPAM, Zone and ConfigBuilder all read Naaf.settings from the
+# memoized Naaf.db singleton, so tests share one SQLite file and reset it
 # between examples. sus runs sequentially in one process, so this is race-free.
 
 require "securerandom"
 require "tmpdir"
 require "console"
 
-ENV["WGCP_SESSION_SECRET"] ||= SecureRandom.hex(32)
-ENV["WGCP_DB"] ||= File.join(Dir.mktmpdir("wgcp-test-"), "test.db")
+ENV["NAAF_SESSION_SECRET"] ||= SecureRandom.hex(32)
+ENV["NAAF_DB"] ||= File.join(Dir.mktmpdir("naaf-test-"), "test.db")
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
-require "wgcp/db"
+require "naaf/db"
 
 # Wipe every table, insert a fresh default settings row, then apply overrides.
-# Returns the shared WGCP.db handle.
+# Returns the shared Naaf.db handle.
 def reset_db!(**settings)
-  db = WGCP.db
+  db = Naaf.db
   [:extra_routes, :dns_records, :port_forwards, :exposed_ports, :clients, :settings].each do |t|
     db[t].delete
   end

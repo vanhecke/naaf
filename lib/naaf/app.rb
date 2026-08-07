@@ -12,7 +12,7 @@ require_relative "reconciler"
 require_relative "config_builder"
 require_relative "zone"
 
-module WGCP
+module Naaf
   class App < Roda
     class << self; attr_accessor :reconciler; end
 
@@ -24,8 +24,8 @@ module WGCP
     # replayed cookie cannot outlive it.
     SESSION_SECONDS = 7 * 24 * 60 * 60
     plugin :sessions,
-      secret: ENV.fetch("WGCP_SESSION_SECRET"),
-      key: "wgcp.session",
+      secret: ENV.fetch("NAAF_SESSION_SECRET"),
+      key: "naaf.session",
       max_seconds: SESSION_SECONDS,
       cookie_options: {max_age: SESSION_SECONDS}
     plugin :flash
@@ -76,7 +76,7 @@ module WGCP
 
     def param_client_id(raw)
       id = Integer(raw.to_s, exception: false)
-      unless id && WGCP.db[:clients].where(id: id).count == 1
+      unless id && Naaf.db[:clients].where(id: id).count == 1
         raise ValidationError, "Select a client."
       end
       id
@@ -114,7 +114,7 @@ module WGCP
     # UI listing two entries that no longer describe the ruleset. Reject up front
     # so what the table shows is what the kernel enforces.
     def assert_no_overlap!(client_id, proto, first, last)
-      clash = WGCP.db[:exposed_ports]
+      clash = Naaf.db[:exposed_ports]
         .where(client_id: client_id, proto: proto)
         .where { (port <= last) & (Sequel.function(:coalesce, :port_end, :port) >= first) }
         .first
@@ -239,7 +239,7 @@ module WGCP
         end
         r.post do
           check_csrf!
-          hash = WGCP.settings[:admin_pw_hash]
+          hash = Naaf.settings[:admin_pw_hash]
           if hash && BCrypt::Password.new(hash) == r.params["password"].to_s
             session["admin"] = true
             r.redirect safe_return_to
@@ -263,8 +263,8 @@ module WGCP
       check_csrf! unless r.get?
 
       r.root do
-        @clients = WGCP.db[:clients].order(:wg_ip).all
-        @settings = WGCP.settings
+        @clients = Naaf.db[:clients].order(:wg_ip).all
+        @settings = Naaf.settings
         view("dashboard")
       end
 
@@ -275,10 +275,10 @@ module WGCP
           supplied = r.params["pubkey"].to_s.strip
           pubkey = supplied.empty? ? keys[:public_key] : supplied
 
-          id = WGCP.db[:clients].insert(
+          id = Naaf.db[:clients].insert(
             name: r.params["name"],
             hostname: hostname,
-            wg_ip: IPAM.allocate(WGCP.db),
+            wg_ip: IPAM.allocate(Naaf.db),
             pubkey: pubkey,
             psk: keys[:preshared_key],
             created_at: Time.now
@@ -298,22 +298,22 @@ module WGCP
         end
 
         r.on Integer do |id|
-          client = WGCP.db[:clients][id: id] || r.halt(404)
+          client = Naaf.db[:clients][id: id] || r.halt(404)
 
           r.post("delete") do
-            WGCP.db[:clients].where(id: id).delete
+            Naaf.db[:clients].where(id: id).delete
             reconciler.apply!
             r.redirect "/"
           end
 
           r.post("toggle") do
-            WGCP.db[:clients].where(id: id).update(enabled: !client[:enabled])
+            Naaf.db[:clients].where(id: id).update(enabled: !client[:enabled])
             reconciler.apply!
             r.redirect "/"
           end
 
           r.get "config", String do |flavor|
-            conf = ConfigBuilder.new(WGCP.db, client)
+            conf = ConfigBuilder.new(Naaf.db, client)
               .render(flavor, private_key: take_oneshot_privkey(id))
             response["Content-Type"] = "text/plain"
             response["Content-Disposition"] =
@@ -322,7 +322,7 @@ module WGCP
           end
 
           r.get "qr", String do |flavor|
-            conf = ConfigBuilder.new(WGCP.db, client)
+            conf = ConfigBuilder.new(Naaf.db, client)
               .render(flavor, private_key: peek_oneshot_privkey(id))
             response["Content-Type"] = "image/svg+xml"
             RQRCode::QRCode.new(conf, level: :l).as_svg(use_path: true, viewbox: true)
@@ -332,8 +332,8 @@ module WGCP
 
       r.on "exposed-ports" do
         r.get true do
-          @clients = WGCP.db[:clients].order(:name).all
-          @rows = WGCP.db[:exposed_ports].order(:client_id, :port).all
+          @clients = Naaf.db[:clients].order(:name).all
+          @rows = Naaf.db[:exposed_ports].order(:client_id, :port).all
           view("exposed_ports")
         end
 
@@ -343,7 +343,7 @@ module WGCP
             proto = param_proto(r.params["proto"])
             first, last = param_port_range(r.params["port"])
             assert_no_overlap!(client_id, proto, first, last)
-            WGCP.db[:exposed_ports].insert(
+            Naaf.db[:exposed_ports].insert(
               client_id: client_id,
               proto: proto,
               port: first,
@@ -355,21 +355,21 @@ module WGCP
 
         r.on Integer do |id|
           r.post "delete" do
-            submit("/exposed-ports") { WGCP.db[:exposed_ports].where(id: id).delete }
+            submit("/exposed-ports") { Naaf.db[:exposed_ports].where(id: id).delete }
           end
         end
       end
 
       r.on "port-forwards" do
         r.get true do
-          @clients = WGCP.db[:clients].order(:name).all
-          @rows = WGCP.db[:port_forwards].order(:public_port).all
+          @clients = Naaf.db[:clients].order(:name).all
+          @rows = Naaf.db[:port_forwards].order(:public_port).all
           view("port_forwards")
         end
 
         r.post true do
           submit("/port-forwards") do
-            WGCP.db[:port_forwards].insert(
+            Naaf.db[:port_forwards].insert(
               client_id: param_client_id(r.params["client_id"]),
               proto: param_proto(r.params["proto"]),
               public_port: param_port(r.params["public_port"]),
@@ -381,31 +381,31 @@ module WGCP
         r.on Integer do |id|
           r.post "toggle" do
             submit("/port-forwards") do
-              row = WGCP.db[:port_forwards][id: id] || r.halt(404)
-              WGCP.db[:port_forwards].where(id: id).update(enabled: !row[:enabled])
+              row = Naaf.db[:port_forwards][id: id] || r.halt(404)
+              Naaf.db[:port_forwards].where(id: id).update(enabled: !row[:enabled])
             end
           end
 
           r.post "delete" do
-            submit("/port-forwards") { WGCP.db[:port_forwards].where(id: id).delete }
+            submit("/port-forwards") { Naaf.db[:port_forwards].where(id: id).delete }
           end
         end
       end
 
       r.on "dns-records" do
         r.get true do
-          @rows = WGCP.db[:dns_records].order(:name, :value).all
-          @auto_rows = WGCP::Zone.auto_records(WGCP.db)
+          @rows = Naaf.db[:dns_records].order(:name, :value).all
+          @auto_rows = Naaf::Zone.auto_records(Naaf.db)
             .select { |rec| rec[:rtype] == "A" && rec[:source] != :client_bare }
           @shadowed = @rows.select { |r| r[:rtype] == "A" }
-            .map { |r| WGCP::Zone.normalize(r[:name]) }.to_set
-          @settings = WGCP.settings
+            .map { |r| Naaf::Zone.normalize(r[:name]) }.to_set
+          @settings = Naaf.settings
           view("dns_records")
         end
 
         r.post true do
           submit("/dns-records") do
-            WGCP.db[:dns_records].insert(
+            Naaf.db[:dns_records].insert(
               name: param_name(r.params["name"]),
               rtype: "A",
               value: param_ipv4(r.params["value"]),
@@ -417,21 +417,21 @@ module WGCP
 
         r.on Integer do |id|
           r.post "delete" do
-            submit("/dns-records") { WGCP.db[:dns_records].where(id: id).delete }
+            submit("/dns-records") { Naaf.db[:dns_records].where(id: id).delete }
           end
         end
       end
 
       r.on "extra-routes" do
         r.get true do
-          @clients = WGCP.db[:clients].order(:name).all
-          @rows = WGCP.db[:extra_routes].order(:client_id).all
+          @clients = Naaf.db[:clients].order(:name).all
+          @rows = Naaf.db[:extra_routes].order(:client_id).all
           view("extra_routes")
         end
 
         r.post true do
           submit("/extra-routes") do
-            WGCP.db[:extra_routes].insert(
+            Naaf.db[:extra_routes].insert(
               client_id: optional_client(r.params["client_id"]),
               cidr: param_cidr(r.params["cidr"])
             )
@@ -440,14 +440,14 @@ module WGCP
 
         r.on Integer do |id|
           r.post "delete" do
-            submit("/extra-routes") { WGCP.db[:extra_routes].where(id: id).delete }
+            submit("/extra-routes") { Naaf.db[:extra_routes].where(id: id).delete }
           end
         end
       end
 
       r.on "settings" do
         r.get true do
-          @settings = WGCP.settings
+          @settings = Naaf.settings
           view("settings")
         end
 
@@ -457,7 +457,7 @@ module WGCP
           if pw.length < 8
             flash["error"] = "Password must be at least 8 characters."
           else
-            WGCP.db[:settings].update(admin_pw_hash: BCrypt::Password.create(pw))
+            Naaf.db[:settings].update(admin_pw_hash: BCrypt::Password.create(pw))
             flash["notice"] = "Admin password updated."
           end
           r.redirect "/settings"
@@ -468,7 +468,7 @@ module WGCP
         # config (AGENTS.md "Ask first"), so they stay read-only in the UI.
         r.post true do
           submit("/settings") do
-            WGCP.db[:settings].update(
+            Naaf.db[:settings].update(
               endpoint_host: param_host(r.params["endpoint_host"]),
               endpoint_v4: param_ipv4(r.params["endpoint_v4"]),
               endpoint_v6: param_ipv6(r.params["endpoint_v6"]),

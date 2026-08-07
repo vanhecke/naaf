@@ -2,10 +2,10 @@
 
 require "ipaddr"
 
-module WGCP
+module Naaf
   module IPAM
     def self.allocate(db)
-      s = WGCP.settings
+      s = Naaf.settings
       net = IPAddr.new(s[:wg_subnet])
       taken = db[:clients].select_map(:wg_ip).to_set
       taken << s[:server_ip]

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Point the wgcp endpoint FQDN at a box: upsert an A record (and AAAA if an IPv6
+# Point the naaf endpoint FQDN at a box: upsert an A record (and AAAA if an IPv6
 # is given) in the DNSimple zone. Idempotent — updates the record if it exists,
 # creates it otherwise. Uses your active `dnsimple` auth context; never handles
 # tokens directly.
 #
 #   dns/update-record.sh <ipv4> [ipv6]
-# Env: WGCP_DNS_ZONE (required, e.g. example.com), WGCP_DNS_NAME (required, the
-#      record name within the zone, e.g. vpn), WGCP_DNS_TTL (default 300).
+# Env: NAAF_DNS_ZONE (required, e.g. example.com), NAAF_DNS_NAME (required, the
+#      record name within the zone, e.g. vpn), NAAF_DNS_TTL (default 300).
 # Zone and name have no defaults on purpose — a wrong guess would rewrite a live
 # record in whichever zone the default named.
 set -euo pipefail
-ZONE="${WGCP_DNS_ZONE:?set WGCP_DNS_ZONE, e.g. example.com}"
-NAME="${WGCP_DNS_NAME:?set WGCP_DNS_NAME, e.g. vpn (yields vpn.example.com)}"
-TTL="${WGCP_DNS_TTL:-300}"
+ZONE="${NAAF_DNS_ZONE:?set NAAF_DNS_ZONE, e.g. example.com}"
+NAME="${NAAF_DNS_NAME:?set NAAF_DNS_NAME, e.g. vpn (yields vpn.example.com)}"
+TTL="${NAAF_DNS_TTL:-300}"
 IPV4="${1:?usage: update-record.sh <ipv4> [ipv6]}"
 IPV6="${2:-}"
 
