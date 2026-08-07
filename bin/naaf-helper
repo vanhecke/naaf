@@ -9,12 +9,18 @@ require "socket"
 require "tempfile"
 require "fileutils"
 require "etc"
+# Stdlib-only and require-free by design — see the comment at the top of that
+# file. Loaded by an exact relative path, never via $LOAD_PATH, so nothing on the
+# load path can shadow it inside a root process. This is what stops the socket
+# path and the interface name being defaulted independently on the two sides of
+# the socket, which is a silent way for the app and the helper to disagree.
+require_relative "../lib/naaf/config"
 
-SOCKET_PATH = ENV.fetch("NAAF_HELPER_SOCKET", "/run/naaf/helper.sock")
-WG_IF       = ENV.fetch("NAAF_WG_INTERFACE", "wg0")
-WG_CONF     = "/etc/wireguard/#{WG_IF}.conf"
+SOCKET_PATH = Naaf::Config["NAAF_HELPER_SOCKET"]
+WG_IF       = Naaf::Config["NAAF_WG_INTERFACE"]
+WG_CONF     = File.join(Naaf::Config["NAAF_WG_CONF_DIR"], "#{WG_IF}.conf")
 SOCKET_GID  = begin
-  Etc.getgrnam("naaf").gid
+  Etc.getgrnam(Naaf::Config["NAAF_GROUP"]).gid
 rescue ArgumentError
   nil
 end

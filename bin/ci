@@ -6,16 +6,41 @@ echo "== Standard =="; bundle exec standardrb
 
 echo "== Tests ==";    bundle exec sus
 
+echo "== naaf.conf.example =="
+# naaf.conf is read three ways: systemd EnvironmentFile=, `set -a; . file`, and
+# lib/naaf/config.rb. test/config_test.rb pins the systemd grammar and the key
+# parity with Config::DEFAULTS; this proves the shell half, which has no other
+# cheap check. The subshell keeps the sourced variables out of this script.
+( set -a; . ./naaf.conf.example; set +a ) && echo "sourceable by /bin/sh"
+
+# bin/naaf-helper runs as root and loads lib/naaf/config.rb via require_relative.
+# Keeping that file require-free is what stops the privileged process growing a
+# gem surface, so enforce it here rather than trusting a comment.
+if grep -nE '^[[:space:]]*require' lib/naaf/config.rb; then
+  echo "lib/naaf/config.rb must stay require-free — bin/naaf-helper loads it as root" >&2
+  exit 1
+fi
+echo "config.rb is require-free"
+
 echo "== nft render check =="
-# Render against a throwaway DB so the check never depends on /var/lib/naaf.
-tmpdb="$(mktemp -d)/ci.db"
-NAAF_DB="$tmpdb" bundle exec ruby -e '
+# Render against a throwaway DB so the check never depends on /var/lib/naaf, and
+# keep the output in the same temp dir so concurrent runs cannot collide.
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+NAAF_DB="$tmpdir/ci.db" NAAF_CONF=/dev/null CI_NFT="$tmpdir/ci.nft" bundle exec ruby -e '
   $LOAD_PATH.unshift("lib"); require "naaf/db"; require "naaf/renderers/nftables"
-  File.write("/tmp/ci.nft", Naaf::Renderers::Nftables.render(Naaf.db))
+  File.write(ENV.fetch("CI_NFT"), Naaf::Renderers::Nftables.render(Naaf.db))
 '
 if command -v nft >/dev/null 2>&1; then
-  nft -c -f /tmp/ci.nft 2>/dev/null && echo "nft check passed" \
+  nft -c -f "$tmpdir/ci.nft" 2>/dev/null && echo "nft check passed" \
     || echo "(nft check skipped — needs root/nftables)"
+
+  # The base firewall ships as a template now, rendered at provisioning time.
+  # A syntax error there locks you out of the box, so check it here too.
+  sed -e 's#__NAAF_LISTEN_PORT__#51820#g' -e 's#__NAAF_WG_INTERFACE__#wg0#g' \
+    deploy/nftables.conf.template >"$tmpdir/base.nft"
+  nft -c -f "$tmpdir/base.nft" 2>/dev/null && echo "base firewall template check passed" \
+    || echo "(base firewall template check skipped — needs root/nftables)"
 else
-  echo "(nft check skipped — nft not installed on this host)"
+  echo "(nft checks skipped — nft not installed on this host)"
 fi

@@ -1,18 +1,19 @@
-# Install as /etc/systemd/system/naaf.service
+# Install as /etc/systemd/system/naaf.service.
+# The __PLACEHOLDERS__ are substituted from naaf.conf by deploy/provision/40-app.sh.
 [Unit]
-Description=naaf control plane (web + dns + reconciler)
-After=naaf-helper.service wg-quick@wg0.service
+Description=Naaf control plane (web + dns + reconciler)
+After=naaf-helper.service wg-quick@__NAAF_WG_INTERFACE__.service
 Requires=naaf-helper.service
 
 [Service]
 Type=simple
-User=naaf
-Group=naaf
-WorkingDirectory=/opt/naaf
-EnvironmentFile=/opt/naaf/.env
-Environment=BUNDLE_GEMFILE=/opt/naaf/Gemfile
+User=__NAAF_USER__
+Group=__NAAF_GROUP__
+WorkingDirectory=__NAAF_APP_DIR__
+EnvironmentFile=/etc/naaf/naaf.conf
+Environment=BUNDLE_GEMFILE=__NAAF_APP_DIR__/Gemfile
 Environment=RUBY_YJIT_ENABLE=1
-ExecStart=/opt/rubies/ruby-4.0.6/bin/ruby /opt/naaf/bin/naaf
+ExecStart=__NAAF_RUBY_BIN__ __NAAF_APP_DIR__/bin/naaf
 Restart=on-failure
 RestartSec=2
 
@@ -23,7 +24,10 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/var/lib/naaf
+# Exactly one writable directory: the database, its WAL, and the backup
+# snapshots all live under here. Keep it that way — do not widen this to put
+# backups elsewhere. Use a Litestream replica instead (docs/BACKUP.md).
+ReadWritePaths=__NAAF_STATE_DIR__
 
 [Install]
 WantedBy=multi-user.target

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "bcrypt"
+require_relative "config"
 require_relative "db"
 
 module Naaf
@@ -21,8 +22,24 @@ module Naaf
     # The client-config Endpoint host from NAAF_ENDPOINT_HOST, or nil to leave the
     # stored value untouched (raw-IP endpoint).
     def self.endpoint_host
-      h = ENV["NAAF_ENDPOINT_HOST"].to_s.strip
+      h = Config["NAAF_ENDPOINT_HOST"].to_s.strip
       h.empty? ? nil : h
+    end
+
+    # Seed the settings row from naaf.conf. First boot only — the caller guards on
+    # server_pubkey being unset, and after that the database is authoritative and
+    # the admin UI is what edits these. Columns are written only when the config
+    # value differs from Config::DEFAULTS, so an operator who never touched
+    # naaf.conf gets exactly the schema defaults and there is no second source of
+    # truth for them.
+    def self.seed_settings!(db)
+      row = Config::SEEDS.filter_map { |col, key|
+        v = Config[key]
+        next if v.nil? || v.to_s.empty? || v == Config::DEFAULTS.fetch(key)
+        [col, (col == :listen_port || col == :mtu) ? Integer(v, 10) : v]
+      }.to_h
+      db[:settings].update(row) unless row.empty?
+      row
     end
 
     # Persist the server identity, admin credential, and detected network facts.

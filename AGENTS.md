@@ -46,7 +46,17 @@
 - Run `bundle exec standardrb --fix` before declaring a task done.
 
 ## Secrets / env
-- Secrets live in a gitignored `.env` (template `.env.example`, mode 0600).
+- ONE config file: `naaf.conf` (template `naaf.conf.example`, gitignored),
+  installed to `/etc/naaf/naaf.conf` mode 0640 root:naaf. Plain `KEY=value` — the
+  grammar is the intersection of systemd `EnvironmentFile=`, `set -a; . file`,
+  and `lib/naaf/config.rb`, so no `export` and no `$VAR`. `bin/ci` enforces it.
+- `lib/naaf/config.rb` is the single source of every default and MUST stay
+  require-free: `bin/naaf-helper` loads it as root via `require_relative`.
+- The config file only SEEDS the `settings` table on first boot. After that the
+  DB is authoritative; `Config.drift` warns at boot when the two disagree.
+- Object-store credentials never go in `naaf.conf` — it is `EnvironmentFile=` for
+  the web app, so everything in it lands in that process's environment. They go
+  in `/etc/naaf/litestream.env`.
 - The WireGuard server private key lives in the `settings` table. Never log it,
   never render it into a view, never put it in an error message.
 - Client keys are generated server-side by the helper, rendered ONCE into the
@@ -102,7 +112,13 @@
 - NEVER run the web app as root or grant it CAP_NET_ADMIN.
 - NEVER use `wg-quick down/up` to apply a peer change — it drops every session.
 - NEVER write nftables rules outside table `inet naaf`, and never modify
-  /etc/nftables.conf from application code. That file is what keeps SSH alive.
+  /etc/nftables.conf from APPLICATION code. That file is what keeps SSH alive.
+  Deliberate, reviewed exception: `deploy/provision/20-system.sh` renders it once
+  at provisioning time from `deploy/nftables.conf.template`, substituting
+  `NAAF_LISTEN_PORT` and `NAAF_WG_INTERFACE`, and runs `nft -c -f` on the
+  RENDERED file before installing it. That is provisioning, not the app, and it
+  is what makes naaf.conf the single authority for the WireGuard port instead of
+  it being written down in four places. Do not "fix" this back to a static file.
 - NEVER set `policy drop` on a base chain in `inet naaf` — other base chains on
   the same hook would be silently overridden.
 - NEVER disable net.ipv4.ip_forward.

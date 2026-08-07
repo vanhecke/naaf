@@ -6,6 +6,7 @@ require "bcrypt"
 require "rqrcode"
 require "ipaddr"
 require "console" # error_handler and structured logging reference Console directly
+require_relative "config"
 require_relative "db"
 require_relative "ipam"
 require_relative "reconciler"
@@ -22,10 +23,10 @@ module Naaf
     # browser-session cookie that dies when the browser quits. max_age keeps the
     # login for a week; max_seconds enforces the same ceiling server-side so a
     # replayed cookie cannot outlive it.
-    SESSION_SECONDS = 7 * 24 * 60 * 60
+    SESSION_SECONDS = Config.int("NAAF_SESSION_DAYS") * 24 * 60 * 60
     plugin :sessions,
-      secret: ENV.fetch("NAAF_SESSION_SECRET"),
-      key: "naaf.session",
+      secret: Config.fetch!("NAAF_SESSION_SECRET"),
+      key: Config["NAAF_SESSION_COOKIE"],
       max_seconds: SESSION_SECONDS,
       cookie_options: {max_age: SESSION_SECONDS}
     plugin :flash

@@ -72,13 +72,31 @@ Requires **Ruby 4.0.6** (via ruby-install + chruby) and Bundler.
 
 ```bash
 bundle install
-cp .env.example .env && chmod 600 .env
+cp naaf.conf.example naaf.conf && chmod 600 naaf.conf
 ruby -rsecurerandom -e 'puts SecureRandom.hex(64)'   # paste into NAAF_SESSION_SECRET
 
 bundle exec sus            # tests
 bundle exec standardrb     # lint (or --fix)
-bin/ci                     # full gate: standardrb + sus + nft render check
+bin/ci                     # full gate: standardrb + sus + config lint + nft render check
 ```
+
+## Configuration
+
+One file. `naaf.conf.example` documents every key; copy it to `naaf.conf`, edit,
+and deploy installs it to `/etc/naaf/naaf.conf`. It is plain `KEY=value` with no
+`export` and no expansion, because it is read three ways: as systemd's
+`EnvironmentFile=` for both units, sourced by the provisioning scripts, and
+parsed by `lib/naaf/config.rb`, which holds every default in one place.
+
+Values resolve environment → file → default. The keys that mirror a `settings`
+column (subnet, ports, DNS, MTU, endpoint host) **seed the database on first boot
+only** — after that the database is authoritative and the admin UI edits it, and
+Naaf logs a warning at boot if the two have drifted apart.
+
+Two things deliberately never go in the file: the admin password, which is read
+once at bootstrap and bcrypt-hashed into the database, and object-store
+credentials for Litestream, which would otherwise land in the web application's
+environment (see `docs/BACKUP.md`).
 
 The renderers, IPAM, Zone, ConfigBuilder, and bootstrap helpers are pure/DB-only and
 are tested directly without root or a live kernel. Running the full server (`bin/naaf`)

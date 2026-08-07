@@ -1,6 +1,8 @@
+# The one config file: holds the session secret and, on a workstation, provider
+# credentials. Only the example is committed.
+/naaf.conf
 .env
 .env.*
-!.env.example
 *.db
 *.db-shm
 *.db-wal

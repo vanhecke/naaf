@@ -2,12 +2,13 @@
 
 require "json"
 require "socket"
+require_relative "config"
 
 module Naaf
   class HelperClient
     class Error < StandardError; end
 
-    def initialize(path = ENV.fetch("NAAF_HELPER_SOCKET", "/run/naaf/helper.sock"))
+    def initialize(path = Config["NAAF_HELPER_SOCKET"])
       @path = path
       @mutex = Mutex.new
     end

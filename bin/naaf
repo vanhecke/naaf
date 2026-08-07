@@ -8,6 +8,7 @@ require "async/http/endpoint" # NOTE: not autoloaded by `require "falcon"` (veri
 require "rack/builder"
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
+require "naaf/config"
 require "naaf/db"
 require "naaf/zone"
 require "naaf/dns_server"
@@ -20,11 +21,22 @@ zone     = Naaf::Zone.new(db)
 recon    = Naaf::Reconciler.new(db, zone)
 Naaf::App.reconciler = recon
 
+# naaf.conf only seeds the settings table on first boot; the DB is authoritative
+# afterwards. Surface a disagreement rather than letting it stay silent — a
+# half-finished interface rename otherwise renders nft rules for one interface
+# while wg syncconf targets another.
+Naaf::Config.drift(settings).each do |d|
+  Console.warn("naaf", "naaf.conf disagrees with the settings table; the DB wins at runtime",
+    key: d[:key], conf: d[:conf], db: d[:db])
+end
+
+WEB_PORT = Naaf::Config.int("NAAF_WEB_PORT")
+
 # Two binds, never 0.0.0.0. The loopback bind exists so first-run setup works
 # over `ssh -L 8080:127.0.0.1:8080 <vps>` before any tunnel exists.
 WEB_BINDS = [
-  "http://#{settings[:server_ip]}:8080",
-  "http://127.0.0.1:8080"
+  "http://#{settings[:server_ip]}:#{WEB_PORT}",
+  "http://127.0.0.1:#{WEB_PORT}"
 ].uniq
 
 Async do |task|
@@ -39,11 +51,15 @@ Async do |task|
   end
 
   task.async do
-    endpoint = Async::DNS::Endpoint.for(settings[:server_ip], port: 53)
-    Console.info("naaf", "DNS listening", on: "#{settings[:server_ip]}:53")
+    dns_port = Naaf::Config.int("NAAF_DNS_PORT")
+    endpoint = Async::DNS::Endpoint.for(settings[:server_ip], port: dns_port)
+    Console.info("naaf", "DNS listening", on: "#{settings[:server_ip]}:#{dns_port}")
     Naaf::DNSServer.new(
       zone: zone,
-      upstream: settings[:dns_upstream],
+      # A callable, not a value: Zone#reload! refreshes it on every apply!, so
+      # editing the upstream in the Settings UI takes effect on the next query
+      # rather than the next restart.
+      upstream: -> { zone.upstream },
       endpoint: endpoint
     ).run
   end
@@ -70,8 +86,9 @@ Async do |task|
   end
 
   task.async do
+    interval = Naaf::Config.int("NAAF_RECONCILE_INTERVAL")
     loop do
-      sleep 30
+      sleep interval
       begin
         recon.poll!
       rescue => e

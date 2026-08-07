@@ -9,8 +9,13 @@ require "securerandom"
 require "tmpdir"
 require "console"
 
+# Hermetic on purpose. NAAF_DB is forced, never ||=: now that naaf.conf is
+# shell-sourceable it is easy to have NAAF_DB exported in a working shell, and
+# reset_db! DELETEs every row of whatever it points at.
+ENV["NAAF_CONF"] = File::NULL # readable, parses to {} — also exercises the no-file path
+ENV["NAAF_DB"] = File.join(Dir.mktmpdir("naaf-test-"), "test.db")
+ENV["NAAF_BACKUP_ENABLED"] = "0"
 ENV["NAAF_SESSION_SECRET"] ||= SecureRandom.hex(32)
-ENV["NAAF_DB"] ||= File.join(Dir.mktmpdir("naaf-test-"), "test.db")
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 require "naaf/db"

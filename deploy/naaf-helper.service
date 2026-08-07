@@ -1,18 +1,24 @@
-# Install as /etc/systemd/system/naaf-helper.service
+# Install as /etc/systemd/system/naaf-helper.service.
+# The __PLACEHOLDERS__ are substituted from naaf.conf by deploy/provision/40-app.sh.
 [Unit]
-Description=naaf privileged helper
+Description=Naaf privileged helper
 After=network-online.target
 Before=naaf.service
 
 [Service]
 Type=simple
 User=root
-# Group=naaf so RuntimeDirectory creates /run/naaf as root:naaf — otherwise it is
-# root:root 0750 and the unprivileged naaf app cannot traverse it to the socket.
-Group=naaf
-WorkingDirectory=/opt/naaf
-Environment=BUNDLE_GEMFILE=/opt/naaf/Gemfile
-ExecStart=/opt/rubies/ruby-4.0.6/bin/ruby /opt/naaf/bin/naaf-helper
+# Group=__NAAF_GROUP__ so RuntimeDirectory creates the run dir as root:naaf —
+# otherwise it is root:root 0750 and the unprivileged naaf app cannot traverse it
+# to the socket.
+Group=__NAAF_GROUP__
+WorkingDirectory=__NAAF_APP_DIR__
+# The same file the app reads. Without it the helper would fall back to its
+# compiled-in defaults and could disagree with the app about the socket path or
+# the WireGuard interface — silently, and only under a non-default config.
+EnvironmentFile=-/etc/naaf/naaf.conf
+Environment=BUNDLE_GEMFILE=__NAAF_APP_DIR__/Gemfile
+ExecStart=__NAAF_RUBY_BIN__ __NAAF_APP_DIR__/bin/naaf-helper
 Restart=on-failure
 RestartSec=2
 RuntimeDirectory=naaf

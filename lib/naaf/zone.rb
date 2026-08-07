@@ -2,6 +2,13 @@
 
 module Naaf
   class Zone
+    # The DNS upstream is carried here rather than read per query. Every settings
+    # save goes submit -> Reconciler#apply! -> Zone#reload!, so this is already
+    # the exact invalidation point, and the resolver gets the new value without a
+    # blocking SELECT on the passthrough path (the hot path for a full-tunnel
+    # client).
+    attr_reader :upstream
+
     def initialize(db)
       @db = db
       reload!
@@ -48,6 +55,7 @@ module Naaf
       @db[:dns_records].each { |r| a[r[:name]] = r[:value] if r[:rtype] == "A" }
       @a = a
       @ptr = ptr
+      @upstream = Naaf.settings[:dns_upstream]
       self
     end
 

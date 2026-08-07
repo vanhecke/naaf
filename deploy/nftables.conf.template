@@ -1,0 +1,36 @@
+#!/usr/sbin/nft -f
+# Static base firewall. Rendered from this template by
+# deploy/provision/20-system.sh (which substitutes the __PLACEHOLDERS__ from
+# naaf.conf) and installed as /etc/nftables.conf.
+#
+# The Naaf *application* MUST NOT modify /etc/nftables.conf or this table.
+# Application rules live in table `inet naaf` (forward + nat only). This file is
+# what keeps SSH alive; rendering it at provisioning time is the only reason the
+# WireGuard port can be configured in one place instead of four.
+#
+# To change it on a live box: edit naaf.conf, re-run 20-system.sh.
+#   nft -c -f /etc/nftables.conf && systemctl reload nftables
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority filter; policy drop;
+
+    ct state established,related accept
+    ct state invalid drop
+    iif lo accept
+
+    ip protocol icmp accept
+    ip6 nexthdr ipv6-icmp accept
+
+    tcp dport 22 accept                           # SSH
+    udp dport __NAAF_LISTEN_PORT__ accept         # WireGuard (v4 and v6 both hit this)
+
+    iifname "__NAAF_WG_INTERFACE__" accept        # from inside the tunnel: DNS, admin UI
+
+    counter drop
+  }
+
+  chain forward { type filter hook forward priority filter; policy accept; }
+  chain output  { type filter hook output  priority filter; policy accept; }
+}
