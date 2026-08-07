@@ -21,6 +21,24 @@ export BUNDLE_GEMFILE="$APP/Gemfile"
 CONF=/etc/naaf/naaf.conf
 install -d -o root -g "$NAAF_GROUP" -m 0750 /etc/naaf
 
+# Generate the session secret if it is absent or blank. This has to run for BOTH
+# branches below: the common path is run-remote.sh shipping a naaf.conf derived
+# from naaf.conf.example, which carries NAAF_SESSION_SECRET= empty, and the app
+# raises KeyError at boot without it.
+ensure_session_secret() {
+  local f="$1" cur
+  cur="$(sed -n 's/^NAAF_SESSION_SECRET=//p' "$f" | head -1)"
+  [ -n "$cur" ] && return 0
+  log "generating NAAF_SESSION_SECRET"
+  local secret
+  secret="$("$RUBY_BIN" -rsecurerandom -e 'print SecureRandom.hex(64)')"
+  if grep -q '^NAAF_SESSION_SECRET=' "$f"; then
+    sed -i "s#^NAAF_SESSION_SECRET=.*#NAAF_SESSION_SECRET=$secret#" "$f"
+  else
+    printf 'NAAF_SESSION_SECRET=%s\n' "$secret" >>"$f"
+  fi
+}
+
 # The committed example is the key list. An operator's own values arrive
 # separately — `run-remote.sh <ip> config`, or cloud-init writing the file — which
 # is why $CONF existing is the common case and the branch below only fills gaps.
@@ -30,12 +48,8 @@ install -d -o root -g "$NAAF_GROUP" -m 0750 /etc/naaf
 SRC="$APP/naaf.conf.example"
 
 if [ ! -f "$CONF" ]; then
-  log "writing $CONF from $(basename "$SRC") with a fresh session secret"
-  secret="$("$RUBY_BIN" -rsecurerandom -e 'print SecureRandom.hex(64)')"
-  sed '/^# ═*.*WORKSTATION ONLY/,$d' "$SRC" |
-    sed "s#^NAAF_SESSION_SECRET=.*#NAAF_SESSION_SECRET=$secret#" >"$CONF.tmp"
-  chown root:"$NAAF_GROUP" "$CONF.tmp"
-  chmod 0640 "$CONF.tmp"
+  log "writing $CONF from $(basename "$SRC")"
+  sed '/^# ═*.*WORKSTATION ONLY/,$d' "$SRC" >"$CONF.tmp"
   mv "$CONF.tmp" "$CONF"
 else
   # A release may add keys. Append the missing ones; never overwrite a value the
@@ -49,6 +63,14 @@ else
     grep -q "^$k=" "$CONF" || { log "  + $k"; printf '%s\n' "$line" >>"$CONF"; }
   done < <(sed '/^# ═*.*WORKSTATION ONLY/,$d' "$SRC")
 fi
+
+ensure_session_secret "$CONF"
+
+# Enforce ownership and mode every run: `run-remote.sh sync` may have written the
+# file before 20-system.sh created the service group, in which case it is still
+# root:root and bin/bootstrap.rb (which runs as the service user) cannot read it.
+chown root:"$NAAF_GROUP" "$CONF"
+chmod 0640 "$CONF"
 
 log "bundle install"
 (cd "$APP" && "$BUNDLE" install)

@@ -49,11 +49,19 @@ install_config() {
     return 0
   fi
   echo "installing naaf.conf -> $NAAF_SSH_USER@$IP:/etc/naaf/naaf.conf" >&2
+  # `sync` normally runs before 20-system.sh has created the service group, so
+  # the group is applied only if it already exists; 40-app.sh enforces the final
+  # ownership either way. Writing root-only in the meantime is the safe direction
+  # to be wrong in — the file carries the session secret.
   sed '/^# ═*.*WORKSTATION ONLY/,$d' "$REPO/naaf.conf" |
-    ssh_ "install -d -o root -g $NAAF_GROUP -m 0750 /etc/naaf &&
+    ssh_ "install -d -o root -g root -m 0750 /etc/naaf &&
           cat >/etc/naaf/naaf.conf.tmp &&
-          chown root:$NAAF_GROUP /etc/naaf/naaf.conf.tmp &&
           chmod 0640 /etc/naaf/naaf.conf.tmp &&
+          if getent group $NAAF_GROUP >/dev/null 2>&1; then
+            chown root:$NAAF_GROUP /etc/naaf/naaf.conf.tmp
+          else
+            chown root:root /etc/naaf/naaf.conf.tmp
+          fi &&
           mv /etc/naaf/naaf.conf.tmp /etc/naaf/naaf.conf"
 }
 
