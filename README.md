@@ -140,6 +140,22 @@ First-run / recovery access before any tunnel exists (admin UI is tunnel-only):
 ssh -L 8080:127.0.0.1:8080 <host>      # then open http://localhost:8080
 ```
 
+## Backups
+
+The database is the whole system — it holds the server private key, every peer,
+and every firewall rule. Two layers, documented in **`docs/BACKUP.md`**:
+
+- **Snapshots**, on by default: an hourly `VACUUM INTO` taken in-process, mode
+  0600, newest 24 kept, in `/var/lib/naaf/backups`.
+- **Litestream**, off by default: continuous WAL replication to a file path or
+  any S3-compatible bucket, for recovery that survives losing the machine.
+
+Because the server private key lives in the database and clients dial
+`endpoint_host`, restoring onto a fresh box and repointing DNS moves the whole
+service with **zero client reconfiguration**. That is the migration path.
+
+## Troubleshooting
+
 If clients can't connect, DNS times out, or full-tunnel is dead, start with
 **`docs/TROUBLESHOOTING.md`** — the most common cause is a second firewall (`ufw`)
 on the host; the provisioning disables it, but it is the first thing to check.

@@ -11,7 +11,10 @@ source "$DIR/00-lib.sh"
 require_root
 mkdir -p "$NAAF_LOG_DIR"
 
-STEPS=(05-swap 10-packages 20-system 30-ruby 40-app 50-bringup)
+# 45-litestream runs before 50-bringup so replication is already up when the
+# database gets its server key — you want the very first meaningful write
+# replicated, not the second. It is a no-op when replication is disabled.
+STEPS=(05-swap 10-packages 20-system 30-ruby 40-app 45-litestream 50-bringup)
 for step in "${STEPS[@]}"; do
   log "=== $step ==="
   if bash "$DIR/$step.sh" 2>&1 | tee "$NAAF_LOG_DIR/$step.log"; then

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "bcrypt"
+require "ipaddr"
 require_relative "config"
 require_relative "db"
 
@@ -58,6 +59,53 @@ module Naaf
       row[:endpoint_host] = endpoint_host unless endpoint_host.nil?
       db[:settings].update(row)
       keys[:public_key]
+    end
+
+    # Update only the facts that describe THIS box. These three travel with a
+    # restored database and are wrong on the new machine, so a
+    # restore-onto-a-new-box migration has to refresh them — see docs/BACKUP.md.
+    # Deliberately touches neither the keys nor the admin password: the whole
+    # value of that migration is that the server identity survives.
+    #
+    # Blank values are skipped rather than written, so a failed IP lookup leaves
+    # the previous value alone instead of clobbering it with "".
+    def self.refresh_network!(db, endpoint_v4:, endpoint_v6:, wan_interface:)
+      row = {
+        endpoint_v4: endpoint_v4,
+        endpoint_v6: endpoint_v6,
+        wan_interface: wan_interface
+      }.reject { |_, v| v.to_s.strip.empty? }
+      db[:settings].update(row) unless row.empty?
+      row
+    end
+
+    # Public IP discovery. Tries several independent services because the first
+    # boot of a brand-new box is exactly when one of them is having a bad day,
+    # and a blank endpoint_v4 produces client configs that cannot connect.
+    # Returns "" if every attempt fails; callers must treat that as "leave the
+    # stored value alone", never as a value to write.
+    RESOLVERS = [
+      "https://ifconfig.co",
+      "https://api.ipify.org",
+      "https://icanhazip.com"
+    ].freeze
+
+    def self.detect_public_ip(version, resolvers: RESOLVERS, runner: nil)
+      runner ||= ->(url) { `curl -#{version} -s --max-time 5 #{url} 2>/dev/null` }
+      resolvers.each do |url|
+        2.times do
+          ip = runner.call(url).to_s.strip
+          return ip unless ip.empty? || !valid_ip?(ip, version)
+        end
+      end
+      ""
+    end
+
+    def self.valid_ip?(str, version)
+      addr = IPAddr.new(str)
+      (version == 4) ? addr.ipv4? : addr.ipv6?
+    rescue IPAddr::Error
+      false
     end
   end
 end

@@ -69,6 +69,18 @@
 - Every renderer change needs a test asserting the emitted text.
 - `nft -c -f` (check mode) is the real validator for firewall output; use it.
 
+## Backups
+- Snapshots are `VACUUM INTO` on the app's own connection, written to a `.tmp`
+  name then renamed, `chmod 0600` (they contain `server_privkey`).
+- NEVER bare `VACUUM`, NEVER `PRAGMA wal_checkpoint`, NEVER `cp` the live `.db`:
+  the first invalidates Litestream's tracking, the second fights it for
+  checkpoint ownership, the third is a torn read without the `-wal`.
+- `journal_mode = WAL` and `busy_timeout = 5000` in `lib/naaf/db.rb` are
+  load-bearing for Litestream. Do not "tidy" them.
+- No download route for a snapshot, ever. It would serve the server private key
+  over HTTP. `scp` is the supported way to fetch one.
+- Full detail and the restore/migration recipes: `docs/BACKUP.md`.
+
 ## Deployment & operations
 - Target: Debian 13. Deploy is a two-stage flow (`deploy/DEPLOY.md`); the same
   idempotent `deploy/provision/*.sh` steps run hand-run (Stage 1) and via cloud-init

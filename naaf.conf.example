@@ -66,6 +66,12 @@ NAAF_MTU=1420
 # to a new box by repointing DNS, with no client reconfiguration.
 NAAF_ENDPOINT_HOST=
 
+# The box's own public addresses. Normally detected at bootstrap; set these only
+# when detection cannot work — no outbound HTTP, or the box is behind NAT and the
+# address it sees is not the one clients must dial.
+NAAF_ENDPOINT_V4=
+NAAF_ENDPOINT_V6=
+
 # ──────────────────────────────────────────────────────────────── backups
 # Hourly VACUUM INTO snapshots, taken in-process on the shared reactor.
 # They contain the server private key — mode 0600, and treat them accordingly.

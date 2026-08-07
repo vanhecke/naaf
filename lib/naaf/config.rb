@@ -50,6 +50,11 @@ module Naaf
       "NAAF_DNS_DOMAIN" => "vpn",
       "NAAF_MTU" => "1420",
       "NAAF_ENDPOINT_HOST" => nil,
+      # Normally auto-detected at bootstrap. Set these only when detection cannot
+      # work (no outbound HTTP, or the box is behind NAT and its public address
+      # is not the one it sees).
+      "NAAF_ENDPOINT_V4" => nil,
+      "NAAF_ENDPOINT_V6" => nil,
 
       # backups
       "NAAF_BACKUP_ENABLED" => "1",

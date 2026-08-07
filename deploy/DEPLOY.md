@@ -28,7 +28,8 @@ with Stage 1 as written — skip straight to `run-remote.sh`.
 | `10-packages` | apt: WireGuard/nftables + Ruby 4.0 build toolchain |
 | `20-system` | `naaf` user, dirs, IP-forward sysctl, tmpfiles, SSH hardening, static `/etc/nftables.conf` |
 | `30-ruby` | Ruby 4.0.6 + YJIT via ruby-install → `/opt/rubies/ruby-4.0.6` (slow: 15–30 min on 1 vCPU) |
-| `40-app` | `.env` (generated secret), `bundle install`, install both systemd units |
+| `40-app` | `/etc/naaf/naaf.conf` (generated session secret), `bundle install`, install both systemd units |
+| `45-litestream` | optional off-box replication; a no-op unless `NAAF_LITESTREAM_ENABLED=1` |
 | `50-bringup` | helper → `bootstrap.rb` (keys/admin-pw/endpoint host) → app → `wg-quick@wg0` |
 
 Every step logs to `/var/log/naaf-provision/<step>.log` on the box; Stage-1 runs
@@ -38,16 +39,20 @@ also tee to `deploy/logs/` locally (gitignored).
 
 ```bash
 IP=<your box's public IP>
-# Optional: a specific key, otherwise your normal ssh config and agent are used.
-export NAAF_SSH_KEY=~/.ssh/id_ed25519
 
-# 1. push the repo, then run steps one at a time and read each log
+# 0. one config file. Edit it for a non-default subnet, port, DNS domain, or to
+#    turn on Litestream. NAAF_SSH_KEY there pins a specific key; leave it blank
+#    to use your normal ssh config and agent.
+cp naaf.conf.example naaf.conf
+
+# 1. push the repo and install naaf.conf, then run steps one at a time
 deploy/run-remote.sh "$IP" sync
 deploy/run-remote.sh "$IP" step 05-swap
 deploy/run-remote.sh "$IP" step 10-packages
 deploy/run-remote.sh "$IP" step 20-system
 deploy/run-remote.sh "$IP" step 30-ruby        # the long one
 deploy/run-remote.sh "$IP" step 40-app
+deploy/run-remote.sh "$IP" step 45-litestream  # no-op unless replication is on
 
 # 2. bring-up needs the admin password (+ the FQDN clients will dial)
 export NAAF_ADMIN_PASSWORD='choose-a-strong-one'
@@ -119,6 +124,13 @@ environment variables with no defaults — read the header comment of each scrip
 
 Adding another provider means one script that creates a box and prints its IP;
 everything downstream is provider-agnostic.
+
+## Backups and migrating to another box
+
+The database holds the server private key and every peer, so it *is* the
+deployment. Snapshots are on by default; Litestream replication is one config
+key away. Restoring onto a fresh box and repointing DNS moves the whole service
+with **no client reconfiguration** — see [`docs/BACKUP.md`](../docs/BACKUP.md).
 
 ## Troubleshooting
 
