@@ -6,6 +6,16 @@ echo "== Standard =="; bundle exec standardrb
 
 echo "== Tests ==";    bundle exec sus
 
+echo "== shellcheck =="
+# The deploy scripts are a real part of this project — two config-install bugs
+# shipped in them before a live deploy caught them — so lint them like code.
+if command -v shellcheck >/dev/null 2>&1; then
+  shellcheck -S warning bin/ci deploy/*.sh deploy/provision/*.sh deploy/providers/*/*.sh
+  echo "shellcheck clean"
+else
+  echo "(skipped — shellcheck not installed)"
+fi
+
 echo "== naaf.conf.example =="
 # naaf.conf is read three ways: systemd EnvironmentFile=, `set -a; . file`, and
 # lib/naaf/config.rb. test/config_test.rb pins the systemd grammar and the key

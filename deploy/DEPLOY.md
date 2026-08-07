@@ -59,9 +59,14 @@ export NAAF_ADMIN_PASSWORD='choose-a-strong-one'
 export NAAF_ENDPOINT_HOST='vpn.example.com'
 deploy/run-remote.sh "$IP" step 50-bringup
 
-# 3. smoke test: admin UI over the SSH forward, then wg/nft state
+# 3. assert the invariants: tunnel-only binds, ufw not back on the netfilter
+#    hooks, firewall and daemon agreeing on the port, backups written 0600,
+#    no client private key anywhere. Everything is read from your naaf.conf and
+#    database, so it checks this deployment rather than a reference one.
+deploy/run-remote.sh "$IP" verify
+
+# 4. eyeball it: admin UI over the SSH forward
 ssh -L 8080:127.0.0.1:8080 root@"$IP"          # open http://localhost:8080
-deploy/run-remote.sh "$IP" exec 'wg show wg0; nft list table inet naaf; ruby -v'
 ```
 
 Fix any failing step and re-run just that step — they are idempotent.

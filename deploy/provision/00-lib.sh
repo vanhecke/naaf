@@ -20,9 +20,15 @@ require_root() { [ "$(id -u)" -eq 0 ] || die "must run as root"; }
 # in the synced repo so early steps still see the operator's choices.
 NAAF_CONF="${NAAF_CONF:-/etc/naaf/naaf.conf}"
 if [ -f "$NAAF_CONF" ]; then
-  set -a; . "$NAAF_CONF"; set +a
+  set -a
+  # shellcheck source=/dev/null
+  . "$NAAF_CONF"
+  set +a
 elif [ -f "$REPO_ROOT/naaf.conf" ]; then
-  set -a; . "$REPO_ROOT/naaf.conf"; set +a
+  set -a
+  # shellcheck source=/dev/null
+  . "$REPO_ROOT/naaf.conf"
+  set +a
 fi
 
 # Defaults for anything the config file did not set. These must agree with

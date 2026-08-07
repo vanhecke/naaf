@@ -8,6 +8,7 @@
 #   run-remote.sh <ip> config            install naaf.conf only (no code sync)
 #   run-remote.sh <ip> step <NN-name>    run one step (e.g. 20-system), tee a log
 #   run-remote.sh <ip> provision         run the whole provision.sh, tee a log
+#   run-remote.sh <ip> verify            assert the post-deploy invariants
 #   run-remote.sh <ip> exec <cmd...>     run an arbitrary remote command, tee a log
 #
 # Env: NAAF_SSH_KEY (optional — a specific private key; unset uses your normal ssh
@@ -104,6 +105,11 @@ case "$CMD" in
     ;;
   provision)
     run_logged "bash $NAAF_APP_DIR/deploy/provision/provision.sh" "$LOGDIR/$(ts)-provision.log"
+    ;;
+  verify)
+    # Deliberately not run through run_logged: no bring-up secrets are involved,
+    # and the exit status has to survive so this can gate a pipeline.
+    ssh_ "bash $NAAF_APP_DIR/deploy/verify.sh"
     ;;
   exec)
     ssh_ "$@" 2>&1 | tee "$LOGDIR/$(ts)-exec.log"
