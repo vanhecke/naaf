@@ -29,7 +29,6 @@ module Naaf
       "NAAF_RUN_DIR" => "/run/naaf",
       "NAAF_HELPER_SOCKET" => "/run/naaf/helper.sock",
       "NAAF_WG_CONF_DIR" => "/etc/wireguard",
-      "NAAF_RUBY_PREFIX" => "/opt/rubies/ruby-4.0.6",
       "NAAF_LOG_DIR" => "/var/log/naaf-provision",
 
       # listen / session
@@ -84,10 +83,14 @@ module Naaf
       "NAAF_REPO_REF" => "main"
     }.freeze
 
-    # Keys a complete naaf.conf.example may legitimately omit. NAAF_ADMIN_PASSWORD
-    # is consumed once at bootstrap and hashed into the DB; the plaintext must not
-    # sit on disk, so it is never written to the file.
-    OPTIONAL = ["NAAF_ADMIN_PASSWORD"].freeze
+    # Keys a complete naaf.conf.example may legitimately omit.
+    #   NAAF_ADMIN_PASSWORD is consumed once at bootstrap and hashed into the DB;
+    #     the plaintext must not sit on disk, so it is never written to the file.
+    #   NAAF_RUBY_PREFIX is derived from NAAF_RUBY_VERSION by
+    #     deploy/provision/00-lib.sh. Writing it in the file would shadow the
+    #     version, so bumping NAAF_RUBY_VERSION alone would silently do nothing.
+    #     No Ruby code reads it — only the provisioning shell does.
+    OPTIONAL = ["NAAF_ADMIN_PASSWORD", "NAAF_RUBY_PREFIX"].freeze
 
     # settings-table column => the naaf.conf key that seeds it on first boot.
     # After first boot the DB is authoritative; these exist so bin/naaf can warn
