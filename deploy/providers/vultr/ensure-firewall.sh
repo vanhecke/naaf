@@ -9,8 +9,14 @@
 # NAAF_SSH_SRC_IP=<your.ip> to restrict SSH to a single address.
 #
 # Logs go to stderr; the firewall group ID is printed to stdout so callers can do:
-#   GID=$(deploy/vultr/ensure-firewall.sh)
+#   GID=$(deploy/providers/vultr/ensure-firewall.sh)
 set -euo pipefail
+
+# The WireGuard port comes from the same naaf.conf that renders the host
+# firewall, so the two cannot drift apart.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/../../.." && pwd)"
+[ -f "$REPO/naaf.conf" ] && { set -a; . "$REPO/naaf.conf"; set +a; }
 
 DESC="${NAAF_FW_DESC:-naaf}"
 WG_PORT="${NAAF_LISTEN_PORT:-51820}"

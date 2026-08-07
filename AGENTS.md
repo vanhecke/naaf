@@ -17,7 +17,7 @@
 - Full gate: `bin/ci`
 - Apply state by hand: POST /apply, or `Reconciler#apply!` in a console
 - Inspect live: `sudo wg show wg0`, `sudo nft list table inet naaf`
-- Deploy: staged flow in `deploy/DEPLOY.md` (create-box -> provision -> DNS)
+- Deploy: `deploy/run-remote.sh <ip> sync` then the steps; `deploy/DEPLOY.md`
 - Troubleshoot a live box: `docs/TROUBLESHOOTING.md`
 
 ## Architecture conventions
@@ -82,17 +82,27 @@
 - Full detail and the restore/migration recipes: `docs/BACKUP.md`.
 
 ## Deployment & operations
-- Target: Debian 13. Deploy is a two-stage flow (`deploy/DEPLOY.md`); the same
-  idempotent `deploy/provision/*.sh` steps run hand-run (Stage 1) and via cloud-init
+- Target: ANY Debian 13 host reachable as root over SSH. There is no provider API
+  in the deploy path, and the WAN interface is discovered at bootstrap from
+  `ip -o -4 route show to default` — never hardcode `eth0`/`ens3`. `deploy/providers/`
+  is optional worked examples, not the supported path.
+- Deploy is a two-stage flow (`deploy/DEPLOY.md`); the same idempotent
+  `deploy/provision/*.sh` steps run hand-run (Stage 1) and via cloud-init
   (Stage 2), so there is no drift. Ruby 4.0.6 compiles from source (~15-30 min; needs
   swap). `bin/bootstrap.rb` reads `NAAF_ADMIN_PASSWORD` / `NAAF_ENDPOINT_HOST` from the
   env for unattended first boot, else prompts.
+- `deploy/*.service` and `deploy/nftables.conf.template` carry `__NAAF_*__`
+  placeholders substituted from `naaf.conf` at install time. Never install them
+  verbatim, and never reintroduce a hardcoded path or port into them.
 - Provisioning MUST disable `ufw`. Many Debian cloud images ship it enabled; its
   iptables-nft `ip filter` tables drop udp/51820, tunnel DNS, and forwarding even when
   `ufw status` reads inactive, and re-apply on boot. A healthy `nft list tables` shows
   ONLY `inet filter` + `inet naaf`; an `ip filter` table means ufw is back.
 - `endpoint_host` (settings) is the host clients dial; set it to migrate boxes by
   repointing DNS. Written by the Settings UI or `NAAF_ENDPOINT_HOST` at bootstrap.
+  Migration = provision a new box, restore the DB BEFORE `50-bringup` (its
+  `already_bootstrapped` guard then skips re-keying), `bin/bootstrap.rb
+  --refresh-network`, repoint DNS. `docs/BACKUP.md`.
 - When a client can't connect / DNS times out / full-tunnel is dead, follow the
   playbook in `docs/TROUBLESHOOTING.md`. Key move: `tcpdump` on the WAN NIC captures
   before netfilter, so check `Udp: InDatagrams` in `/proc/net/snmp` — flat while

@@ -10,6 +10,10 @@
 # Zone and name have no defaults on purpose — a wrong guess would rewrite a live
 # record in whichever zone the default named.
 set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/../../.." && pwd)"
+[ -f "$REPO/naaf.conf" ] && { set -a; . "$REPO/naaf.conf"; set +a; }
+
 ZONE="${NAAF_DNS_ZONE:?set NAAF_DNS_ZONE, e.g. example.com}"
 NAME="${NAAF_DNS_NAME:?set NAAF_DNS_NAME, e.g. vpn (yields vpn.example.com)}"
 TTL="${NAAF_DNS_TTL:-300}"

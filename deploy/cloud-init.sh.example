@@ -1,0 +1,46 @@
+#!/bin/bash
+# Stage-2 user-data: a fresh Debian 13 box that provisions itself.
+#
+# Paste this into any provider's user-data / cloud-init field. It is a plain
+# shebang script with nothing provider-specific in it — cloud-init runs it as
+# root on first boot on every provider that supports user-data at all.
+#
+# Fill in the three marked values first. deploy/providers/vultr/create-box.sh
+# --auto generates this same script and passes it to vultr-cli for you, including
+# base64-ing your local naaf.conf so a non-default subnet or port comes along.
+set -euxo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y git ca-certificates
+
+# ---- fill these in -----------------------------------------------------------
+REPO_URL='https://github.com/<owner>/<repo>.git'
+REPO_REF='main'
+ADMIN_PASSWORD='choose-a-strong-one'
+ENDPOINT_HOST='vpn.example.com'   # the FQDN clients will dial; blank = raw IP
+# ------------------------------------------------------------------------------
+
+rm -rf /opt/naaf
+git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" /opt/naaf
+
+# Optional: drop your own config in before provisioning. Without this the box
+# comes up on the naaf.conf.example defaults (10.8.0.0/24, udp/51820, .vpn),
+# which is a perfectly good deployment — just not a customised one.
+#
+# install -d -m 0750 /etc/naaf
+# cat >/etc/naaf/naaf.conf <<'CONF'
+# ...your naaf.conf, minus the WORKSTATION ONLY section...
+# CONF
+# chmod 0640 /etc/naaf/naaf.conf
+
+export NAAF_ADMIN_PASSWORD="$ADMIN_PASSWORD"
+export NAAF_ENDPOINT_HOST="$ENDPOINT_HOST"
+bash /opt/naaf/deploy/provision/provision.sh
+
+# Watch it with:  ssh root@<ip> 'tail -f /var/log/cloud-init-output.log'
+# Per-step logs:  /var/log/naaf-provision/<step>.log
+#
+# A note on secrets: whatever you put here is stored as instance metadata at your
+# provider and is readable by anyone who can reach that box's metadata service.
+# For a private repo, use a read-only token and revoke it once the box is up.

@@ -47,22 +47,25 @@ The `Endpoint` is `settings.endpoint_host:listen_port` when an endpoint host is 
 ## Layout
 
 ```
-bin/naaf                single-reactor entrypoint (web + dns + reconcile)
+naaf.conf.example       the one config file — every key, documented
+bin/naaf                single-reactor entrypoint (web + dns + reconcile + backups)
 bin/naaf-helper         privileged root helper (separate systemd unit)
-bin/bootstrap.rb        one-time: server keys + admin pw + endpoint (env-driven)
-bin/ci                  standardrb + sus + nft render check
-lib/naaf/               app, renderers (pure), reconciler, zone, ipam, helper client,
-                        config_builder, bootstrap (env-var provisioning helpers)
+bin/bootstrap.rb        one-time: server keys + admin pw + endpoint; --refresh-network
+bin/ci                  standardrb + sus + config lint + nft render check
+lib/naaf/               app, config, backup, renderers (pure), reconciler, zone,
+                        ipam, helper client, config_builder, bootstrap
 db/schema.rb            idempotent SQLite schema (settings, clients, exposed_ports,
                         port_forwards, dns_records, extra_routes), run on boot
 views/                  ERB templates (Bulma markup; plain form POST + redirect)
 vendor/                 bulma.min.css, htmx.min.js (served by Roda :public)
-test/                   sus tests (renderers, ipam, reconciler, zone, app, bootstrap)
-deploy/                 host artifacts (systemd, nftables, sysctl, tmpfiles) + README
-deploy/provision/       idempotent server provisioning steps (05-swap … 50-bringup)
-deploy/vultr/           create-box.sh, ensure-firewall.sh (run from your workstation)
-deploy/dns/             update-record.sh (DNSimple A/AAAA upsert)
+test/                   sus tests (renderers, ipam, reconciler, zone, app, config,
+                        backup, bootstrap)
+deploy/                 host artifacts (systemd, nftables template, sysctl, tmpfiles)
+deploy/provision/       idempotent provisioning steps (05-swap … 50-bringup)
+deploy/run-remote.sh    drives provisioning against any root-SSH-reachable box
+deploy/providers/       optional per-provider box creation and DNS (vultr, dnsimple)
 deploy/DEPLOY.md        the staged deploy runbook
+docs/BACKUP.md          snapshots, Litestream, restore, box migration
 docs/TROUBLESHOOTING.md operations, the WireGuard-not-connecting playbook, gotchas
 ```
 
@@ -79,6 +82,11 @@ bundle exec sus            # tests
 bundle exec standardrb     # lint (or --fix)
 bin/ci                     # full gate: standardrb + sus + config lint + nft render check
 ```
+
+The renderers, IPAM, Zone, ConfigBuilder, backup and bootstrap helpers are
+pure/DB-only and are tested directly, without root or a live kernel. Running the
+full server (`bin/naaf`) binds the WireGuard IP and port 53, so it is exercised
+on the target host, not the dev box.
 
 ## Configuration
 
@@ -100,8 +108,6 @@ environment (see `docs/BACKUP.md`).
 
 The renderers, IPAM, Zone, ConfigBuilder, and bootstrap helpers are pure/DB-only and
 are tested directly without root or a live kernel. Running the full server (`bin/naaf`)
-binds the WireGuard IP and port 53, so it is exercised on the target host, not the dev box.
-
 ## Deploying
 
 Deploys to **any Debian 13 (trixie) host you can reach as root over SSH** — there is
@@ -114,9 +120,9 @@ no provider API in the deployment path. Two stages, documented in
 - **Stage 2** — hand the verified steps to cloud-init as a `#!/bin/bash` user-data
   script so a fresh box self-provisions, then point DNS at it.
 
-`deploy/vultr/` and `deploy/dns/` are optional worked examples for creating a box on
-Vultr and upserting a record in DNSimple. Neither is required; adding another
-provider means one script that prints an IP.
+`deploy/providers/` holds optional worked examples for creating a box on Vultr
+and upserting a record in DNSimple. Neither is required; adding another provider
+means one script that prints an IP.
 
 The same idempotent `deploy/provision/*.sh` steps run in both stages, so there is no
 drift between "hand-run" and "automated". Ruby 4.0.6 is compiled from source with YJIT

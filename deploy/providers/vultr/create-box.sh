@@ -21,6 +21,9 @@
 # Add --firewall to create/attach the naaf firewall group (see ensure-firewall.sh).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/../../.." && pwd)"
+# Same one config file: the WORKSTATION ONLY section holds these values.
+[ -f "$REPO/naaf.conf" ] && { set -a; . "$REPO/naaf.conf"; set +a; }
 
 MODE=vanilla
 ENSURE_FW=0
@@ -67,9 +70,16 @@ if [ "$MODE" = auto ]; then
     # Inject a token for a private clone (https://.../owner/repo.git)
     clone_url="https://x-access-token:${NAAF_REPO_TOKEN}@${NAAF_REPO_URL#https://}"
   fi
-  # base64 the secrets so odd characters survive the heredoc + cloud-init.
+  # base64 so odd characters survive the heredoc and cloud-init.
   pw_b64="$(printf '%s' "$NAAF_ADMIN_PASSWORD" | base64 | tr -d '\n')"
   eh_b64="$(printf '%s' "${NAAF_ENDPOINT_HOST:-}" | base64 | tr -d '\n')"
+  # Carry the local naaf.conf (minus the workstation-only section) so a
+  # self-provisioning box gets the operator's subnet, ports and DNS settings.
+  # Without this the box would silently come up on naaf.conf.example defaults.
+  conf_b64=""
+  if [ -f "$REPO/naaf.conf" ]; then
+    conf_b64="$(sed '/^# ═*.*WORKSTATION ONLY/,$d' "$REPO/naaf.conf" | base64 | tr -d '\n')"
+  fi
   tmp_ud="$(mktemp)"; trap 'rm -f "$tmp_ud"' EXIT
   cat >"$tmp_ud" <<EOF
 #!/bin/bash
@@ -79,12 +89,17 @@ apt-get update
 apt-get install -y git ca-certificates
 rm -rf /opt/naaf
 git clone --depth 1 --branch "${NAAF_REPO_REF:-main}" "$clone_url" /opt/naaf
+if [ -n '$conf_b64' ]; then
+  install -d -m 0750 /etc/naaf
+  printf '%s' '$conf_b64' | base64 -d >/etc/naaf/naaf.conf
+  chmod 0640 /etc/naaf/naaf.conf
+fi
 export NAAF_ADMIN_PASSWORD="\$(printf '%s' '$pw_b64' | base64 -d)"
 export NAAF_ENDPOINT_HOST="\$(printf '%s' '$eh_b64' | base64 -d)"
 bash /opt/naaf/deploy/provision/provision.sh
 EOF
   ud_args=(--userdata-file "$tmp_ud")
-  log "userdata prepared (repo ${NAAF_REPO_URL}@${NAAF_REPO_REF:-main}, self-provision)"
+  log "userdata prepared (repo ${NAAF_REPO_URL}@${NAAF_REPO_REF:-main}, self-provision${conf_b64:+, naaf.conf included})"
 fi
 
 log "creating $PLAN in $REGION (os $OS, mode $MODE, label $LABEL)"

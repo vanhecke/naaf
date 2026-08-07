@@ -1,6 +1,6 @@
 # Deploying Naaf to a Debian 13 VPS
 
-naaf deploys to **any Debian 13 (trixie) host you can reach as root over SSH** —
+Naaf deploys to **any Debian 13 (trixie) host you can reach as root over SSH** —
 there is no provider API in the deployment path. `deploy/provision/` is plain
 Debian + systemd, and `deploy/run-remote.sh` drives it against an IP address.
 
@@ -17,7 +17,7 @@ Debian 12 will not work — bookworm's Rust is too old for Ruby 4.0's JIT build.
 **On your workstation:** `ssh`, `rsync`, `jq`.
 
 **Optionally**, a provider CLI to create the box and a DNS CLI to point a name at
-it. `deploy/vultr/` and `deploy/dns/` are worked examples for Vultr and DNSimple;
+it. `deploy/providers/vultr/` and `deploy/providers/dnsimple/` are worked examples for Vultr and DNSimple;
 they are conveniences, not requirements. Any box you can already SSH into works
 with Stage 1 as written — skip straight to `run-remote.sh`.
 
@@ -88,7 +88,7 @@ bash /opt/naaf/deploy/provision/provision.sh
 ```
 
 Every provider that supports cloud-init accepts a `#!/bin/bash` user-data script,
-so this is portable as-is. `deploy/vultr/create-box.sh --auto` generates exactly
+so this is portable as-is. `deploy/providers/vultr/create-box.sh --auto` generates exactly
 this and passes it to `vultr-cli` for you.
 
 Watch it come up, then point DNS at the box:
@@ -102,10 +102,13 @@ ssh root@"$IP" 'ls -la /var/log/naaf-provision/'
 
 Stage 1 rsyncs your working tree over SSH. Stage 2's cloud-init runs on the box
 with no path back to your workstation, so it `git clone`s the repo. Nothing secret
-is in git (`.env` is ignored; server and client keys live in the database, never
-the repo), so a **public** repo needs no token. For a **private** repo, pass a
-read-only token — but note it is then stored in the instance's user-data at your
+is in git (`naaf.conf` is ignored; server and client keys live in the database,
+never the repo), so a **public** repo needs no token. For a **private** repo, pass
+a read-only token — but note it is then stored in the instance's user-data at your
 provider, so rotate or detach it afterwards.
+
+`deploy/cloud-init.sh.example` is the same script as a standalone file you can
+fill in and paste, including a commented block for shipping your own `naaf.conf`.
 
 ## Updating a running box
 
@@ -116,9 +119,9 @@ ssh root@"$IP" 'systemctl restart naaf'   # also restart naaf-helper if bin/naaf
 
 ## Provider examples
 
-`deploy/vultr/create-box.sh` (create an instance, `--vanilla` or `--auto`),
-`deploy/vultr/ensure-firewall.sh` (a group allowing only 22/tcp and 51820/udp),
-and `deploy/dns/update-record.sh` (idempotent A/AAAA upsert in DNSimple). Each
+`deploy/providers/vultr/create-box.sh` (create an instance, `--vanilla` or `--auto`),
+`deploy/providers/vultr/ensure-firewall.sh` (a group allowing only 22/tcp and 51820/udp),
+and `deploy/providers/dnsimple/update-record.sh` (idempotent A/AAAA upsert in DNSimple). Each
 requires its own CLI to be authenticated and takes account-specific values from
 environment variables with no defaults — read the header comment of each script.
 
