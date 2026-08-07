@@ -10,6 +10,7 @@ require "rack/builder"
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 require "naaf/config"
 require "naaf/db"
+require "naaf/backup"
 require "naaf/zone"
 require "naaf/dns_server"
 require "naaf/reconciler"
@@ -93,6 +94,23 @@ Async do |task|
         recon.poll!
       rescue => e
         Console.error("naaf", "reconcile failed", exception: e)
+      end
+    end
+  end
+
+  # Snapshots run on their own task, not folded into the reconcile loop: a
+  # reconcile failure (helper socket down) must not stop backups, and a backup
+  # failure must not stop reconciling. Sleep-first, so a crash-loop cannot spam
+  # the directory and rotate the good copies away — and a fresh box's database is
+  # not worth snapshotting in its first interval anyway.
+  if Naaf::Config.bool("NAAF_BACKUP_ENABLED")
+    backups = Naaf::Backup.new(db)
+    interval = Naaf::Config.int("NAAF_BACKUP_INTERVAL")
+    Console.info("naaf", "backups enabled", dir: backups.dir, every: interval, keep: backups.keep)
+    task.async do
+      loop do
+        sleep interval
+        Naaf::Backup.tick!(backups)
       end
     end
   end

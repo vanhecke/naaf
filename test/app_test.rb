@@ -518,6 +518,42 @@ describe "Naaf::App integration" do
     expect(Naaf.settings[:wg_subnet]).to be == "10.8.0.0/24"
   end
 
+  it "reports backups as disabled when they are off" do
+    login!
+    body = get("/settings").body
+    expect(body).to be(:include?, "Last backup")
+    expect(body).to be(:include?, "disabled") # test/helper.rb sets NAAF_BACKUP_ENABLED=0
+  end
+
+  it "names the newest snapshot on the settings page once one exists" do
+    login!
+    Dir.mktmpdir("naaf-app-backup-") do |dir|
+      prev_enabled = ENV["NAAF_BACKUP_ENABLED"]
+      prev_dir = ENV["NAAF_BACKUP_DIR"]
+      ENV["NAAF_BACKUP_ENABLED"] = "1"
+      ENV["NAAF_BACKUP_DIR"] = dir
+      begin
+        body = get("/settings").body
+        expect(body).to be(:include?, "none yet")
+
+        Naaf::Backup.new(Naaf.db, dir: dir, keep: 3).run!(now: Time.utc(2026, 1, 1, 12))
+        expect(get("/settings").body).to be(:include?, "naaf-20260101T120000Z.db")
+      ensure
+        ENV["NAAF_BACKUP_ENABLED"] = prev_enabled
+        ENV["NAAF_BACKUP_DIR"] = prev_dir
+      end
+    end
+  end
+
+  # The snapshot holds server_privkey and admin_pw_hash. There must be no route
+  # that serves it, and no link inviting one to be added.
+  it "offers no way to download a snapshot through the admin UI" do
+    login!
+    body = get("/settings").body
+    expect(body).not.to be(:match?, %r{href="[^"]*backup}i)
+    expect(get("/settings/backups").status).to be == 404
+  end
+
   it "changes the admin password and swaps which password logs in" do
     login!
     post_form("/settings", "/settings/password", "password" => "newsecret123")

@@ -7,8 +7,9 @@
 <p class="content">
   Server configuration. Editable fields below take effect on the next apply.
   Structural values (VPN subnet, gateway IP, listen port, interface) are set at
-  provisioning time and shown read-only — changing them re-binds the service or
-  invalidates every issued client config, so they are deliberately not editable here.
+  provisioning time in <code>naaf.conf</code> and shown read-only — changing them
+  re-binds the listeners or invalidates every issued client config, so they need a
+  re-provision rather than an edit here.
 </p>
 
 <h2 class="title is-5">Endpoint &amp; DNS</h2>
@@ -70,8 +71,27 @@
     <tr><th>Listen port</th><td><code><%= @settings[:listen_port] %></code></td></tr>
     <tr><th>WireGuard interface</th><td><code><%= @settings[:wg_interface] %></code></td></tr>
     <tr><th>Server public key</th><td><code><%= @settings[:server_pubkey] %></code></td></tr>
+    <tr>
+      <th>Last backup</th>
+      <td>
+        <% if @last_backup %>
+          <code><%= @last_backup[:name] %></code>
+          <span class="has-text-grey">(<%= @last_backup[:bytes] / 1024 %> KB)</span>
+        <% elsif @backups_enabled %>
+          <span class="has-text-grey">none yet</span>
+        <% else %>
+          <span class="has-text-grey">disabled</span>
+        <% end %>
+      </td>
+    </tr>
   </tbody>
 </table>
+
+<p class="content is-size-7 has-text-grey">
+  Snapshots live in <code><%= @backup_dir %></code> on the server and contain the
+  server private key — they are mode 0600 and are deliberately not downloadable
+  from here. Copy one with <code>scp</code>. See <code>docs/BACKUP.md</code>.
+</p>
 
 <hr>
 

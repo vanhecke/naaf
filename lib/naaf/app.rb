@@ -8,6 +8,7 @@ require "ipaddr"
 require "console" # error_handler and structured logging reference Console directly
 require_relative "config"
 require_relative "db"
+require_relative "backup"
 require_relative "ipam"
 require_relative "reconciler"
 require_relative "config_builder"
@@ -449,6 +450,13 @@ module Naaf
       r.on "settings" do
         r.get true do
           @settings = Naaf.settings
+          # A backup you never observe is a backup you do not have. One Dir.glob
+          # over at most NAAF_BACKUP_KEEP entries — no new state, no new route,
+          # and deliberately no download link: that would serve server_privkey
+          # and admin_pw_hash over HTTP.
+          @backups_enabled = Config.bool("NAAF_BACKUP_ENABLED")
+          @backup_dir = Config["NAAF_BACKUP_DIR"]
+          @last_backup = @backups_enabled ? Backup.new(Naaf.db).latest : nil
           view("settings")
         end
 
