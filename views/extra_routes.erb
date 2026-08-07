@@ -1,0 +1,80 @@
+<div class="level">
+  <div class="level-left">
+    <h1 class="title level-item">Split-tunnel routes</h1>
+  </div>
+</div>
+
+<p class="content">
+  Extra subnets folded into a client's <code>AllowedIPs</code> for the
+  <code>split</code> and <code>split·nodns</code> configs (the <code>full</code>
+  config already routes everything). A <em>global</em> route applies to every
+  client; a route bound to a client applies to that client only. The VPN subnet
+  itself is always included, so you only list networks <em>behind</em> the tunnel.
+</p>
+
+<% if @rows.empty? %>
+  <div class="notification">No extra routes. Split configs route only the VPN subnet.</div>
+<% else %>
+  <% by_id = @clients.to_h { |c| [c[:id], c] } %>
+  <table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+      <tr>
+        <th>Scope</th>
+        <th>CIDR</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @rows.each do |row| %>
+        <% c = row[:client_id] && by_id[row[:client_id]] %>
+        <tr>
+          <td>
+            <% if row[:client_id].nil? %>
+              <span class="tag is-info">global</span>
+            <% elsif c %>
+              <%= c[:name] %> <code><%= c[:wg_ip] %></code>
+            <% else %>
+              <span class="tag is-warning">client #<%= row[:client_id] %></span>
+            <% end %>
+          </td>
+          <td><code><%= row[:cidr] %></code></td>
+          <td>
+            <form method="post" action="/extra-routes/<%= row[:id] %>/delete">
+              <%= csrf_tag("/extra-routes/#{row[:id]}/delete") %>
+              <button class="button is-small is-danger is-light" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<hr>
+
+<h2 class="title is-5">Add a route</h2>
+<form method="post" action="/extra-routes">
+  <%= csrf_tag("/extra-routes") %>
+  <div class="field is-grouped is-grouped-multiline">
+    <div class="control">
+      <label class="label">Scope</label>
+      <div class="select">
+        <select name="client_id">
+          <option value="">— global (all clients) —</option>
+          <% @clients.each do |c| %>
+            <option value="<%= c[:id] %>"><%= c[:name] %> (<%= c[:wg_ip] %>)</option>
+          <% end %>
+        </select>
+      </div>
+    </div>
+    <div class="control is-expanded">
+      <label class="label">CIDR</label>
+      <input class="input" type="text" name="cidr" placeholder="192.168.9.0/24" required>
+    </div>
+  </div>
+  <div class="field">
+    <div class="control">
+      <button class="button is-primary" type="submit">Add &amp; apply</button>
+    </div>
+  </div>
+</form>

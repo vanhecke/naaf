@@ -1,0 +1,114 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+#
+# Runs as root. Accepts newline-delimited JSON on a unix socket.
+# FOUR commands, fixed vocabulary. Never builds a shell string. Never evals.
+
+require "json"
+require "socket"
+require "tempfile"
+require "fileutils"
+require "etc"
+
+SOCKET_PATH = ENV.fetch("WGCP_HELPER_SOCKET", "/run/wgcp/helper.sock")
+WG_IF       = ENV.fetch("WGCP_WG_INTERFACE", "wg0")
+WG_CONF     = "/etc/wireguard/#{WG_IF}.conf"
+SOCKET_GID  = begin
+  Etc.getgrnam("wgcp").gid
+rescue ArgumentError
+  nil
+end
+
+def run!(*argv, stdin: nil)
+  out = nil
+  IO.popen(argv, "r+", err: [:child, :out]) do |io|
+    if stdin
+      io.write(stdin)
+      io.close_write
+    end
+    out = io.read
+  end
+  status = $?
+  raise "#{argv.first} failed (#{status.exitstatus}): #{out.to_s.strip}" unless status.success?
+  out
+end
+
+def write_atomic(path, content, mode)
+  FileUtils.mkdir_p(File.dirname(path))
+  tmp = "#{path}.tmp.#{Process.pid}"
+  File.write(tmp, content)
+  File.chmod(mode, tmp)
+  File.rename(tmp, path)
+end
+
+def cmd_genkeys
+  priv = run!("wg", "genkey").strip
+  pub  = run!("wg", "pubkey", stdin: priv).strip
+  psk  = run!("wg", "genpsk").strip
+  {private_key: priv, public_key: pub, preshared_key: psk}
+end
+
+def cmd_apply(req)
+  wg_conf = req.fetch("wg_conf")
+  nft     = req.fetch("nft_ruleset")
+  raise "wg_conf too large"     if wg_conf.bytesize > 1_000_000
+  raise "nft_ruleset too large" if nft.bytesize > 1_000_000
+
+  write_atomic(WG_CONF, wg_conf, 0o600)
+
+  # wg syncconf applies only the delta -> existing peer sessions are untouched.
+  stripped = run!("wg-quick", "strip", WG_IF)
+  Tempfile.create(["wgcp", ".conf"]) do |f|
+    f.write(stripped)
+    f.flush
+    run!("wg", "syncconf", WG_IF, f.path)
+  end
+
+  # The file deletes and recreates table `inet wgcp` in ONE transaction.
+  Tempfile.create(["wgcp", ".nft"]) do |f|
+    f.write(nft)
+    f.flush
+    run!("nft", "-c", "-f", f.path)   # check first
+    run!("nft", "-f", f.path)
+  end
+
+  {ok: true}
+end
+
+def cmd_dump
+  {dump: run!("wg", "show", WG_IF, "dump")}
+end
+
+def handle(line)
+  req = JSON.parse(line)
+  case req["cmd"]
+  when "genkeys" then cmd_genkeys
+  when "apply"   then cmd_apply(req)
+  when "dump"    then cmd_dump
+  when "ping"    then {ok: true}
+  else raise "unknown command"
+  end
+rescue => e
+  {error: e.message}
+end
+
+FileUtils.rm_f(SOCKET_PATH)
+server = UNIXServer.new(SOCKET_PATH)
+File.chown(0, SOCKET_GID, SOCKET_PATH) if SOCKET_GID
+File.chmod(0o660, SOCKET_PATH)
+warn "wgcp-helper listening on #{SOCKET_PATH}"
+
+loop do
+  conn = server.accept
+  Thread.new(conn) do |c|
+    begin
+      while (line = c.gets)
+        c.puts(JSON.generate(handle(line)))
+      end
+    rescue => e
+      warn "helper connection error: #{e.message}"
+    ensure
+      c.close
+    end
+  end
+end

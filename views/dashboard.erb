@@ -1,0 +1,116 @@
+<%
+  # Inline formatter — no application JS, no view-helper plugin in the spec.
+  ago = lambda do |t|
+    return "never" unless t
+    secs = (Time.now - t.to_time).to_i
+    return "just now" if secs < 5
+    return "#{secs}s ago" if secs < 60
+    return "#{secs / 60}m ago" if secs < 3600
+    return "#{secs / 3600}h ago" if secs < 86_400
+    "#{secs / 86_400}d ago"
+  end
+%>
+
+<% if session["oneshot_privkey"] %>
+  <div class="notification is-warning">
+    <strong>A generated private key is waiting for a one-time download.</strong>
+    Download the <code>.conf</code> (or scan the QR) for the client you just added —
+    the key is injected once and never stored. After the first download it is gone;
+    to reissue, delete and re-add the client.
+  </div>
+<% end %>
+
+<div class="level">
+  <div class="level-left">
+    <h1 class="title level-item">Clients</h1>
+  </div>
+  <div class="level-right">
+    <span class="tag is-info is-light level-item">
+      subnet <%= @settings[:wg_subnet] %> · gateway <%= @settings[:server_ip] %>
+    </span>
+  </div>
+</div>
+
+<% if @clients.empty? %>
+  <div class="notification">No clients yet. Add your first one below.</div>
+<% else %>
+  <table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Hostname</th>
+        <th>VPN IP</th>
+        <th>Status</th>
+        <th>Last handshake</th>
+        <th>Public key</th>
+        <th>Config</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @clients.each do |c| %>
+        <tr>
+          <td><%= c[:name] %></td>
+          <td><code><%= c[:hostname] %>.<%= @settings[:dns_domain] %></code></td>
+          <td><code><%= c[:wg_ip] %></code></td>
+          <td>
+            <% if c[:enabled] %>
+              <span class="tag is-success">enabled</span>
+            <% else %>
+              <span class="tag is-light">disabled</span>
+            <% end %>
+          </td>
+          <td><%= ago.call(c[:last_handshake_at]) %></td>
+          <td><code title="<%= c[:pubkey] %>"><%= c[:pubkey][0, 12] %>…</code></td>
+          <td>
+            <div class="buttons are-small has-addons">
+              <a class="button" href="/clients/<%= c[:id] %>/config/split">split</a>
+              <a class="button" href="/clients/<%= c[:id] %>/config/split-nodns">split·nodns</a>
+              <a class="button" href="/clients/<%= c[:id] %>/config/full">full</a>
+              <a class="button is-link is-light" href="/clients/<%= c[:id] %>/qr/split" target="_blank" rel="noopener">QR</a>
+            </div>
+          </td>
+          <td>
+            <form method="post" action="/clients/<%= c[:id] %>/toggle" class="mb-2">
+              <%= csrf_tag("/clients/#{c[:id]}/toggle") %>
+              <button class="button is-small" type="submit"><%= c[:enabled] ? "Disable" : "Enable" %></button>
+            </form>
+            <details>
+              <summary class="button is-small is-danger is-light">Delete</summary>
+              <form method="post" action="/clients/<%= c[:id] %>/delete" class="mt-2">
+                <%= csrf_tag("/clients/#{c[:id]}/delete") %>
+                <button class="button is-small is-danger" type="submit">Confirm delete</button>
+              </form>
+            </details>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<hr>
+
+<h2 class="title is-5">Add client</h2>
+<form method="post" action="/clients">
+  <%= csrf_tag("/clients") %>
+  <div class="field is-grouped is-grouped-multiline">
+    <div class="control">
+      <label class="label">Name</label>
+      <input class="input" type="text" name="name" placeholder="laptop" required>
+    </div>
+    <div class="control">
+      <label class="label">Hostname</label>
+      <input class="input" type="text" name="hostname" placeholder="laptop" required>
+    </div>
+    <div class="control is-expanded">
+      <label class="label">Public key <span class="has-text-grey">(optional — paste to keep your key off the server)</span></label>
+      <input class="input" type="text" name="pubkey" placeholder="leave blank to generate server-side">
+    </div>
+  </div>
+  <div class="field">
+    <div class="control">
+      <button class="button is-primary" type="submit">Add client &amp; apply</button>
+    </div>
+  </div>
+</form>

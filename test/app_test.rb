@@ -1,0 +1,541 @@
+# frozen_string_literal: true
+
+require_relative "helper"
+require "bcrypt"
+require "rack/mock"
+require "wgcp/app"
+
+# Stubs so routes run without a live helper/kernel. genkeys returns a distinct,
+# predictable key per call so we can trace which client's key ends up where.
+class StubHelper
+  def initialize
+    @n = 0
+  end
+
+  def genkeys
+    @n += 1
+    {public_key: "PUB#{@n}", private_key: "PRIV#{@n}", preshared_key: "PSK#{@n}"}
+  end
+
+  def apply(**) = {ok: true}
+  def dump = ""
+end
+
+class StubReconciler
+  attr_reader :helper
+
+  def initialize
+    @helper = StubHelper.new
+  end
+
+  def apply! = true
+end
+
+describe "WGCP::App integration" do
+  before do
+    reset_db!(
+      server_pubkey: "SRVPUB", server_ip: "10.8.0.1", endpoint_v4: "203.0.113.5",
+      wg_subnet: "10.8.0.0/24", mtu: 1420, listen_port: 51820, dns_domain: "vpn",
+      admin_pw_hash: BCrypt::Password.create("secret")
+    )
+    WGCP::App.reconciler = StubReconciler.new
+    @app = WGCP::App.app
+    @cookie = nil
+  end
+
+  # --- a tiny cookie-jar HTTP client over Rack::MockRequest ---
+  def mr = Rack::MockRequest.new(@app)
+
+  def cookie_env = @cookie ? {"HTTP_COOKIE" => @cookie} : {}
+
+  def remember_cookie(res)
+    sc = res.headers["set-cookie"] || res.headers["Set-Cookie"]
+    sc = sc.first if sc.is_a?(Array)
+    @cookie = sc.to_s.split(";").first unless sc.to_s.empty?
+  end
+
+  def get(path, accept: "text/html,application/xhtml+xml")
+    res = mr.get(path, cookie_env.merge("HTTP_ACCEPT" => accept))
+    remember_cookie(res)
+    res
+  end
+
+  def post(path, params)
+    res = mr.post(path, cookie_env.merge(params: params))
+    remember_cookie(res)
+    res
+  end
+
+  # The layout renders an /apply form before the page body, so grab the token
+  # that belongs to the specific form action, not merely the first on the page.
+  def csrf_for(body, action)
+    body[/action="#{Regexp.escape(action)}"[^>]*>.*?name="_csrf" value="([^"]+)"/m, 1]
+  end
+
+  def login!
+    body = get("/login").body
+    post("/login", "password" => "secret", "_csrf" => csrf_for(body, "/login"))
+  end
+
+  # Returns the actual new client id (ids are AUTOINCREMENT — never assume 1).
+  def add_client(name, pubkey: "")
+    body = get("/").body
+    post("/clients", "name" => name, "hostname" => name, "pubkey" => pubkey,
+      "_csrf" => csrf_for(body, "/clients"))
+    WGCP.db[:clients].where(name: name).get(:id)
+  end
+
+  # Fetch the form on `list_path`, lift the token bound to `action`, then post to
+  # `action`. For an add form list_path == action; for a row action (delete /
+  # toggle) the token still lives on the list page.
+  def post_form(list_path, action, params)
+    body = get(list_path).body
+    post(action, params.merge("_csrf" => csrf_for(body, action)))
+  end
+
+  it "logs in with a request-specific CSRF token and reaches the dashboard" do
+    expect(login!.status).to be == 302
+    expect(get("/").status).to be == 200
+  end
+
+  # Every other dashboard test runs against clients with a NULL last_handshake_at,
+  # which short-circuits the view's `ago` helper before it does any arithmetic.
+  it "renders the dashboard for a client that has actually handshaked" do
+    login!
+    add_client("nas")
+    WGCP.db[:clients].where(name: "nas").update(
+      last_handshake_at: Time.now - 7200, endpoint: "81.82.83.84:51820",
+      rx_bytes: 12_345_678, tx_bytes: 9_876_543
+    )
+    res = get("/")
+    expect(res.status).to be == 200
+    expect(res.body).to be(:include?, "2h ago")
+  end
+
+  it "redirects the dashboard to /login when unauthenticated" do
+    res = get("/")
+    expect(res.status).to be == 302
+    expect(res.headers["location"]).to be == "/login"
+  end
+
+  # Falcon installs a *shared* HTTP cache by default. It stores 302s, keys only on
+  # method+path, and looks the entry up before checking whether the request is
+  # cacheable — so it ignores the session cookie on the way in. A logged-out
+  # GET / (302 -> /login, no Set-Cookie) would be stored and then replayed to
+  # authenticated users forever, since the entry carries no max-age. bin/wgcp
+  # passes cache: false; no-store is the second, in-app barrier that also keeps
+  # the pages out of browser and proxy caches.
+  it "marks every app response no-store, including redirects" do
+    expect(get("/").headers["cache-control"]).to be == "no-store"
+    expect(get("/login").headers["cache-control"]).to be == "no-store"
+    login!
+    expect(get("/").headers["cache-control"]).to be == "no-store"
+    expect(get("/exposed-ports").headers["cache-control"]).to be == "no-store"
+  end
+
+  it "keeps a client config and its QR out of every cache — they carry a private key" do
+    login!
+    erin = add_client("erin")
+    expect(get("/clients/#{erin}/config/split").headers["cache-control"]).to be == "no-store"
+    expect(get("/clients/#{erin}/qr/split").headers["cache-control"]).to be == "no-store"
+  end
+
+  it "leaves the vendored assets cacheable" do
+    expect(get("/bulma.min.css").headers["cache-control"]).to be_nil
+  end
+
+  it "sends an already-authenticated admin away from the login form" do
+    login!
+    res = get("/login")
+    expect(res.status).to be == 302
+    expect(res.headers["location"]).to be == "/"
+  end
+
+  it "returns to the originally requested page after logging in" do
+    expect(get("/exposed-ports").headers["location"]).to be == "/login"
+    expect(login!.headers["location"]).to be == "/exposed-ports"
+  end
+
+  # A browser fetches /favicon.ico unprompted, and that request hits the auth
+  # gate too. Recording it would land the admin on a 404 after logging in.
+  it "does not let a browser sub-resource request hijack the post-login page" do
+    get("/exposed-ports")
+    get("/favicon.ico", accept: "image/avif,image/webp,image/*,*/*;q=0.8")
+    expect(login!.headers["location"]).to be == "/exposed-ports"
+  end
+
+  it "takes the post-login destination from the session, never from a request param" do
+    get("/exposed-ports") # the only thing that may set return_to
+    body = get("/login").body
+    res = post("/login", "password" => "secret", "_csrf" => csrf_for(body, "/login"),
+      "return_to" => "/settings")
+    expect(res.headers["location"]).to be == "/exposed-ports"
+  end
+
+  # `GET //evil.example.com/` leaves PATH_INFO protocol-relative, so an unguarded
+  # return_to would redirect off-site after login. Rack::MockRequest normalizes
+  # the "//" away, so drive the guard directly — verified against a live server too.
+  it "refuses to bounce the post-login redirect off-site" do
+    scope = WGCP::App.allocate
+    def scope.session = @session ||= {}
+
+    scope.session["return_to"] = "//evil.example.com/"
+    expect(scope.safe_return_to).to be == "/"
+
+    scope.session["return_to"] = "https://evil.example.com/"
+    expect(scope.safe_return_to).to be == "/"
+
+    scope.session["return_to"] = "/exposed-ports"
+    expect(scope.safe_return_to).to be == "/exposed-ports"
+
+    expect(scope.safe_return_to).to be == "/" # consumed, so it cannot replay
+  end
+
+  # The auth gate used to sit below check_csrf!, so a POST from a page whose
+  # session had lapsed failed the CSRF check first and surfaced as a bare 500.
+  it "sends a lapsed-session POST back to the login form instead of erroring" do
+    login!
+    body = get("/").body
+    token = csrf_for(body, "/apply")
+    @cookie = nil # session gone: browser restart, expiry, server-side clear
+    res = post("/apply", "_csrf" => token)
+    expect(res.status).to be == 302
+    expect(res.headers["location"]).to be == "/login"
+  end
+
+  it "binds the one-shot private key to its client — never leaks it into another client's config" do
+    login!
+    alice = add_client("alice") # -> PRIV1
+    bob = add_client("bob")     # -> PRIV2 (session slot now holds bob's key)
+
+    alice_conf = get("/clients/#{alice}/config/split").body
+    expect(alice_conf.include?("PRIV1")).to be == false # alice's own key already superseded
+    expect(alice_conf.include?("PRIV2")).to be == false # and bob's key must NEVER appear here
+    expect(alice_conf).to be(:include?, "REPLACE_WITH_YOUR_PRIVATE_KEY")
+
+    bob_conf = get("/clients/#{bob}/config/split").body
+    expect(bob_conf).to be(:include?, "PrivateKey = PRIV2")
+  end
+
+  it "does not leak a pending key into another client's QR" do
+    login!
+    alice = add_client("alice") # -> PRIV1
+    add_client("bob")           # -> PRIV2 pending
+    qr = get("/clients/#{alice}/qr/split") # alice's QR while bob's key is pending
+    expect(qr.status).to be == 200
+    expect(qr.body.include?("PRIV2")).to be == false
+  end
+
+  it "consumes the one-shot key on download; a second download yields the placeholder" do
+    login!
+    carol = add_client("carol") # -> PRIV1
+    first = get("/clients/#{carol}/config/split").body
+    expect(first).to be(:include?, "PrivateKey = PRIV1")
+    second = get("/clients/#{carol}/config/split").body
+    expect(second.include?("PRIV1")).to be == false
+    expect(second).to be(:include?, "REPLACE_WITH_YOUR_PRIVATE_KEY")
+  end
+
+  it "accepts the re-apply action from the navbar form" do
+    login!
+    body = get("/").body
+    res = post("/apply", "_csrf" => csrf_for(body, "/apply"))
+    expect(res.status).to be == 302
+    expect(res.headers["location"]).to be == "/"
+  end
+
+  it "accepts a request-specific delete and removes the client" do
+    login!
+    dave = add_client("dave")
+    body = get("/").body
+    res = post("/clients/#{dave}/delete", "_csrf" => csrf_for(body, "/clients/#{dave}/delete"))
+    expect(res.status).to be == 302
+    expect(WGCP.db[:clients][id: dave]).to be_nil
+  end
+
+  # --- resource management UIs: exposed ports / port forwards / DNS records ---
+
+  it "redirects the resource pages to /login when unauthenticated" do
+    %w[/exposed-ports /port-forwards /dns-records].each do |path|
+      res = get(path)
+      expect(res.status).to be == 302
+      expect(res.headers["location"]).to be == "/login"
+    end
+  end
+
+  it "exposes a port for a client and stores it, then deletes it" do
+    login!
+    nas = add_client("nas")
+    res = post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => nas, "proto" => "tcp", "port" => "22", "description" => "ssh")
+    expect(res.status).to be == 302
+    row = WGCP.db[:exposed_ports].where(client_id: nas).first
+    expect(row[:proto]).to be == "tcp"
+    expect(row[:port]).to be == 22
+    expect(row[:description]).to be == "ssh"
+
+    post_form("/exposed-ports", "/exposed-ports/#{row[:id]}/delete", {})
+    expect(WGCP.db[:exposed_ports][id: row[:id]]).to be_nil
+  end
+
+  it "rejects an out-of-range port and an unknown proto without writing a row" do
+    login!
+    nas = add_client("nas")
+    post_form("/exposed-ports", "/exposed-ports", "client_id" => nas, "proto" => "tcp", "port" => "70000")
+    post_form("/exposed-ports", "/exposed-ports", "client_id" => nas, "proto" => "sctp", "port" => "22")
+    expect(WGCP.db[:exposed_ports].count).to be == 0
+  end
+
+  it "stores a single port as a range that starts and ends on itself" do
+    login!
+    nas = add_client("nas")
+    post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => nas, "proto" => "tcp", "port" => "22")
+    row = WGCP.db[:exposed_ports].first
+    expect(row[:port]).to be == 22
+    expect(row[:port_end]).to be == 22
+  end
+
+  it "exposes a port range in one row and shows it on the page" do
+    login!
+    nas = add_client("nas")
+    res = post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => nas, "proto" => "tcp", "port" => "8000-8100", "description" => "plex")
+    expect(res.status).to be == 302
+    row = WGCP.db[:exposed_ports].first
+    expect(row[:port]).to be == 8000
+    expect(row[:port_end]).to be == 8100
+    expect(get("/exposed-ports").body).to be(:include?, "8000-8100")
+  end
+
+  it "rejects a malformed or inverted range without writing a row" do
+    login!
+    nas = add_client("nas")
+    ["8100-8000", "0-70000", "8000-", "-8000", "abc", "8000-8100-8200", "0x22", " ", "8000 - 8100"]
+      .each do |port|
+        post_form("/exposed-ports", "/exposed-ports",
+          "client_id" => nas, "proto" => "tcp", "port" => port)
+      end
+    expect(WGCP.db[:exposed_ports].count).to be == 0
+  end
+
+  # The renderer would silently merge these into one interval, leaving the table
+  # listing two rows that no longer describe the ruleset.
+  it "refuses a range overlapping one already exposed, per protocol" do
+    login!
+    nas = add_client("nas")
+    post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => nas, "proto" => "tcp", "port" => "8000-8100")
+
+    ["8050", "8100", "8000-8100", "7000-8000", "1-65535"].each do |port|
+      res = post_form("/exposed-ports", "/exposed-ports",
+        "client_id" => nas, "proto" => "tcp", "port" => port)
+      expect(res.status).to be == 302
+    end
+    expect(WGCP.db[:exposed_ports].count).to be == 1
+    expect(get("/exposed-ports").body).to be(:include?, "already exposed")
+
+    # A different protocol, and a non-overlapping neighbour, both still fit.
+    post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => nas, "proto" => "udp", "port" => "8000-8100")
+    post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => nas, "proto" => "tcp", "port" => "8101-8200")
+    expect(WGCP.db[:exposed_ports].count).to be == 3
+  end
+
+  it "lets two clients expose the same range" do
+    login!
+    nas = add_client("nas")
+    pi = add_client("pi")
+    post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => nas, "proto" => "tcp", "port" => "8000-8100")
+    post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => pi, "proto" => "tcp", "port" => "8000-8100")
+    expect(WGCP.db[:exposed_ports].count).to be == 2
+  end
+
+  it "rejects an exposed port for an unknown client" do
+    login!
+    add_client("nas")
+    post_form("/exposed-ports", "/exposed-ports", "client_id" => "9999", "proto" => "tcp", "port" => "22")
+    expect(WGCP.db[:exposed_ports].count).to be == 0
+  end
+
+  it "adds a port forward enabled, toggles it, and deletes it" do
+    login!
+    nas = add_client("nas")
+    post_form("/port-forwards", "/port-forwards",
+      "client_id" => nas, "proto" => "tcp", "public_port" => "2222", "target_port" => "22")
+    fwd = WGCP.db[:port_forwards].where(public_port: 2222).first
+    expect(fwd[:enabled]).to be == true
+
+    post_form("/port-forwards", "/port-forwards/#{fwd[:id]}/toggle", {})
+    expect(WGCP.db[:port_forwards][id: fwd[:id]][:enabled]).to be == false
+
+    post_form("/port-forwards", "/port-forwards/#{fwd[:id]}/delete", {})
+    expect(WGCP.db[:port_forwards][id: fwd[:id]]).to be_nil
+  end
+
+  it "rejects a duplicate public_port/proto forward" do
+    login!
+    nas = add_client("nas")
+    post_form("/port-forwards", "/port-forwards",
+      "client_id" => nas, "proto" => "tcp", "public_port" => "2222", "target_port" => "22")
+    post_form("/port-forwards", "/port-forwards",
+      "client_id" => nas, "proto" => "tcp", "public_port" => "2222", "target_port" => "80")
+    expect(WGCP.db[:port_forwards].where(public_port: 2222).count).to be == 1
+  end
+
+  it "adds a normalized A record and rejects a non-IPv4 value" do
+    login!
+    post_form("/dns-records", "/dns-records", "name" => "Service.vpn", "value" => "10.8.0.10", "ttl" => "120")
+    rec = WGCP.db[:dns_records].where(value: "10.8.0.10").first
+    expect(rec[:name]).to be == "service.vpn"
+    expect(rec[:rtype]).to be == "A"
+    expect(rec[:ttl]).to be == 120
+
+    post_form("/dns-records", "/dns-records", "name" => "bad.vpn", "value" => "not-an-ip")
+    expect(WGCP.db[:dns_records].where(name: "bad.vpn").count).to be == 0
+  end
+
+  it "deletes a DNS record" do
+    login!
+    post_form("/dns-records", "/dns-records", "name" => "a.vpn", "value" => "10.8.0.11")
+    id = WGCP.db[:dns_records].where(name: "a.vpn").get(:id)
+    post_form("/dns-records", "/dns-records/#{id}/delete", {})
+    expect(WGCP.db[:dns_records][id: id]).to be_nil
+  end
+
+  it "shows automatic client, gateway and apex records on the DNS page" do
+    login!
+    add_client("nas")
+    body = get("/dns-records").body
+    expect(body).to be(:include?, "Automatic records")
+    expect(body).to be(:include?, "nas.vpn")
+    expect(body).to be(:include?, "gateway.vpn")
+  end
+
+  it "flags an auto record overridden by a static record" do
+    login!
+    add_client("nas")
+    post_form("/dns-records", "/dns-records", "name" => "nas.vpn", "value" => "10.8.0.99")
+    expect(get("/dns-records").body).to be(:include?, "overridden by static")
+  end
+
+  it "rejects a client hostname that is not a DNS label" do
+    login!
+    body = get("/").body
+    post("/clients", "name" => "bad", "hostname" => "bad_host!", "pubkey" => "",
+      "_csrf" => csrf_for(body, "/clients"))
+    expect(WGCP.db[:clients].where(hostname: "bad_host!").count).to be == 0
+  end
+
+  # --- client enable/disable toggle ---
+
+  it "toggles a client between enabled and disabled" do
+    login!
+    dave = add_client("dave")
+    expect(WGCP.db[:clients][id: dave][:enabled]).to be == true
+    post_form("/", "/clients/#{dave}/toggle", {})
+    expect(WGCP.db[:clients][id: dave][:enabled]).to be == false
+    post_form("/", "/clients/#{dave}/toggle", {})
+    expect(WGCP.db[:clients][id: dave][:enabled]).to be == true
+  end
+
+  # --- extra (split-tunnel) routes ---
+
+  it "redirects the new pages to /login when unauthenticated" do
+    %w[/extra-routes /settings].each do |path|
+      res = get(path)
+      expect(res.status).to be == 302
+      expect(res.headers["location"]).to be == "/login"
+    end
+  end
+
+  it "adds a global and a per-client route, normalizes the CIDR, and deletes one" do
+    login!
+    nas = add_client("nas")
+    post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "192.168.9.0/24")
+    post_form("/extra-routes", "/extra-routes", "client_id" => nas, "cidr" => "10.99.5.3/16")
+    glob = WGCP.db[:extra_routes].where(client_id: nil).first
+    perc = WGCP.db[:extra_routes].where(client_id: nas).first
+    expect(glob[:cidr]).to be == "192.168.9.0/24"
+    expect(perc[:cidr]).to be == "10.99.0.0/16" # host bits masked to the network
+
+    post_form("/extra-routes", "/extra-routes/#{glob[:id]}/delete", {})
+    expect(WGCP.db[:extra_routes][id: glob[:id]]).to be_nil
+  end
+
+  it "rejects routes that are not valid CIDR and one for an unknown client" do
+    login!
+    add_client("nas")
+    post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "not-a-network")
+    post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "10.0.0.0") # no prefix
+    post_form("/extra-routes", "/extra-routes", "client_id" => "9999", "cidr" => "192.168.9.0/24")
+    expect(WGCP.db[:extra_routes].count).to be == 0
+  end
+
+  # --- settings editor ---
+
+  def save_settings(**over)
+    fields = {
+      "endpoint_host" => "", "endpoint_v4" => "203.0.113.9", "endpoint_v6" => "",
+      "dns_upstream" => "9.9.9.9", "dns_domain" => "lan", "mtu" => "1400",
+      "wan_interface" => "ens3"
+    }.merge(over.transform_keys(&:to_s))
+    post_form("/settings", "/settings", fields)
+  end
+
+  it "saves editable settings, and a client config then uses the new endpoint host" do
+    login!
+    save_settings("endpoint_host" => "sg.example.com")
+    s = WGCP.settings
+    expect(s[:endpoint_host]).to be == "sg.example.com"
+    expect(s[:endpoint_v4]).to be == "203.0.113.9"
+    expect(s[:dns_upstream]).to be == "9.9.9.9"
+    expect(s[:dns_domain]).to be == "lan"
+    expect(s[:mtu]).to be == 1400
+    expect(s[:wan_interface]).to be == "ens3"
+
+    nas = add_client("nas")
+    conf = WGCP::ConfigBuilder.new(WGCP.db, WGCP.db[:clients][id: nas]).render("split")
+    expect(conf).to be(:include?, "Endpoint = sg.example.com:51820")
+  end
+
+  it "rejects an out-of-range MTU or a bad IP without changing any setting" do
+    login!
+    save_settings("mtu" => "50")
+    expect(WGCP.settings[:mtu]).to be == 1420
+    expect(WGCP.settings[:endpoint_v4]).to be == "203.0.113.5" # unchanged whole-hog
+
+    save_settings("endpoint_v4" => "not-an-ip")
+    expect(WGCP.settings[:endpoint_v4]).to be == "203.0.113.5"
+  end
+
+  it "does not let the read-only subnet be written through the settings form" do
+    login!
+    save_settings("wg_subnet" => "10.9.0.0/24")
+    expect(WGCP.settings[:wg_subnet]).to be == "10.8.0.0/24"
+  end
+
+  it "changes the admin password and swaps which password logs in" do
+    login!
+    post_form("/settings", "/settings/password", "password" => "newsecret123")
+    @cookie = nil
+    body = get("/login").body
+    old = post("/login", "password" => "secret", "_csrf" => csrf_for(body, "/login"))
+    expect(old.headers["location"]).to be == "/login"
+    body = get("/login").body
+    new = post("/login", "password" => "newsecret123", "_csrf" => csrf_for(body, "/login"))
+    expect(new.headers["location"]).to be == "/"
+  end
+
+  it "rejects a too-short admin password and keeps the old one" do
+    login!
+    post_form("/settings", "/settings/password", "password" => "short")
+    @cookie = nil
+    body = get("/login").body
+    res = post("/login", "password" => "secret", "_csrf" => csrf_for(body, "/login"))
+    expect(res.headers["location"]).to be == "/"
+  end
+end

@@ -1,0 +1,11 @@
+[Interface]
+PrivateKey = <%= pk %>
+Address = <%= client[:wg_ip] %>/32
+MTU = <%= s[:mtu] %>
+
+[Peer]
+PublicKey = <%= s[:server_pubkey] %>
+PresharedKey = <%= client[:psk] %>
+Endpoint = <%= ep %>
+AllowedIPs = <%= allowed %>
+PersistentKeepalive = 25

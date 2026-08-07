@@ -1,0 +1,112 @@
+<div class="level">
+  <div class="level-left">
+    <h1 class="title level-item">DNS records</h1>
+  </div>
+</div>
+
+<p class="content">
+  The internal resolver answers <code>A</code> records for your clients. The
+  automatic per-client records appear below; add a static <code>A</code> record
+  further down to layer extra names on top — a static record overrides an auto
+  record with the same name. Only <code>A</code> records are served today.
+</p>
+
+<h2 class="title is-5">Automatic records</h2>
+<p class="content is-small has-text-grey">
+  Managed by the tool from your clients — one per client
+  (<code>&lt;hostname&gt;.<%= @settings[:dns_domain] %></code>), plus the gateway and
+  the <code><%= @settings[:dns_domain] %></code> apex. The bare
+  <code>&lt;hostname&gt;</code> and reverse DNS also resolve. Add a static
+  <code>A</code> record with the same name below to override one.
+</p>
+<table class="table is-fullwidth is-striped is-hoverable">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Value</th>
+      <th>TTL</th>
+      <th>Source</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @auto_rows.each do |row| %>
+      <% overridden = @shadowed.include?(WGCP::Zone.normalize(row[:name])) %>
+      <tr>
+        <td><code><%= row[:name] %></code></td>
+        <td><span class="tag"><%= row[:rtype] %></span></td>
+        <td><code class="<%= "has-text-grey-light" if overridden %>"><%= row[:value] %></code></td>
+        <td>60</td>
+        <td><span class="tag is-light"><%= row[:source] %></span></td>
+        <td>
+          <% if overridden %>
+            <span class="tag is-warning is-light">overridden by static</span>
+          <% end %>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 class="title is-5">Static records</h2>
+
+<% if @rows.empty? %>
+  <div class="notification">No static records. Client hostnames still resolve automatically.</div>
+<% else %>
+  <table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Value</th>
+        <th>TTL</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @rows.each do |row| %>
+        <tr>
+          <td><code><%= row[:name] %></code></td>
+          <td><span class="tag"><%= row[:rtype] %></span></td>
+          <td><code><%= row[:value] %></code></td>
+          <td><%= row[:ttl] %></td>
+          <td>
+            <form method="post" action="/dns-records/<%= row[:id] %>/delete">
+              <%= csrf_tag("/dns-records/#{row[:id]}/delete") %>
+              <button class="button is-small is-danger is-light" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<hr>
+
+<h2 class="title is-5">Add an A record</h2>
+<form method="post" action="/dns-records">
+  <%= csrf_tag("/dns-records") %>
+  <div class="field is-grouped is-grouped-multiline">
+    <div class="control is-expanded">
+      <label class="label">Name</label>
+      <input class="input" type="text" name="name" placeholder="service.<%= @settings[:dns_domain] %>" required>
+    </div>
+    <div class="control">
+      <label class="label">IPv4 address</label>
+      <input class="input" type="text" name="value" placeholder="10.8.0.10" required>
+    </div>
+    <div class="control">
+      <label class="label">TTL</label>
+      <input class="input" type="number" name="ttl" min="0" value="60">
+    </div>
+  </div>
+  <div class="field">
+    <div class="control">
+      <button class="button is-primary" type="submit">Add &amp; apply</button>
+    </div>
+  </div>
+</form>

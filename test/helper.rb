@@ -1,0 +1,39 @@
+# frozen_string_literal: true
+
+# Shared test setup. Required (idempotently) at the top of every test file.
+# The renderers, IPAM, Zone and ConfigBuilder all read WGCP.settings from the
+# memoized WGCP.db singleton, so tests share one SQLite file and reset it
+# between examples. sus runs sequentially in one process, so this is race-free.
+
+require "securerandom"
+require "tmpdir"
+require "console"
+
+ENV["WGCP_SESSION_SECRET"] ||= SecureRandom.hex(32)
+ENV["WGCP_DB"] ||= File.join(Dir.mktmpdir("wgcp-test-"), "test.db")
+
+$LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
+require "wgcp/db"
+
+# Wipe every table, insert a fresh default settings row, then apply overrides.
+# Returns the shared WGCP.db handle.
+def reset_db!(**settings)
+  db = WGCP.db
+  [:extra_routes, :dns_records, :port_forwards, :exposed_ports, :clients, :settings].each do |t|
+    db[t].delete
+  end
+  # clients.id is AUTOINCREMENT, whose counter survives a plain delete via
+  # sqlite_sequence — reset it so ids are deterministic (start at 1) per test.
+  db.run("DELETE FROM sqlite_sequence") if db.table_exists?(:sqlite_sequence)
+  db[:settings].insert
+  db[:settings].update(settings) unless settings.empty?
+  db
+end
+
+# Insert a client with sensible defaults; returns the new row id.
+def make_client(db, name:, wg_ip:, hostname: name, pubkey: "PUB-#{name}", psk: "PSK-#{name}", enabled: true, **extra)
+  db[:clients].insert(
+    name: name, hostname: hostname, wg_ip: wg_ip,
+    pubkey: pubkey, psk: psk, enabled: enabled, created_at: Time.now, **extra
+  )
+end

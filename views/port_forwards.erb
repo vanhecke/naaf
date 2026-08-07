@@ -1,0 +1,107 @@
+<div class="level">
+  <div class="level-left">
+    <h1 class="title level-item">Port forwards</h1>
+  </div>
+</div>
+
+<p class="content">
+  Inbound DNAT from the public interface to a spoke. A public port is forwarded
+  to a client's target port; disabled forwards keep their row but emit no rule.
+  Each change regenerates <code>inet wgcp</code> and applies it atomically.
+</p>
+
+<% if @rows.empty? %>
+  <div class="notification">No port forwards.</div>
+<% else %>
+  <% by_id = @clients.to_h { |c| [c[:id], c] } %>
+  <table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+      <tr>
+        <th>Public port</th>
+        <th>Proto</th>
+        <th>Target</th>
+        <th>Status</th>
+        <th colspan="2"></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @rows.each do |row| %>
+        <% c = by_id[row[:client_id]] %>
+        <tr>
+          <td><code><%= row[:public_port] %></code></td>
+          <td><span class="tag"><%= row[:proto] %></span></td>
+          <td>
+            <%= c ? c[:name] : "—" %>
+            <code><%= c ? c[:wg_ip] : "?" %>:<%= row[:target_port] %></code>
+          </td>
+          <td>
+            <% if row[:enabled] %>
+              <span class="tag is-success">enabled</span>
+            <% else %>
+              <span class="tag is-light">disabled</span>
+            <% end %>
+          </td>
+          <td>
+            <form method="post" action="/port-forwards/<%= row[:id] %>/toggle">
+              <%= csrf_tag("/port-forwards/#{row[:id]}/toggle") %>
+              <button class="button is-small" type="submit">
+                <%= row[:enabled] ? "Disable" : "Enable" %>
+              </button>
+            </form>
+          </td>
+          <td>
+            <form method="post" action="/port-forwards/<%= row[:id] %>/delete">
+              <%= csrf_tag("/port-forwards/#{row[:id]}/delete") %>
+              <button class="button is-small is-danger is-light" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<hr>
+
+<h2 class="title is-5">Add a forward</h2>
+<% if @clients.empty? %>
+  <div class="notification is-warning">Add a client first.</div>
+<% else %>
+  <form method="post" action="/port-forwards">
+    <%= csrf_tag("/port-forwards") %>
+    <div class="field is-grouped is-grouped-multiline">
+      <div class="control">
+        <label class="label">Public port</label>
+        <input class="input" type="number" name="public_port" min="1" max="65535" required>
+      </div>
+      <div class="control">
+        <label class="label">Protocol</label>
+        <div class="select">
+          <select name="proto">
+            <option value="tcp">tcp</option>
+            <option value="udp">udp</option>
+          </select>
+        </div>
+      </div>
+      <div class="control">
+        <label class="label">Client</label>
+        <div class="select">
+          <select name="client_id" required>
+            <% @clients.each do |c| %>
+              <option value="<%= c[:id] %>"><%= c[:name] %> (<%= c[:wg_ip] %>)</option>
+            <% end %>
+          </select>
+        </div>
+      </div>
+      <div class="control">
+        <label class="label">Target port</label>
+        <input class="input" type="number" name="target_port" min="1" max="65535" required>
+      </div>
+    </div>
+    <div class="field">
+      <div class="control">
+        <button class="button is-primary" type="submit">Add &amp; apply</button>
+      </div>
+    </div>
+  </form>
+<% end %>

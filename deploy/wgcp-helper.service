@@ -1,0 +1,25 @@
+# Install as /etc/systemd/system/wgcp-helper.service
+[Unit]
+Description=wgcp privileged helper
+After=network-online.target
+Before=wgcp.service
+
+[Service]
+Type=simple
+User=root
+# Group=wgcp so RuntimeDirectory creates /run/wgcp as root:wgcp — otherwise it is
+# root:root 0750 and the unprivileged wgcp app cannot traverse it to the socket.
+Group=wgcp
+WorkingDirectory=/opt/wgcp
+Environment=BUNDLE_GEMFILE=/opt/wgcp/Gemfile
+ExecStart=/opt/rubies/ruby-4.0.6/bin/ruby /opt/wgcp/bin/wgcp-helper
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=wgcp
+RuntimeDirectoryMode=0750
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

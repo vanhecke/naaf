@@ -1,0 +1,82 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "async"
+require "console"
+require "falcon"
+require "async/http/endpoint" # NOTE: not autoloaded by `require "falcon"` (verified against falcon 0.55.6)
+require "rack/builder"
+
+$LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
+require "wgcp/db"
+require "wgcp/zone"
+require "wgcp/dns_server"
+require "wgcp/reconciler"
+require "wgcp/app"
+
+db       = WGCP.db
+settings = WGCP.settings
+zone     = WGCP::Zone.new(db)
+recon    = WGCP::Reconciler.new(db, zone)
+WGCP::App.reconciler = recon
+
+# Two binds, never 0.0.0.0. The loopback bind exists so first-run setup works
+# over `ssh -L 8080:127.0.0.1:8080 <vps>` before any tunnel exists.
+WEB_BINDS = [
+  "http://#{settings[:server_ip]}:8080",
+  "http://127.0.0.1:8080"
+].uniq
+
+Async do |task|
+  # Bring the kernel in line with the DB at boot. On the very first boot wg0 does
+  # not exist yet (wg-quick@wg0 is ordered after us), so `wg syncconf` fails —
+  # that is expected. Log and continue so the web/DNS servers still come up; the
+  # 30s reconcile loop re-applies once wg0 exists.
+  begin
+    recon.apply!
+  rescue => e
+    Console.warn("wgcp", "boot apply failed; will retry via reconcile loop", exception: e)
+  end
+
+  task.async do
+    endpoint = Async::DNS::Endpoint.for(settings[:server_ip], port: 53)
+    Console.info("wgcp", "DNS listening", on: "#{settings[:server_ip]}:53")
+    WGCP::DNSServer.new(
+      zone: zone,
+      upstream: settings[:dns_upstream],
+      endpoint: endpoint
+    ).run
+  end
+
+  app = Rack::Builder.parse_file(File.expand_path("../config.ru", __dir__))
+  app = app.first if app.is_a?(Array)   # Rack 2 returns [app, opts]
+  # cache: false is load-bearing. Falcon defaults it to true, which installs
+  # Async::HTTP::Cache::General — a *shared* cache that looks up the store
+  # before it checks whether the request is cacheable, so it ignores the
+  # session cookie on the way in. A logged-out GET / returns 302 -> /login with
+  # no Set-Cookie, which it happily stores (302 is cacheable) and then replays
+  # to authenticated users forever, since the entry carries no max-age. That is
+  # a login loop on whichever URL you visited first. A single-admin control
+  # plane has no use for a shared cache; the app also sends Cache-Control:
+  # no-store, but do not rely on that alone.
+  middleware = Falcon::Server.middleware(app, cache: false)
+
+  WEB_BINDS.each do |bind|
+    task.async do
+      endpoint = Async::HTTP::Endpoint.parse(bind)
+      Console.info("wgcp", "web listening", on: bind)
+      Falcon::Server.new(middleware, endpoint).run
+    end
+  end
+
+  task.async do
+    loop do
+      sleep 30
+      begin
+        recon.poll!
+      rescue => e
+        Console.error("wgcp", "reconcile failed", exception: e)
+      end
+    end
+  end
+end

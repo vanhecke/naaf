@@ -1,0 +1,13 @@
+[Interface]
+PrivateKey = <%= pk %>
+Address = <%= client[:wg_ip] %>/32
+DNS = <%= s[:server_ip] %>
+MTU = <%= s[:mtu] %>
+
+[Peer]
+PublicKey = <%= s[:server_pubkey] %>
+PresharedKey = <%= client[:psk] %>
+Endpoint = <%= ep %>
+# ::/0 intentionally omitted — the tunnel interior is IPv4-only.
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25

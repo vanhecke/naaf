@@ -1,0 +1,27 @@
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+/tmp/
+/log/
+*.key
+*.conf.generated
+
+# deploy: local run logs from Stage-1 provisioning
+deploy/logs/
+
+# editor / tooling caches
+.DS_Store
+.ruby-lsp/
+
+# Claude Code — personal/local state
+.claude/settings.local.json
+.claude/.credentials.json
+.claude/projects/
+.claude/shell-snapshots/
+.claude/todos/
+.claude/statsig/
+.claude/history.jsonl
+.claude/ide/

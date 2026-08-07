@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>wgcp — WireGuard control plane</title>
+  <link rel="stylesheet" href="/bulma.min.css">
+  <script src="/htmx.min.js" defer></script>
+</head>
+<body>
+  <nav class="navbar is-dark" role="navigation" aria-label="main navigation">
+    <div class="navbar-brand">
+      <a class="navbar-item has-text-weight-bold" href="/">wgcp</a>
+    </div>
+    <div class="navbar-menu is-active">
+      <% if session["admin"] %>
+        <div class="navbar-start">
+          <a class="navbar-item" href="/">Clients</a>
+          <a class="navbar-item" href="/exposed-ports">Exposed ports</a>
+          <a class="navbar-item" href="/port-forwards">Port forwards</a>
+          <a class="navbar-item" href="/extra-routes">Routes</a>
+          <a class="navbar-item" href="/dns-records">DNS</a>
+          <a class="navbar-item" href="/settings">Settings</a>
+        </div>
+      <% end %>
+      <div class="navbar-end">
+        <% if session["admin"] %>
+          <div class="navbar-item">
+            <form method="post" action="/apply">
+              <%= csrf_tag("/apply") %>
+              <button class="button is-small is-link" type="submit">Re-apply state</button>
+            </form>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  </nav>
+
+  <section class="section">
+    <div class="container">
+      <% if flash["error"] %>
+        <div class="notification is-danger"><%= flash["error"] %></div>
+      <% end %>
+      <% if flash["notice"] %>
+        <div class="notification is-success"><%= flash["notice"] %></div>
+      <% end %>
+      <%= yield %>
+    </div>
+  </section>
+</body>
+</html>

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Create (or reuse) a Vultr firewall group that mirrors the host nftables policy:
+# only SSH and WireGuard reachable, nothing else. Belt-and-suspenders in front of
+# the box's own firewall, and it covers the brief window during first boot before
+# nftables loads.
+#
+# SSH source defaults to anywhere (SSH is key-only after hardening, so this is
+# safe and avoids locking yourself out behind a CGNAT/WARP egress IP). Set
+# WGCP_SSH_SRC_IP=<your.ip> to restrict SSH to a single address.
+#
+# Logs go to stderr; the firewall group ID is printed to stdout so callers can do:
+#   GID=$(deploy/vultr/ensure-firewall.sh)
+set -euo pipefail
+
+DESC="${WGCP_FW_DESC:-wgcp}"
+WG_PORT="${WGCP_LISTEN_PORT:-51820}"
+
+log() { printf '[fw] %s\n' "$*" >&2; }
+
+# SSH source: a single /32 if WGCP_SSH_SRC_IP is set, else anywhere.
+if [ -n "${WGCP_SSH_SRC_IP:-}" ]; then
+  ssh_subnet="$WGCP_SSH_SRC_IP"; ssh_size=32
+else
+  ssh_subnet="0.0.0.0"; ssh_size=0
+fi
+
+# Reuse an existing group with this description, else create one.
+gid="$(vultr-cli firewall group list -o json 2>/dev/null |
+  jq -r --arg d "$DESC" '(.firewall_groups // [])[] | select(.description==$d) | .id' | head -1)"
+
+if [ -n "$gid" ]; then
+  log "reusing firewall group $gid ($DESC) — assuming rules already set"
+  echo "$gid"
+  exit 0
+fi
+
+log "creating firewall group '$DESC'"
+gid="$(vultr-cli firewall group create -d "$DESC" -o json | jq -r '.firewall_group.id // .id')"
+[ -n "$gid" ] && [ "$gid" != "null" ] || { echo "failed to create firewall group" >&2; exit 1; }
+log "group $gid created; adding rules"
+
+# SSH (22/tcp)
+vultr-cli firewall rule create "$gid" --ip-type v4 --protocol tcp --size "$ssh_size" --subnet "$ssh_subnet" --port 22 \
+  --notes "ssh" >&2
+# WireGuard (UDP) from anywhere, v4 and v6
+vultr-cli firewall rule create "$gid" --ip-type v4 --protocol udp --size 0 --subnet 0.0.0.0 --port "$WG_PORT" \
+  --notes "wireguard v4" >&2
+vultr-cli firewall rule create "$gid" --ip-type v6 --protocol udp --size 0 --subnet "::" --port "$WG_PORT" \
+  --notes "wireguard v6" >&2
+
+log "firewall group $gid ready (ssh<-${ssh_subnet}/${ssh_size}, udp/$WG_PORT<-any)"
+echo "$gid"
