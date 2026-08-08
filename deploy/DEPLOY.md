@@ -3,7 +3,7 @@
 ```bash
 cp naaf.conf.example naaf.conf     # the one file you edit
 $EDITOR naaf.conf                  # set NAAF_SSH_HOST
-./deploy.sh                        # ~20 minutes later you have a VPN
+./deploy.sh                        # a few minutes later you have a VPN
 ```
 
 That is the whole deployment. `./deploy.sh` pushes the code and your config to
@@ -29,7 +29,7 @@ provider means one script that prints an IP address.
 ## Prerequisites
 
 **Target box:** Debian 13 (trixie), 1+ vCPU, 1–2 GB RAM, root SSH access.
-Debian 12 will not work — bookworm's Rust is too old for Ruby 4.0's JIT build.
+Debian 12 is untested; rv's prebuilt Ruby needs glibc 2.35+, which trixie has.
 
 **Your machine:** `ssh` and `rsync`. `jq` and a provider CLI only if you use
 `--create`.
@@ -48,10 +48,10 @@ The provisioning steps, in the one order that works:
 
 | step | does |
 |---|---|
-| `05-swap` | 2 GB swapfile (guards the Ruby build) |
-| `10-packages` | apt: WireGuard/nftables + the Ruby build toolchain |
+| `05-swap` | 2 GB swapfile (headroom on a 1–2 GB box) |
+| `10-packages` | apt: WireGuard/nftables + a compiler for native gem extensions |
 | `20-system` | `naaf` user, dirs, IP-forward sysctl, tmpfiles, SSH hardening, `/etc/nftables.conf` from the template |
-| `30-ruby` | Ruby + YJIT via ruby-install (the long pole: 15–30 min on 1 vCPU) |
+| `30-ruby` | `rv` + Ruby with YJIT, prebuilt and checksum-verified (seconds) |
 | `40-app` | `/etc/naaf/naaf.conf` with a generated session secret, `bundle install`, both systemd units |
 | `45-litestream` | optional off-box replication; a no-op unless `NAAF_LITESTREAM_ENABLED=1` |
 | `50-bringup` | helper → `bootstrap.rb` (keys/admin-pw/endpoint host) → app → `wg-quick@wg0` |

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Ensure swap exists before the Ruby build. Compiling Ruby 4.0 with YJIT/Rust can
-# spike well past 1 GB of RAM; a swapfile keeps even the 2 GB box from OOM-killing
-# cc/rustc mid-build.
+# Ensure swap exists. This originally guarded a from-source Ruby build, which is
+# gone now that rv ships prebuilt binaries; it stays because a 1-2 GB box running
+# a compile-free deploy still benefits from headroom, and swap is cheap.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=00-lib.sh

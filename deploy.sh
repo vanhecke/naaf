@@ -103,12 +103,10 @@ set +a
 : "${NAAF_DB:=/var/lib/naaf/naaf.db}"
 : "${NAAF_WEB_PORT:=8080}"
 
-# ServerAlive* matter more than they look: the Ruby build is ~20 minutes of a
-# single SSH command producing bursty output, and a NAT or firewall that drops
-# idle flows will cut the connection mid-build. The remote step dies with the
-# session, so the whole run is lost. Re-running recovers — every step is
-# idempotent — but ruby-install only skips a COMPLETED build, so the cost of a
-# dropped connection is the full 20 minutes again.
+# ServerAlive* matter more than they look: provisioning is a single long-lived
+# SSH command producing bursty output, and a NAT or firewall that drops idle
+# flows will cut the connection mid-run. The remote step dies with the session,
+# so the run is lost — re-running recovers, since every step is idempotent.
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10
           -o ServerAliveInterval=30 -o ServerAliveCountMax=10)
 if [ -n "${NAAF_SSH_KEY:-}" ]; then
@@ -309,7 +307,7 @@ case "$ACTION" in
     ensure_admin_password
     sync_code
     log "provisioning $HOST — ${#STEPS[@]} steps"
-    info "Ruby ${NAAF_RUBY_VERSION:-4.0.6} compiles from source: expect 15-30 minutes on 1 vCPU"
+    info "Ruby ${NAAF_RUBY_VERSION:-4.0.6} arrives prebuilt via rv, so this is minutes not hours"
     info "per-step logs land in /var/log/naaf-provision/ on the box"
     run_remote "bash $NAAF_APP_DIR/deploy/provision/provision.sh" "$LOGDIR/$(ts)-deploy.log"
     verify

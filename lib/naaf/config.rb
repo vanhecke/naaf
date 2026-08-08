@@ -78,6 +78,7 @@ module Naaf
       "NAAF_SSH_USER" => "root",
       "NAAF_SSH_KEY" => nil,
       "NAAF_RUBY_VERSION" => "4.0.6",
+      "NAAF_RV_VERSION" => "0.6.0",
       "NAAF_SWAP_GB" => "2",
       "NAAF_PROVIDER" => nil,
       "NAAF_DNS_PROVIDER" => nil

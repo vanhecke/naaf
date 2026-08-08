@@ -91,9 +91,12 @@
   `--create`/`--update`/`--verify`/`--step`/`--ssh` are the same script, not a
   second path. Do not add a parallel deploy mechanism (cloud-init user-data, a
   second runner script, a Makefile target that reimplements it) — one path is
-  what keeps hand-run and automated from drifting. Ruby 4.0.6 compiles from
-  source (~15-30 min; needs swap). `bin/bootstrap.rb` reads `NAAF_ADMIN_PASSWORD`
-  / `NAAF_ENDPOINT_HOST` from the env for unattended first boot, else prompts.
+  what keeps hand-run and automated from drifting. Ruby is installed by `rv` as a
+  pinned, checksum-verified prebuilt tarball — never compiled from source, and
+  never via `curl | sh`. `NAAF_RUBY_VERSION` must be a version rv publishes;
+  provisioning fails loudly rather than falling back. `bin/bootstrap.rb` reads
+  `NAAF_ADMIN_PASSWORD` / `NAAF_ENDPOINT_HOST` from the env for unattended first
+  boot, else prompts.
 - A provider integration is ONE script printing an IP on stdout
   (`deploy/providers/<name>/create-box.sh`, selected by `NAAF_PROVIDER`). It
   creates a bare box; it must not carry user-data that duplicates provisioning.

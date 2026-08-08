@@ -147,11 +147,11 @@ These were found bringing the first box up live; the scripts already handle them
 | Gotcha | Where | Fix |
 |---|---|---|
 | `ufw` drops WireGuard/DNS/forwarding | `20-system.sh` | disable + mask ufw, delete its tables |
-| `ruby-install` URL 404s (asset is versioned) | `30-ruby.sh` | resolve download URL via the GitHub releases API |
+| Ruby version has no `rv` build | `30-ruby.sh` | `rv ruby list` shows what is published; provisioning fails loudly rather than falling back |
 | `bundle exec ruby` → `command not found: ruby` | `00-lib.sh` | put `/opt/rubies/ruby-4.0.6/bin` on `PATH` |
 | helper socket `EACCES` for the app | `deploy/naaf-helper.service` | `Group=naaf` so `RuntimeDirectory` makes `/run/naaf` root:naaf |
 | app dies on first boot (wg0 not up yet) | `bin/naaf`, sysctl, `50-bringup.sh` | rescue boot `apply!`; `net.ipv4.ip_nonlocal_bind=1`; restart naaf after wg-quick |
-| Ruby 4.0 compile OOMs on 1 GB | `05-swap.sh` | 2 GB swapfile before the build |
+| Ruby 4.0 compile OOMs on 1 GB | `05-swap.sh` | historical: Ruby is prebuilt now, swap is just headroom |
 | bootstrap re-keys on re-run (destructive) | `50-bringup.sh` | skip bootstrap when `server_pubkey` already set |
 
 **Boot ordering:** `naaf.service` is `After=wg-quick@wg0.service` (not `Requires`), so

@@ -45,6 +45,7 @@ fi
 : "${NAAF_LOG_DIR:=/var/log/naaf-provision}"
 : "${NAAF_RUBY_VERSION:=4.0.6}"
 : "${NAAF_RUBY_PREFIX:=/opt/rubies/ruby-$NAAF_RUBY_VERSION}"
+: "${NAAF_RV_VERSION:=0.6.0}"
 : "${NAAF_WG_INTERFACE:=wg0}"
 : "${NAAF_LISTEN_PORT:=51820}"
 : "${NAAF_BACKUP_DIR:=/var/lib/naaf/backups}"
@@ -52,15 +53,16 @@ fi
 : "${NAAF_LITESTREAM_ENABLED:=0}"
 export NAAF_USER NAAF_GROUP NAAF_APP_DIR NAAF_STATE_DIR NAAF_DB NAAF_RUN_DIR \
   NAAF_HELPER_SOCKET NAAF_LOG_DIR NAAF_RUBY_VERSION NAAF_RUBY_PREFIX \
-  NAAF_WG_INTERFACE NAAF_LISTEN_PORT NAAF_BACKUP_DIR NAAF_SWAP_GB \
-  NAAF_LITESTREAM_ENABLED NAAF_CONF
+  NAAF_RV_VERSION NAAF_WG_INTERFACE NAAF_LISTEN_PORT NAAF_BACKUP_DIR \
+  NAAF_SWAP_GB NAAF_LITESTREAM_ENABLED NAAF_CONF
 
-# The Ruby that ruby-install (run as root) produces. Both systemd units are
+# The Ruby that rv installs (30-ruby.sh passes the parent of this as
+# --install-dir, and rv creates ruby-<version> inside it). Both systemd units are
 # templated with this exact path at install time by 40-app.sh.
 RUBY_PREFIX="$NAAF_RUBY_PREFIX"
 RUBY_BIN="$RUBY_PREFIX/bin/ruby"
 export RUBY_PREFIX RUBY_BIN
 
-# Put the built Ruby on PATH so `bundle exec ruby` and gem executables resolve
-# (root's login PATH has no chruby). Harmless before 30-ruby builds it.
+# Put the installed Ruby on PATH so `bundle exec ruby` and gem executables
+# resolve. Harmless before 30-ruby installs it.
 case ":$PATH:" in *":$RUBY_PREFIX/bin:"*) ;; *) export PATH="$RUBY_PREFIX/bin:$PATH" ;; esac

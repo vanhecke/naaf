@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# System packages: WireGuard/nftables runtime, the Ruby 4.0 build toolchain, and
-# the handful of CLI tools the app and provisioning rely on. Mirrors SETUP §1.
+# System packages: the WireGuard/nftables runtime, a compiler for native gem
+# extensions, and the handful of CLI tools the app and provisioning rely on.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=00-lib.sh
@@ -13,22 +13,28 @@ log "apt-get update && upgrade"
 apt-get update
 apt-get -y upgrade
 
+# No Ruby *build* toolchain here any more — rv ships a prebuilt Ruby, so rustc
+# (and the ~60 MB of libstd-rust-dev behind it), autoconf, bison and the headers
+# a source build needed are gone. Gems still compile, though, and that is a
+# separate requirement from building Ruby:
+#
+#   build-essential  bcrypt, io-event, json, racc and bigdecimal build C
+#                    extensions against Ruby's own headers at `bundle install`
+#   libssl-dev       the openssl gem (4.0.2 in Gemfile.lock) compiles against
+#                    system OpenSSL headers. Ruby having openssl statically
+#                    linked does NOT cover this — the gem is a separate build,
+#                    and without this bundle install dies on `openssl/ssl.h`.
+#   pkg-config       openssl's extconf.rb looks for it before falling back
+#   xz-utils         30-ruby.sh unpacks rv's .tar.xz
+#   sqlite3          the CLI: verify.sh, 50-bringup's bootstrap guard, ops.
+#                    The sqlite3 *gem* ships precompiled per-platform, so it
+#                    needs no compiler and no libsqlite3-dev.
 log "installing packages"
 apt-get install -y --no-install-recommends \
   wireguard wireguard-tools nftables sqlite3 git rsync curl ca-certificates jq \
-  build-essential autoconf bison patch rustc libssl-dev libyaml-dev \
-  libreadline-dev zlib1g-dev libncurses-dev libffi-dev libgmp-dev \
-  libjemalloc-dev unattended-upgrades
+  xz-utils build-essential pkg-config libssl-dev unattended-upgrades
 
 cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 EOF
-
-# Ruby 4.0 needs OpenSSL 3.x and a recent Rust to build the JITs.
-log "rustc:   $(rustc --version 2>/dev/null || echo MISSING)"
-log "openssl: $(openssl version 2>/dev/null || echo MISSING)"
-rust_ver="$(rustc --version 2>/dev/null | awk '{print $2}')"
-if [ -n "$rust_ver" ] && [ "$(printf '%s\n1.85.0\n' "$rust_ver" | sort -V | head -1)" != "1.85.0" ]; then
-  log "WARNING: rustc $rust_ver < 1.85 — the Ruby YJIT build may fail; consider rustup."
-fi

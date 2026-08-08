@@ -23,7 +23,7 @@ a small root helper.
 ```bash
 cp naaf.conf.example naaf.conf     # the one file you edit
 $EDITOR naaf.conf                  # set NAAF_SSH_HOST
-./deploy.sh                        # ~20 minutes later you have a VPN
+./deploy.sh                        # a few minutes later you have a VPN
 ```
 
 Any Debian 13 host you can reach as root over SSH. No box yet? Set
@@ -84,7 +84,9 @@ docs/TROUBLESHOOTING.md operations, the WireGuard-not-connecting playbook, gotch
 
 ## Development (macOS or Linux dev box)
 
-Requires **Ruby 4.0.6** (via ruby-install + chruby) and Bundler.
+Requires **Ruby 4.0.6** and Bundler. `rv ruby install` is the quickest way to
+get it (`brew install rv`, or see https://rv.dev); anything that puts 4.0.6 on
+your `PATH` works.
 
 ```bash
 bundle install
@@ -138,8 +140,9 @@ about the WAN interface name. One command does all of it:
 It is idempotent — run it again after editing `naaf.conf`, or against a box where
 something failed half way, and it picks up where it left off. The admin password
 is asked for once, on a first deploy, and never stored in plaintext anywhere.
-Ruby is compiled from source with YJIT (~15–30 min on 1 vCPU + swap) — the long
-pole, and the reason a first deploy takes about twenty minutes.
+Ruby is installed by [rv](https://rv.dev) as a pinned, checksum-verified prebuilt
+tarball — seconds rather than the 15–30 minute source compile this used to need,
+which was most of a first deploy.
 
 `deploy/providers/` holds optional worked examples for creating a box on Vultr
 and upserting a record in DNSimple. Neither is required; adding another provider
