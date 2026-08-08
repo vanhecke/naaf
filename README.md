@@ -18,9 +18,21 @@ a small root helper.
   **once** in the download/QR, and never stored — `clients` has no private-key column.
 - **No Node.** ERB + vendored Bulma + vendored htmx; htmx is the only client-side JS.
 
-See **`deploy/DEPLOY.md`** for deploying to a VPS, **`docs/TROUBLESHOOTING.md`** for
-operations and gotchas, **`AGENTS.md`** for the working conventions and boundaries,
-and **`CONTRIBUTING.md`** if you want to change something.
+## Quick start
+
+```bash
+cp naaf.conf.example naaf.conf     # the one file you edit
+$EDITOR naaf.conf                  # set NAAF_SSH_HOST
+./deploy.sh                        # ~20 minutes later you have a VPN
+```
+
+Any Debian 13 host you can reach as root over SSH. No box yet? Set
+`NAAF_PROVIDER` and run `./deploy.sh --create` to create one first.
+
+See [Deploying](#deploying) below and **`deploy/DEPLOY.md`** for the detail,
+**`docs/TROUBLESHOOTING.md`** for operations and gotchas, **`AGENTS.md`** for the
+working conventions and boundaries, and **`CONTRIBUTING.md`** if you want to
+change something.
 
 ## What the admin UI manages
 
@@ -60,11 +72,12 @@ views/                  ERB templates (Bulma markup; plain form POST + redirect)
 vendor/                 bulma.min.css, htmx.min.js (served by Roda :public)
 test/                   sus tests (renderers, ipam, reconciler, zone, app, config,
                         backup, bootstrap)
+deploy.sh               the one deploy command (create, provision, update, verify)
 deploy/                 host artifacts (systemd, nftables template, sysctl, tmpfiles)
 deploy/provision/       idempotent provisioning steps (05-swap … 50-bringup)
-deploy/run-remote.sh    drives provisioning against any root-SSH-reachable box
+deploy/verify.sh        post-deploy assertions, run on the box
 deploy/providers/       optional per-provider box creation and DNS (vultr, dnsimple)
-deploy/DEPLOY.md        the staged deploy runbook
+deploy/DEPLOY.md        the deploy runbook
 docs/BACKUP.md          snapshots, Litestream, restore, box migration
 docs/TROUBLESHOOTING.md operations, the WireGuard-not-connecting playbook, gotchas
 ```
@@ -111,25 +124,28 @@ are tested directly without root or a live kernel. Running the full server (`bin
 ## Deploying
 
 Deploys to **any Debian 13 (trixie) host you can reach as root over SSH** — there is
-no provider API in the deployment path. Two stages, documented in
-**`deploy/DEPLOY.md`**:
+no provider API in the deployment path, no metadata endpoint, and no assumption
+about the WAN interface name. One command does all of it:
 
-- **Stage 1** — rsync the repo to the box, run `deploy/provision/*` steps one-by-one
-  over SSH (`deploy/run-remote.sh <ip> step <NN>`) and read each log. De-risks the
-  provisioning.
-- **Stage 2** — hand the verified steps to cloud-init as a `#!/bin/bash` user-data
-  script so a fresh box self-provisions, then point DNS at it.
+```bash
+./deploy.sh                 # provision NAAF_SSH_HOST end to end, then verify
+./deploy.sh --create        # create the box first (NAAF_PROVIDER), then the above
+./deploy.sh --update        # push code + restart; no provisioning
+./deploy.sh --verify        # re-run the post-deploy checks
+./deploy.sh --step 30-ruby  # re-run one provisioning step
+```
+
+It is idempotent — run it again after editing `naaf.conf`, or against a box where
+something failed half way, and it picks up where it left off. The admin password
+is asked for once, on a first deploy, and never stored in plaintext anywhere.
+Ruby is compiled from source with YJIT (~15–30 min on 1 vCPU + swap) — the long
+pole, and the reason a first deploy takes about twenty minutes.
 
 `deploy/providers/` holds optional worked examples for creating a box on Vultr
 and upserting a record in DNSimple. Neither is required; adding another provider
-means one script that prints an IP.
+means one script that prints an IP address.
 
-The same idempotent `deploy/provision/*.sh` steps run in both stages, so there is no
-drift between "hand-run" and "automated". Ruby 4.0.6 is compiled from source with YJIT
-(~15–30 min on 1 vCPU + swap) — the long pole.
-
-**Update flow on a running box:** `git pull` (or rsync) into `/opt/naaf` then
-`sudo systemctl restart naaf` (the helper only needs a restart if `bin/naaf-helper` changed).
+Full runbook, including what each provisioning step does: **`deploy/DEPLOY.md`**.
 
 ## Operations
 

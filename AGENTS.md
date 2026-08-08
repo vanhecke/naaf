@@ -17,7 +17,7 @@
 - Full gate: `bin/ci`
 - Apply state by hand: POST /apply, or `Reconciler#apply!` in a console
 - Inspect live: `sudo wg show wg0`, `sudo nft list table inet naaf`
-- Deploy: `deploy/run-remote.sh <ip> sync` then the steps; `deploy/DEPLOY.md`
+- Deploy: `./deploy.sh` (one command, idempotent); `deploy/DEPLOY.md`
 - Troubleshoot a live box: `docs/TROUBLESHOOTING.md`
 
 ## Architecture conventions
@@ -86,11 +86,17 @@
   in the deploy path, and the WAN interface is discovered at bootstrap from
   `ip -o -4 route show to default` — never hardcode `eth0`/`ens3`. `deploy/providers/`
   is optional worked examples, not the supported path.
-- Deploy is a two-stage flow (`deploy/DEPLOY.md`); the same idempotent
-  `deploy/provision/*.sh` steps run hand-run (Stage 1) and via cloud-init
-  (Stage 2), so there is no drift. Ruby 4.0.6 compiles from source (~15-30 min; needs
-  swap). `bin/bootstrap.rb` reads `NAAF_ADMIN_PASSWORD` / `NAAF_ENDPOINT_HOST` from the
-  env for unattended first boot, else prompts.
+- There is exactly ONE deploy action: `./deploy.sh`. It syncs, runs every
+  idempotent `deploy/provision/*.sh` step via `provision.sh`, and verifies.
+  `--create`/`--update`/`--verify`/`--step`/`--ssh` are the same script, not a
+  second path. Do not add a parallel deploy mechanism (cloud-init user-data, a
+  second runner script, a Makefile target that reimplements it) — one path is
+  what keeps hand-run and automated from drifting. Ruby 4.0.6 compiles from
+  source (~15-30 min; needs swap). `bin/bootstrap.rb` reads `NAAF_ADMIN_PASSWORD`
+  / `NAAF_ENDPOINT_HOST` from the env for unattended first boot, else prompts.
+- A provider integration is ONE script printing an IP on stdout
+  (`deploy/providers/<name>/create-box.sh`, selected by `NAAF_PROVIDER`). It
+  creates a bare box; it must not carry user-data that duplicates provisioning.
 - `deploy/*.service` and `deploy/nftables.conf.template` carry `__NAAF_*__`
   placeholders substituted from `naaf.conf` at install time. Never install them
   verbatim, and never reintroduce a hardcoded path or port into them.

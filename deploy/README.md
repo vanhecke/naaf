@@ -1,14 +1,14 @@
 # deploy/ — server-side artifacts
 
 These files are **not** loaded by the application. They are versioned copies of
-the host configuration installed on the Debian 13 VPS during setup — see
-[`DEPLOY.md`](DEPLOY.md) for the full flow, which installs all of them for you.
-Keeping them in the repo makes the deployment reviewable and reproducible. Paths
-below assume the app lives at `/opt/naaf`.
+the host configuration installed on the Debian 13 VPS during setup — `./deploy.sh`
+installs all of them for you; see [`DEPLOY.md`](DEPLOY.md). Keeping them in the
+repo makes the deployment reviewable and reproducible. Paths below assume the app
+lives at `/opt/naaf`.
 
 | repo file | install to | notes |
 |---|---|---|
-| `../naaf.conf.example` | `/etc/naaf/naaf.conf` | The one config file, 0640 root:naaf. `EnvironmentFile=` for both units. `40-app.sh` fills in a generated session secret and strips the workstation-only section. |
+| `../naaf.conf.example` | `/etc/naaf/naaf.conf` | The one config file, 0640 root:naaf. `EnvironmentFile=` for both units. `deploy.sh` installs your copy with the workstation-only section stripped; `40-app.sh` fills in a generated session secret and appends keys new in a release. |
 | `nftables.conf.template` | `/etc/nftables.conf` | Static base firewall (table `inet filter`). Rendered by `20-system.sh` with the WireGuard port and interface from `naaf.conf`, checked with `nft -c -f` **before** installing. App-owned rules live in `inet naaf` and never touch this file. |
 | `sysctl-99-naaf.conf` | `/etc/sysctl.d/99-naaf.conf` | IPv4 forwarding on, IPv6 forwarding off. `sysctl --system`. |
 | `tmpfiles-naaf.conf` | `/etc/tmpfiles.d/naaf.conf` | Recreates `/run/naaf` (socket dir) at boot. `systemd-tmpfiles --create`. |
@@ -20,7 +20,7 @@ placeholders are substituted from `naaf.conf` at install time, so the Ruby path,
 the app and state directories, the service user, the WireGuard interface and the
 listen port all come from one place. Do not install them verbatim.
 
-## Bring-up (abridged — `deploy/provision/50-bringup.sh` does this for you)
+## Bring-up (abridged — `50-bringup.sh` does this for you, as part of `./deploy.sh`)
 
 ```bash
 sudo systemctl daemon-reload

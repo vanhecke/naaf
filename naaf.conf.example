@@ -110,13 +110,14 @@ NAAF_LITESTREAM_SNAPSHOT_RETENTION=168h
 # is STRIPPED before the file is installed on a box. Do not move it above the
 # marker — provider tokens have no business in the VPN server's environment.
 #
-# NAAF_ADMIN_PASSWORD is deliberately absent: bin/bootstrap.rb reads it once,
-# bcrypt-hashes it into the database, and deploy/run-remote.sh ships it to a
-# root-only file it deletes in the same command. The hash lives in the database
-# forever; the plaintext should live nowhere.
+# NAAF_ADMIN_PASSWORD is deliberately absent: `./deploy.sh` asks for it once on a
+# first deploy and ships it to a root-only file the box deletes in the same
+# command; bin/bootstrap.rb bcrypt-hashes it into the database. The hash lives in
+# the database forever; the plaintext should live nowhere.
 
-# The box to deploy to, and how to reach it. Leave NAAF_SSH_KEY blank to use your
-# normal ssh config and agent.
+# The box to deploy to, and how to reach it — `./deploy.sh` with no arguments
+# deploys to NAAF_SSH_HOST. Leave NAAF_SSH_KEY blank to use your normal ssh
+# config and agent.
 NAAF_SSH_HOST=
 NAAF_SSH_USER=root
 NAAF_SSH_KEY=
@@ -124,16 +125,23 @@ NAAF_SSH_KEY=
 NAAF_RUBY_VERSION=4.0.6
 NAAF_SWAP_GB=2
 
-# Stage 2 only: where cloud-init clones the code from. Leave NAAF_REPO_TOKEN out
-# of this file — a token passed for one run is better than one stored forever,
-# and it ends up in the instance's provider-side metadata either way.
-NAAF_REPO_URL=
-NAAF_REPO_REF=main
+# Optional provider examples (deploy/providers/), used only by `./deploy.sh
+# --create`. Leave both blank to bring your own box: everything else here works
+# against any Debian 13 host you can already reach as root over SSH.
+#
+#   NAAF_PROVIDER      runs deploy/providers/<name>/create-box.sh   (e.g. vultr)
+#   NAAF_DNS_PROVIDER  runs deploy/providers/<name>/update-record.sh (e.g. dnsimple)
+NAAF_PROVIDER=
+NAAF_DNS_PROVIDER=
 
-# Optional provider examples (deploy/providers/). Every account-specific value is
-# required with no default: a hardcoded key id or DNS zone would silently build a
-# box in, or rewrite a record belonging to, someone else's account.
+# Every account-specific value below is required with no default: a hardcoded key
+# id or DNS zone would silently build a box in, or rewrite a record belonging to,
+# someone else's account.
 #   Vultr:    NAAF_SSH_KEY_ID (vultr-cli ssh-key list), NAAF_REGION, NAAF_PLAN,
 #             NAAF_OS, NAAF_HOSTNAME, NAAF_LABEL, NAAF_FIREWALL_GROUP,
 #             NAAF_FW_DESC, NAAF_SSH_SRC_IP
 #   DNSimple: NAAF_DNS_ZONE (example.com), NAAF_DNS_NAME (vpn), NAAF_DNS_TTL
+#
+# With a DNS provider set, NAAF_DNS_NAME.NAAF_DNS_ZONE also fills in
+# NAAF_ENDPOINT_HOST on a --create deploy, so clients dial the name and the box
+# stays migratable.

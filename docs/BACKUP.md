@@ -89,8 +89,8 @@ NAAF_LITESTREAM_PATH=/var/lib/naaf/replica
 ```
 
 ```sh
-deploy/run-remote.sh <ip> config
-deploy/run-remote.sh <ip> step 45-litestream
+./deploy.sh --sync
+./deploy.sh --step 45-litestream
 ```
 
 The step installs the pinned `.deb` from the GitHub release, verified against
@@ -128,7 +128,7 @@ Pass them once at provisioning time:
 ```sh
 export NAAF_LITESTREAM_ACCESS_KEY_ID=...
 export NAAF_LITESTREAM_SECRET_ACCESS_KEY=...
-deploy/run-remote.sh <ip> step 45-litestream
+./deploy.sh --step 45-litestream
 ```
 
 ### Notes on how it is wired
@@ -222,33 +222,40 @@ reconnects with **zero config reissue**.
 This only works if `NAAF_ENDPOINT_HOST` is a name you control. If clients dial a
 raw IP, they are pinned to that box.
 
+This is the one procedure that does **not** use a plain `./deploy.sh`: a full
+deploy would run `50-bringup` and generate a fresh server identity, which is
+exactly what you are trying to avoid. So provision up to that point, put the
+database in place, and only then bring up.
+
 ```sh
 IP=<new box>
 
 # 1. provision, but stop before bring-up
-deploy/run-remote.sh "$IP" sync
+./deploy.sh --sync "$IP"
 for s in 05-swap 10-packages 20-system 30-ruby 40-app 45-litestream; do
-  deploy/run-remote.sh "$IP" step $s
+  ./deploy.sh --step $s "$IP"
 done
 
 # 2. restore the database BEFORE 50-bringup. Its already_bootstrapped() guard
 #    keys on settings.server_pubkey, so a restored database makes it skip
 #    bootstrap entirely and keep the original server identity.
-deploy/run-remote.sh "$IP" exec 'systemctl stop litestream &&
+./deploy.sh --ssh "$IP" -- 'systemctl stop litestream &&
   sudo -u naaf litestream restore -config /etc/litestream.yml /var/lib/naaf/naaf.db &&
   systemctl start litestream'
 #    (or: scp a snapshot into /var/lib/naaf/naaf.db and chown naaf:naaf)
 
-# 3. bring up: no new keys, no new admin password, every client row intact
-export NAAF_ADMIN_PASSWORD='ignored — bootstrap is skipped, but the step requires it'
-deploy/run-remote.sh "$IP" step 50-bringup
+# 3. bring up: no new keys, no new admin password, every client row intact.
+#    No password needed — the step sees the restored server key and skips
+#    bootstrap. If it asks for one, the restore in step 2 did not land.
+./deploy.sh --step 50-bringup "$IP"
 
 # 4. refresh the facts that are about the box, not about the deployment
-deploy/run-remote.sh "$IP" exec 'cd /opt/naaf && runuser -u naaf -- \
+./deploy.sh --ssh "$IP" -- 'cd /opt/naaf && runuser -u naaf -- \
   env BUNDLE_GEMFILE=/opt/naaf/Gemfile HOME=/var/lib/naaf \
   PATH=/opt/rubies/ruby-4.0.6/bin:/usr/bin:/bin \
   bundle exec ruby bin/bootstrap.rb --refresh-network'
-deploy/run-remote.sh "$IP" exec 'systemctl restart naaf'
+./deploy.sh --ssh "$IP" -- 'systemctl restart naaf'
+./deploy.sh --verify "$IP"
 
 # 5. repoint DNS. Clients dial endpoint_host, so this is the cutover.
 ```

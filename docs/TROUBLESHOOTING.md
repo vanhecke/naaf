@@ -169,6 +169,6 @@ unlocked non-interactively** (a password manager's SSH agent, a smartcard, a
 hardware token), an unattended deploy will stall on approval prompts. Generate a
 throwaway on-disk keypair, register its public key with the provider, and drive SSH
 with `-o IdentitiesOnly=yes -o IdentityAgent=none -i <key>` so nothing touches the
-agent — this is exactly what `deploy/run-remote.sh` does when `NAAF_SSH_KEY` is set.
+agent — this is exactly what `./deploy.sh` does when `NAAF_SSH_KEY` is set.
 Install it *alongside* your normal key so you keep interactive access, and remove it
 when the deploy is done.

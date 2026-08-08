@@ -22,7 +22,7 @@ module Naaf
   #                        corrupts its view
   #   * cp of the live .db without the -wal is a torn read
   class Backup
-    STAMP = "%Y%m%dT%H%M%SZ" # same format as deploy/run-remote.sh's ts()
+    STAMP = "%Y%m%dT%H%M%SZ" # same format as deploy.sh's ts()
     NAME = /\Anaaf-\d{8}T\d{6}Z\.db\z/
 
     # Log a warning if a snapshot blocks the reactor longer than this. The

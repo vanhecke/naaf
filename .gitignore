@@ -11,7 +11,7 @@
 *.key
 *.conf.generated
 
-# deploy: local run logs from Stage-1 provisioning
+# deploy: local tee of each ./deploy.sh run
 deploy/logs/
 
 # editor / tooling caches

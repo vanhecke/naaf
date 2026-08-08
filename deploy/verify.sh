@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Post-deploy verification. Run ON the server, as root:
+# Post-deploy verification. Run ON the server, as root. `./deploy.sh` runs it as
+# the last thing it does; `./deploy.sh --verify` re-runs just this.
 #
-#   deploy/run-remote.sh <ip> verify        # from your workstation
+#   ./deploy.sh --verify                    # from your workstation
 #   bash /opt/naaf/deploy/verify.sh         # on the box
 #
 # Everything is derived from naaf.conf and the database rather than hardcoded, so

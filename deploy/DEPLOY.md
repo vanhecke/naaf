@@ -1,148 +1,120 @@
-# Deploying Naaf to a Debian 13 VPS
+# Deploying Naaf
 
-Naaf deploys to **any Debian 13 (trixie) host you can reach as root over SSH** —
-there is no provider API in the deployment path. `deploy/provision/` is plain
-Debian + systemd, and `deploy/run-remote.sh` drives it against an IP address.
+```bash
+cp naaf.conf.example naaf.conf     # the one file you edit
+$EDITOR naaf.conf                  # set NAAF_SSH_HOST
+./deploy.sh                        # ~20 minutes later you have a VPN
+```
 
-Two stages. Stage 1 de-risks provisioning by running each step by hand on a
-throwaway box and reading the output; Stage 2 bakes the *same* verified steps into
-cloud-init so a fresh box provisions itself. Both use the identical, idempotent
-scripts under `deploy/provision/` — there is no second copy of the logic to drift.
+That is the whole deployment. `./deploy.sh` pushes the code and your config to
+the box, runs every provisioning step, and verifies the result. It is idempotent:
+run it again after editing `naaf.conf`, or against a box where something failed
+half way, and it picks up where it left off.
+
+It works against **any Debian 13 (trixie) host you can reach as root over SSH**.
+Nothing in the deployment path calls a provider API, reads a metadata endpoint,
+or assumes an interface name.
+
+## No box yet?
+
+```bash
+$EDITOR naaf.conf                  # set NAAF_PROVIDER (and optionally NAAF_DNS_PROVIDER)
+./deploy.sh --create
+```
+
+This creates the box, points DNS at it, and then does exactly the same deploy.
+`deploy/providers/` holds worked examples for Vultr and DNSimple; adding another
+provider means one script that prints an IP address.
 
 ## Prerequisites
 
-**On the target box:** Debian 13 (trixie), 1+ vCPU, 1–2 GB RAM, root SSH access.
+**Target box:** Debian 13 (trixie), 1+ vCPU, 1–2 GB RAM, root SSH access.
 Debian 12 will not work — bookworm's Rust is too old for Ruby 4.0's JIT build.
 
-**On your workstation:** `ssh`, `rsync`, `jq`.
+**Your machine:** `ssh` and `rsync`. `jq` and a provider CLI only if you use
+`--create`.
 
-**Optionally**, a provider CLI to create the box and a DNS CLI to point a name at
-it. `deploy/providers/vultr/` and `deploy/providers/dnsimple/` are worked examples for Vultr and DNSimple;
-they are conveniences, not requirements. Any box you can already SSH into works
-with Stage 1 as written — skip straight to `run-remote.sh`.
+## What a deploy actually does
 
-## What gets provisioned (`deploy/provision/`, run in order)
+| | |
+|---|---|
+| `--create` only | run `deploy/providers/$NAAF_PROVIDER/create-box.sh`, wait for SSH, upsert DNS |
+| first deploy only | ask for the admin password, ship it to a root-only file the box deletes as it reads it |
+| always | `rsync` the repo to `/opt/naaf`, install `naaf.conf` to `/etc/naaf/naaf.conf` (0640 root:naaf, workstation-only section stripped) |
+| always | run `deploy/provision/provision.sh` — the seven steps below |
+| always | run `deploy/verify.sh` and print how to reach the admin UI |
+
+The provisioning steps, in the one order that works:
+
 | step | does |
 |---|---|
 | `05-swap` | 2 GB swapfile (guards the Ruby build) |
-| `10-packages` | apt: WireGuard/nftables + Ruby 4.0 build toolchain |
-| `20-system` | `naaf` user, dirs, IP-forward sysctl, tmpfiles, SSH hardening, static `/etc/nftables.conf` |
-| `30-ruby` | Ruby 4.0.6 + YJIT via ruby-install → `/opt/rubies/ruby-4.0.6` (slow: 15–30 min on 1 vCPU) |
-| `40-app` | `/etc/naaf/naaf.conf` (generated session secret), `bundle install`, install both systemd units |
+| `10-packages` | apt: WireGuard/nftables + the Ruby build toolchain |
+| `20-system` | `naaf` user, dirs, IP-forward sysctl, tmpfiles, SSH hardening, `/etc/nftables.conf` from the template |
+| `30-ruby` | Ruby + YJIT via ruby-install (the long pole: 15–30 min on 1 vCPU) |
+| `40-app` | `/etc/naaf/naaf.conf` with a generated session secret, `bundle install`, both systemd units |
 | `45-litestream` | optional off-box replication; a no-op unless `NAAF_LITESTREAM_ENABLED=1` |
 | `50-bringup` | helper → `bootstrap.rb` (keys/admin-pw/endpoint host) → app → `wg-quick@wg0` |
 
-Every step logs to `/var/log/naaf-provision/<step>.log` on the box; Stage-1 runs
-also tee to `deploy/logs/` locally (gitignored).
+Every step is idempotent and logs to `/var/log/naaf-provision/<step>.log` on the
+box; the whole run is also tee'd to `deploy/logs/` locally (gitignored).
 
-## Stage 1 — verify on a vanilla box
+`50-bringup` generates the server keypair exactly once, guarded on
+`settings.server_pubkey` being set. That guard is why re-deploying is safe, why a
+re-deploy needs no admin password, and why [restoring a database onto a fresh
+box](../docs/BACKUP.md) keeps the original server identity.
 
-```bash
-IP=<your box's public IP>
+## First login
 
-# 0. one config file. Edit it for a non-default subnet, port, DNS domain, or to
-#    turn on Litestream. NAAF_SSH_KEY there pins a specific key; leave it blank
-#    to use your normal ssh config and agent.
-cp naaf.conf.example naaf.conf
-
-# 1. push the repo and install naaf.conf, then run steps one at a time
-deploy/run-remote.sh "$IP" sync
-deploy/run-remote.sh "$IP" step 05-swap
-deploy/run-remote.sh "$IP" step 10-packages
-deploy/run-remote.sh "$IP" step 20-system
-deploy/run-remote.sh "$IP" step 30-ruby        # the long one
-deploy/run-remote.sh "$IP" step 40-app
-deploy/run-remote.sh "$IP" step 45-litestream  # no-op unless replication is on
-
-# 2. bring-up needs the admin password (+ the FQDN clients will dial)
-export NAAF_ADMIN_PASSWORD='choose-a-strong-one'
-export NAAF_ENDPOINT_HOST='vpn.example.com'
-deploy/run-remote.sh "$IP" step 50-bringup
-
-# 3. assert the invariants: tunnel-only binds, ufw not back on the netfilter
-#    hooks, firewall and daemon agreeing on the port, backups written 0600,
-#    no client private key anywhere. Everything is read from your naaf.conf and
-#    database, so it checks this deployment rather than a reference one.
-deploy/run-remote.sh "$IP" verify
-
-# 4. eyeball it: admin UI over the SSH forward
-ssh -L 8080:127.0.0.1:8080 root@"$IP"          # open http://localhost:8080
-```
-
-Fix any failing step and re-run just that step — they are idempotent.
-
-`NAAF_ENDPOINT_HOST` is the hostname baked into every client config. Set it to a
-name you control and you can migrate to a new box later by repointing DNS, with
-no client reconfiguration. Leave it unset and clients dial the box's public IPv4
-directly, which pins them to that box.
-
-## Stage 2 — self-provisioning box
-
-Push the verified repo somewhere cloud-init can clone it (see the code-delivery
-note below), then hand the provider this user-data script:
+The admin UI binds the WireGuard IP and `127.0.0.1`, never a public address — so
+before you have a client, reach it over an SSH forward:
 
 ```bash
-#!/bin/bash
-set -euxo pipefail
-export DEBIAN_FRONTEND=noninteractive
-apt-get update && apt-get install -y git ca-certificates
-git clone --depth 1 --branch main https://github.com/<owner>/<repo>.git /opt/naaf
-export NAAF_ADMIN_PASSWORD='choose-a-strong-one'
-export NAAF_ENDPOINT_HOST='vpn.example.com'
-bash /opt/naaf/deploy/provision/provision.sh
+ssh -L 8080:127.0.0.1:8080 root@<box>     # then open http://localhost:8080
 ```
 
-Every provider that supports cloud-init accepts a `#!/bin/bash` user-data script,
-so this is portable as-is. `deploy/providers/vultr/create-box.sh --auto` generates exactly
-this and passes it to `vultr-cli` for you.
+Add a client, scan the QR, and you are on the tunnel. After that the UI is at
+`http://10.8.0.1:8080` whenever the tunnel is up.
 
-Watch it come up, then point DNS at the box:
+## When something goes wrong
+
+Same script, same config, no new concepts:
 
 ```bash
-ssh root@"$IP" 'tail -f /var/log/cloud-init-output.log'
-ssh root@"$IP" 'ls -la /var/log/naaf-provision/'
+./deploy.sh --verify              # re-run the post-deploy checks
+./deploy.sh --step 30-ruby        # re-run one provisioning step
+./deploy.sh --ssh -- 'journalctl -u naaf -n 100 --no-pager'
 ```
 
-### Code delivery (why Stage 2 needs a repo URL)
-
-Stage 1 rsyncs your working tree over SSH. Stage 2's cloud-init runs on the box
-with no path back to your workstation, so it `git clone`s the repo. Nothing secret
-is in git (`naaf.conf` is ignored; server and client keys live in the database,
-never the repo), so a **public** repo needs no token. For a **private** repo, pass
-a read-only token — but note it is then stored in the instance's user-data at your
-provider, so rotate or detach it afterwards.
-
-`deploy/cloud-init.sh.example` is the same script as a standalone file you can
-fill in and paste, including a commented block for shipping your own `naaf.conf`.
+Steps are idempotent, so re-running the one that failed is always safe. If a
+client can't connect, DNS times out, or full-tunnel is dead, start with
+[`docs/TROUBLESHOOTING.md`](../docs/TROUBLESHOOTING.md) — the most common cause
+is `ufw`, which provisioning disables but cloud images keep reintroducing.
 
 ## Updating a running box
 
 ```bash
-deploy/run-remote.sh "$IP" sync
-ssh root@"$IP" 'systemctl restart naaf'   # also restart naaf-helper if bin/naaf-helper changed
+./deploy.sh --update              # rsync + restart, no provisioning
 ```
+
+Use a full `./deploy.sh` when the change touches provisioning: a new config key,
+a systemd unit, the nftables template, a Ruby version bump.
+
+## Endpoint host, and migrating boxes
+
+`NAAF_ENDPOINT_HOST` is the name baked into every client config. Set it to a name
+you control and you can move to a new box by repointing DNS, with no client
+reconfiguration. Leave it blank and clients dial the box's public IPv4 directly,
+which pins them to that box forever.
+
+The database holds the server private key and every peer, so it *is* the
+deployment. Restoring it onto a fresh box and repointing DNS moves the whole
+service — see [`docs/BACKUP.md`](../docs/BACKUP.md).
 
 ## Provider examples
 
-`deploy/providers/vultr/create-box.sh` (create an instance, `--vanilla` or `--auto`),
-`deploy/providers/vultr/ensure-firewall.sh` (a group allowing only 22/tcp and 51820/udp),
-and `deploy/providers/dnsimple/update-record.sh` (idempotent A/AAAA upsert in DNSimple). Each
-requires its own CLI to be authenticated and takes account-specific values from
-environment variables with no defaults — read the header comment of each script.
-
-Adding another provider means one script that creates a box and prints its IP;
-everything downstream is provider-agnostic.
-
-## Backups and migrating to another box
-
-The database holds the server private key and every peer, so it *is* the
-deployment. Snapshots are on by default; Litestream replication is one config
-key away. Restoring onto a fresh box and repointing DNS moves the whole service
-with **no client reconfiguration** — see [`docs/BACKUP.md`](../docs/BACKUP.md).
-
-## Troubleshooting
-
-If a client can't connect, DNS times out, or full-tunnel is dead, start with
-[`docs/TROUBLESHOOTING.md`](../docs/TROUBLESHOOTING.md). The most common cause is
-a second firewall (`ufw`) on the host — provisioning disables it, but it is the
-first thing to check.
+`deploy/providers/vultr/create-box.sh` creates an instance and prints its IP,
+attaching a firewall group that allows only 22/tcp and the WireGuard port.
+`deploy/providers/dnsimple/update-record.sh` upserts an A (and optional AAAA)
+record. Each needs its own authenticated CLI and takes account-specific values
+from `naaf.conf` with no defaults — read the header comment of each script.

@@ -7,7 +7,7 @@ require_relative "db"
 
 module Naaf
   # First-boot provisioning helpers, split out of bin/bootstrap.rb so the
-  # environment-driven paths (unattended cloud-init) are testable without a live
+  # environment-driven paths (unattended provisioning) are testable without a live
   # helper socket or network. The script gathers side-effectful inputs (helper
   # genkeys, curl/ip detection, the password prompt) and hands them here.
   module Bootstrap

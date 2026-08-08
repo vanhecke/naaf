@@ -79,8 +79,8 @@ module Naaf
       "NAAF_SSH_KEY" => nil,
       "NAAF_RUBY_VERSION" => "4.0.6",
       "NAAF_SWAP_GB" => "2",
-      "NAAF_REPO_URL" => nil,
-      "NAAF_REPO_REF" => "main"
+      "NAAF_PROVIDER" => nil,
+      "NAAF_DNS_PROVIDER" => nil
     }.freeze
 
     # Keys a complete naaf.conf.example may legitimately omit.

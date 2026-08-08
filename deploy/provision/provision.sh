@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Run every provisioning step in order, teeing each to its own log under
-# /var/log/naaf-provision. Safe to re-run — steps are idempotent. Needs
-# NAAF_ADMIN_PASSWORD (and optionally NAAF_ENDPOINT_HOST) for the bring-up step.
-# Used verbatim by the Stage-2 cloud-init path; in Stage 1 you run the steps
-# one-by-one instead (see deploy/run-remote.sh).
+# /var/log/naaf-provision. Safe to re-run — steps are idempotent.
+#
+# This is what `./deploy.sh` runs on the box once the code is in place. Running
+# it here by hand is the same deploy minus the sync, which is occasionally what
+# you want when you are already on the box. A box that has never been
+# bootstrapped needs NAAF_ADMIN_PASSWORD in the environment (optionally
+# NAAF_ENDPOINT_HOST too); one that has been needs neither.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=00-lib.sh

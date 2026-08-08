@@ -15,16 +15,16 @@ export BUNDLE_GEMFILE="$APP/Gemfile"
 [ -x "$RUBY_BIN" ] || die "Ruby not found at $RUBY_BIN — run 30-ruby.sh first"
 [ -f "$APP/Gemfile" ] || die "repo not present at $APP — deliver the code first"
 
-# The one config file. It lives in /etc, deliberately outside $APP: run-remote.sh
+# The one config file. It lives in /etc, deliberately outside $APP: deploy.sh
 # rsyncs --delete into $APP, so anything kept there is one careless sync from
 # being erased. /etc/naaf is never in the rsync blast radius.
 CONF=/etc/naaf/naaf.conf
 install -d -o root -g "$NAAF_GROUP" -m 0750 /etc/naaf
 
 # Generate the session secret if it is absent or blank. This has to run for BOTH
-# branches below: the common path is run-remote.sh shipping a naaf.conf derived
-# from naaf.conf.example, which carries NAAF_SESSION_SECRET= empty, and the app
-# raises KeyError at boot without it.
+# branches below: the common path is deploy.sh shipping a naaf.conf derived from
+# naaf.conf.example, which carries NAAF_SESSION_SECRET= empty, and the app raises
+# KeyError at boot without it.
 ensure_session_secret() {
   local f="$1" cur
   cur="$(sed -n 's/^NAAF_SESSION_SECRET=//p' "$f" | head -1)"
@@ -40,8 +40,9 @@ ensure_session_secret() {
 }
 
 # The committed example is the key list. An operator's own values arrive
-# separately — `run-remote.sh <ip> config`, or cloud-init writing the file — which
-# is why $CONF existing is the common case and the branch below only fills gaps.
+# separately: deploy.sh installs their naaf.conf to $CONF before this step runs,
+# which is why $CONF existing is the common case and the branch below only fills
+# gaps. Running provision.sh by hand on the box is the case where it does not.
 # The WORKSTATION ONLY section is stripped either way: SSH key paths and repo
 # tokens have no business in the VPN server's environment, and this file is
 # EnvironmentFile= for naaf.service.
@@ -66,8 +67,8 @@ fi
 
 ensure_session_secret "$CONF"
 
-# Enforce ownership and mode every run: `run-remote.sh sync` may have written the
-# file before 20-system.sh created the service group, in which case it is still
+# Enforce ownership and mode every run: deploy.sh may have written the file
+# before 20-system.sh created the service group, in which case it is still
 # root:root and bin/bootstrap.rb (which runs as the service user) cannot read it.
 chown root:"$NAAF_GROUP" "$CONF"
 chmod 0640 "$CONF"

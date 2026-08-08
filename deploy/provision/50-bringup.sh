@@ -2,7 +2,8 @@
 # Bring the stack up in the one order that works: helper (creates the socket) →
 # bootstrap (server keys + admin pw + endpoint host) → app (first apply writes
 # the WireGuard conf) → wg-quick (creates the interface from that conf).
-# Requires NAAF_ADMIN_PASSWORD; NAAF_ENDPOINT_HOST optional.
+# NAAF_ADMIN_PASSWORD is required only on a box that has never been bootstrapped;
+# NAAF_ENDPOINT_HOST is optional.
 set -euo pipefail
 
 # Capture the per-run overrides BEFORE sourcing 00-lib.sh. `set -a; . naaf.conf`
@@ -17,7 +18,6 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/00-lib.sh"
 require_root
 
-: "${NAAF_ADMIN_PASSWORD:?set NAAF_ADMIN_PASSWORD (min 8 chars) before running 50-bringup}"
 ENDPOINT_HOST="${EH_OVERRIDE:-${NAAF_ENDPOINT_HOST:-}}"
 APP="$NAAF_APP_DIR"
 WG_IF="$NAAF_WG_INTERFACE"
@@ -65,6 +65,10 @@ wait_for "$NAAF_HELPER_SOCKET" "helper socket"
 if already_bootstrapped; then
   log "already bootstrapped (server key present) — skipping bootstrap"
 else
+  # Checked here rather than at the top of the script so that re-running a deploy
+  # against a live box needs no secret at all. The password is only ever consumed
+  # by the one-time bootstrap below.
+  : "${NAAF_ADMIN_PASSWORD:?set NAAF_ADMIN_PASSWORD (min 8 chars) — this box has never been bootstrapped}"
   log "bootstrap (keys, admin password${ENDPOINT_HOST:+, endpoint host $ENDPOINT_HOST})"
   # runuser scrubs the environment, so NAAF_CONF has to be passed explicitly or
   # bootstrap would not find the config file to seed from.
