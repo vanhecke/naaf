@@ -106,6 +106,15 @@ module Naaf
       mtu: "NAAF_MTU"
     }.freeze
 
+    # Seeds that bootstrap DETECTS from the box rather than taking from the
+    # operator. naaf.conf still carries a placeholder so the key list is complete,
+    # but the stored value comes from `ip -o -4 route show to default`, so on any
+    # box whose NIC is not eth0 — which is most of them — conf and DB disagree by
+    # design. Reporting that as drift would fire on every boot forever, and a
+    # warning that always fires is one nobody reads when wg_interface really is
+    # half-renamed. That case is what drift is for; keep it audible.
+    DETECTED = [:wan_interface].freeze
+
     SEARCH = ["/etc/naaf/naaf.conf", File.expand_path("../../naaf.conf", __dir__)].freeze
 
     # KEY=value only. No `export`, no expansion — the grammar is the intersection
@@ -156,6 +165,7 @@ module Naaf
       # different interfaces.
       def drift(settings)
         SEEDS.filter_map do |col, key|
+          next if DETECTED.include?(col)
           want = self[key].to_s
           have = settings[col].to_s
           next if want.empty? || want == have

@@ -140,5 +140,21 @@ describe Naaf::Config do
       expect(drift.size).to be == 1
       expect(drift.first).to be == {key: "NAAF_DNS_DOMAIN", conf: "vpn", db: "internal"}
     end
+
+    # bootstrap writes the NIC it detected, so this disagrees with the naaf.conf
+    # placeholder on nearly every cloud box. Warning about it every boot is how a
+    # drift warning stops being read.
+    it "stays quiet about the WAN interface, which bootstrap detects" do
+      settings = reset_db!(wan_interface: "enp1s0")[:settings].first
+      expect(Naaf::Config.drift(settings)).to be(:empty?)
+    end
+
+    # The case drift exists for: the helper takes wg_interface from naaf.conf
+    # while the renderers take it from the database, so a half-finished rename
+    # points nft at one interface and wg syncconf at another, silently.
+    it "still reports a wg_interface disagreement, the failure it exists to catch" do
+      settings = reset_db!(wg_interface: "wg1")[:settings].first
+      expect(Naaf::Config.drift(settings).map { |d| d[:key] }).to be == ["NAAF_WG_INTERFACE"]
+    end
   end
 end

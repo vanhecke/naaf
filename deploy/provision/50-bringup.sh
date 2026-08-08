@@ -39,6 +39,20 @@ wait_for() { # <path> <what>
   die "timed out waiting for $2 ($1)"
 }
 
+wait_until() { # <what> <cmd...>
+  local what="$1"; shift
+  for _ in $(seq 1 60); do "$@" >/dev/null 2>&1 && return 0; sleep 1; done
+  die "timed out waiting for $what"
+}
+
+# systemd reports the unit `active` as soon as the process is exec'd, which is a
+# second or so before Falcon binds and the boot apply reaches the kernel. Without
+# waiting, this step reports success on a stack that is not serving yet, and
+# anything that inspects the box straight afterwards — deploy.sh runs verify.sh
+# immediately — races a perfectly healthy boot and reports a false failure.
+web_listening() { ss -ltnH "( sport = :${NAAF_WEB_PORT:-8080} )" | grep -q .; }
+rules_applied() { nft list table inet naaf; }
+
 # True once the server keypair exists — bootstrap regenerates keys and the admin
 # password, so it must run exactly once. Re-runs of this step then skip it.
 #
@@ -95,6 +109,14 @@ systemctl enable --now "wg-quick@$WG_IF"
 # the very first bring-up.
 log "restarting naaf for a clean apply on the live interface"
 systemctl restart naaf
+
+# Both conditions, because they fail differently: no listener means the web task
+# never started, while a missing `inet naaf` table means it started but the apply
+# through the helper did not land.
+log "waiting for the admin UI to listen on :${NAAF_WEB_PORT:-8080}"
+wait_until "the admin UI to listen" web_listening
+log "waiting for the first nftables apply (table inet naaf)"
+wait_until "the first nftables apply" rules_applied
 
 systemctl --no-pager --lines=0 status naaf-helper naaf "wg-quick@$WG_IF" || true
 log "bring-up complete — admin UI on 127.0.0.1:${NAAF_WEB_PORT:-8080} (reach via ssh -L 8080:127.0.0.1:8080)"

@@ -103,7 +103,14 @@ set +a
 : "${NAAF_DB:=/var/lib/naaf/naaf.db}"
 : "${NAAF_WEB_PORT:=8080}"
 
-SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10)
+# ServerAlive* matter more than they look: the Ruby build is ~20 minutes of a
+# single SSH command producing bursty output, and a NAT or firewall that drops
+# idle flows will cut the connection mid-build. The remote step dies with the
+# session, so the whole run is lost. Re-running recovers — every step is
+# idempotent — but ruby-install only skips a COMPLETED build, so the cost of a
+# dropped connection is the full 20 minutes again.
+SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10
+          -o ServerAliveInterval=30 -o ServerAliveCountMax=10)
 if [ -n "${NAAF_SSH_KEY:-}" ]; then
   # An explicit key also pins it: ignore any ssh-agent so an unattended run never
   # blocks on an agent-approval prompt (password-manager agents do this).
@@ -149,6 +156,18 @@ point_dns() {
   "$script" "$HOST"
 }
 
+# The name clients dial, filled in from the DNS settings when it is not set
+# explicitly. It only takes effect on a first deploy — after that the database is
+# authoritative and the settings UI edits it — but getting it right *then* is the
+# difference between a deployment you can move to another box by repointing DNS
+# and one where every issued client config is pinned to this box's address.
+derive_endpoint_host() {
+  [ -z "${NAAF_ENDPOINT_HOST:-}" ] || return 0
+  [ -n "${NAAF_DNS_NAME:-}" ] && [ -n "${NAAF_DNS_ZONE:-}" ] || return 0
+  export NAAF_ENDPOINT_HOST="$NAAF_DNS_NAME.$NAAF_DNS_ZONE"
+  info "clients will dial $NAAF_ENDPOINT_HOST (from NAAF_DNS_NAME + NAAF_DNS_ZONE)"
+}
+
 # ────────────────────────────────────────────────────────── admin password
 # Only a first deploy needs it: 50-bringup.sh skips bootstrap once the server
 # keypair exists, which is also what makes restore-onto-a-new-box work.
@@ -186,19 +205,12 @@ install_config() {
   # provider tokens have no business in the VPN server's environment, and this
   # file is EnvironmentFile= for naaf.service.
   #
-  # `sync` normally runs before 20-system.sh has created the service group, so the
-  # group is applied only if it already exists; 40-app.sh enforces the final
-  # ownership either way. Root-only in the meantime is the safe direction.
+  # The merge (keys left empty here never clobber a value the box generated) is
+  # done on the box by deploy/install-config.sh, which the rsync above just put
+  # there. Without it, re-deploying a healthy box wipes NAAF_SESSION_SECRET and
+  # the app dies at boot.
   sed '/^# ═*.*WORKSTATION ONLY/,$d' "$HERE/naaf.conf" |
-    ssh_ "install -d -o root -g root -m 0750 /etc/naaf &&
-          cat >/etc/naaf/naaf.conf.tmp &&
-          chmod 0640 /etc/naaf/naaf.conf.tmp &&
-          if getent group $NAAF_GROUP >/dev/null 2>&1; then
-            chown root:$NAAF_GROUP /etc/naaf/naaf.conf.tmp
-          else
-            chown root:root /etc/naaf/naaf.conf.tmp
-          fi &&
-          mv /etc/naaf/naaf.conf.tmp /etc/naaf/naaf.conf"
+    ssh_ "bash $NAAF_APP_DIR/deploy/install-config.sh $NAAF_GROUP"
 }
 
 sync_code() {
@@ -245,8 +257,7 @@ verify() {
 }
 
 summary() {
-  local mins=$(((SECONDS + 30) / 60))
-  log "done in ~${mins}m"
+  if [ "$SECONDS" -lt 90 ]; then log "done in ${SECONDS}s"; else log "done in ~$(((SECONDS + 30) / 60))m"; fi
   cat >&2 <<EOF
     Admin UI is bound to the tunnel and to loopback, never to a public address,
     so reach it over an SSH forward until you have a client:
@@ -256,12 +267,23 @@ summary() {
 
     Add a client there, scan the QR, and you are on the tunnel.
 EOF
-  if [ -z "${NAAF_ENDPOINT_HOST:-}" ]; then
+  # Read the endpoint from the database, not from naaf.conf: the config only
+  # seeds it on first boot and the settings UI edits it afterwards, so the local
+  # file goes stale and would report the opposite of the truth.
+  local endpoint
+  endpoint="$(ssh_ "sqlite3 '$NAAF_DB' 'select endpoint_host from settings' 2>/dev/null" 2>/dev/null || true)"
+  if [ -n "$endpoint" ]; then
     cat >&2 <<EOF
 
-    NAAF_ENDPOINT_HOST is unset, so client configs dial $HOST directly and are
-    pinned to this box. Set it to a name you control and re-deploy if you want to
-    be able to migrate by repointing DNS.
+    Clients dial $endpoint:$(ssh_ "sqlite3 '$NAAF_DB' 'select listen_port from settings'" 2>/dev/null), so you can move this
+    deployment to another box by restoring the database and repointing DNS.
+EOF
+  else
+    cat >&2 <<EOF
+
+    No endpoint host is set, so client configs dial $HOST directly and are pinned
+    to this box. Set one in the settings UI to be able to migrate by repointing
+    DNS — every config issued before you do stays pinned to the IP.
 EOF
   fi
 }
@@ -272,14 +294,6 @@ if [ "$CREATE" = 1 ]; then
   [ "$ACTION" = deploy ] || die "--create only makes sense with a full deploy"
   create_box
   wait_for_ssh
-  point_dns
-  # A name pointed at the box is only useful if clients dial it. Filling this in
-  # from the DNS settings is the difference between a box you can migrate off and
-  # one every client is pinned to.
-  if [ -z "${NAAF_ENDPOINT_HOST:-}" ] && [ -n "${NAAF_DNS_NAME:-}" ] && [ -n "${NAAF_DNS_ZONE:-}" ]; then
-    export NAAF_ENDPOINT_HOST="$NAAF_DNS_NAME.$NAAF_DNS_ZONE"
-    info "clients will dial $NAAF_ENDPOINT_HOST (from NAAF_DNS_NAME + NAAF_DNS_ZONE)"
-  fi
 fi
 
 HOST="${HOST:-${NAAF_SSH_HOST:-}}"
@@ -287,6 +301,11 @@ HOST="${HOST:-${NAAF_SSH_HOST:-}}"
 
 case "$ACTION" in
   deploy)
+    # Not a --create-only concern: a configured name should follow the box you
+    # deploy to, whoever created it. Scoping this to --create left every
+    # bring-your-own-box deployment silently pinned to a raw IP address.
+    point_dns
+    derive_endpoint_host
     ensure_admin_password
     sync_code
     log "provisioning $HOST — ${#STEPS[@]} steps"

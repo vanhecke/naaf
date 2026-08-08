@@ -131,6 +131,9 @@ NAAF_SWAP_GB=2
 #
 #   NAAF_PROVIDER      runs deploy/providers/<name>/create-box.sh   (e.g. vultr)
 #   NAAF_DNS_PROVIDER  runs deploy/providers/<name>/update-record.sh (e.g. dnsimple)
+#
+# With NAAF_DNS_PROVIDER set, EVERY full deploy points the record below at the box
+# it deploys to — so deploying to a different host moves the name with it.
 NAAF_PROVIDER=
 NAAF_DNS_PROVIDER=
 
