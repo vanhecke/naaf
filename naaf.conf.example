@@ -91,9 +91,21 @@ NAAF_BACKUP_KEEP=24
 # Point it at a mounted volume for a genuine second copy.
 #
 # REPLICA_TYPE=s3 works with AWS, Cloudflare R2, Backblaze B2, MinIO, Wasabi.
+# CREATE THE BUCKET FIRST — litestream never creates one, and a missing bucket
+# looks like a credentials error. Cloudflare R2 is the cheap default (10 GB free,
+# no egress fee) and wants REGION=auto with
+# ENDPOINT=https://<account-id>.r2.cloudflarestorage.com.
+#
+# The replica is NOT encrypted: litestream 0.5 removed age encryption, so an s3
+# replica holds server_privkey in plaintext at your provider. Keep the bucket
+# private and dedicated to this. See docs/BACKUP.md.
+#
 # Credentials do NOT go in this file: it is EnvironmentFile= for naaf.service, so
 # every key here lands in the web application's environment. Object-store keys go
-# in /etc/naaf/litestream.env instead, read only by litestream.
+# in /etc/naaf/litestream.env instead, read only by litestream. Pass them once at
+# provisioning time:
+#   export NAAF_LITESTREAM_ACCESS_KEY_ID=... NAAF_LITESTREAM_SECRET_ACCESS_KEY=...
+#   ./deploy.sh --step 45-litestream
 NAAF_LITESTREAM_ENABLED=0
 NAAF_LITESTREAM_VERSION=0.5.16
 NAAF_LITESTREAM_REPLICA_TYPE=file

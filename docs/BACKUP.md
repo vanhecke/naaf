@@ -107,13 +107,42 @@ a separately mounted volume and it becomes a genuine second copy.
 **`type: s3`** works with AWS, Cloudflare R2, Backblaze B2, MinIO, and Wasabi.
 This is the one that survives losing the machine.
 
+**Create the bucket first.** Litestream never creates it, and a missing bucket
+looks like a credentials error in the journal. Cloudflare R2 is the cheap default
+— 10 GB free, no egress fee, and the database is well under a megabyte. (Vultr
+Object Storage also works and is S3-compatible, but its smallest tier is $18/mo
+for 1 TB, which is a lot of money to replicate a file this size.)
+
 ```
 NAAF_LITESTREAM_REPLICA_TYPE=s3
-NAAF_LITESTREAM_BUCKET=naaf-backups
+NAAF_LITESTREAM_BUCKET=naaf
 NAAF_LITESTREAM_PREFIX=naaf
 NAAF_LITESTREAM_REGION=auto
-NAAF_LITESTREAM_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+NAAF_LITESTREAM_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 ```
+
+`REGION` and `ENDPOINT` per provider — the rest of the shape is identical:
+
+| provider | `REGION` | `ENDPOINT` |
+|---|---|---|
+| Cloudflare R2 | `auto` | `https://<account-id>.r2.cloudflarestorage.com` |
+| Backblaze B2 | `us-west-004` | `https://s3.us-west-004.backblazeb2.com` |
+| Vultr | `ewr1` | `https://ewr1.vultrobjects.com` |
+| AWS | the bucket's region | omit |
+
+R2 needs no `force-path-style` and no `sign-payload`; virtual-host addressing
+works as-is. If a different provider 403s on upload, those two are the first
+things to try — and neither is expressible in `naaf.conf` today, so it means
+extending `deploy/provision/45-litestream.sh`.
+
+> **The replica is not encrypted.** Litestream removed age encryption in v0.5.0
+> and since v0.5.1 refuses to start if an `age:` block is configured, so a
+> `type: s3` replica puts `server_privkey` and `admin_pw_hash` at rest with your
+> object-store provider **in plaintext**, protected only by the bucket being
+> private and by the keys in `/etc/naaf/litestream.env`. Use a bucket dedicated to
+> this, keep it private, and treat its credentials exactly as you would treat the
+> server private key — because that is what they reach. There is no encrypted
+> option to switch to; per-page encryption in LTX is planned upstream, not shipped.
 
 Credentials go in `/etc/naaf/litestream.env` (0640 root:naaf), **not in
 `naaf.conf`**. `naaf.conf` is `EnvironmentFile=` for `naaf.service`, so every key
@@ -153,6 +182,27 @@ export NAAF_LITESTREAM_SECRET_ACCESS_KEY=...
   would mean unbounded WAL growth whenever Litestream is off — which is the
   default configuration.
 
+### Running the CLI against an s3 replica
+
+`/etc/naaf/litestream.env` is an `EnvironmentFile=` for the *unit*, so the daemon
+has the object-store keys but a command you type does not. Every `litestream`
+invocation below therefore fails on an s3 replica with
+
+```
+get identity: get credentials: failed to refresh cached credentials,
+unexpected empty EC2 IMDS role list
+```
+
+— which reads like a broken bucket and is nothing of the sort. Source the file
+first, in the same shell:
+
+```sh
+set -a; . /etc/naaf/litestream.env; set +a
+```
+
+`file` replicas need no credentials, so this section is s3-only. The commands
+that follow assume you have run it.
+
 ### Verify replication is actually working
 
 Four checks, in increasing strength. Only the last one proves anything that
@@ -164,7 +214,8 @@ systemctl status litestream --no-pager
 
 # 2. it sees the database and has data
 litestream databases -config /etc/litestream.yml
-litestream snapshots -config /etc/litestream.yml /var/lib/naaf/naaf.db
+litestream status -config /etc/litestream.yml
+#   (there is no `litestream snapshots` in 0.5.x — it was a 0.3 command)
 
 # 3. a write actually propagates — the only end-to-end check
 litestream ltx -config /etc/litestream.yml -level 0 /var/lib/naaf/naaf.db | tail -3
@@ -175,37 +226,55 @@ litestream ltx -config /etc/litestream.yml -level 0 /var/lib/naaf/naaf.db | tail
 
 # 4. the restore actually restores. Run this the day you enable Litestream,
 #    and quarterly after.
-sudo -u naaf litestream restore -config /etc/litestream.yml \
-  -o /tmp/verify.db /var/lib/naaf/naaf.db
-sqlite3 /tmp/verify.db 'SELECT count(*) FROM clients; SELECT length(server_privkey) FROM settings;'
-rm -f /tmp/verify.db
+runuser -u naaf -- litestream restore -config /etc/litestream.yml \
+  -o /var/lib/naaf/restore-check.db /var/lib/naaf/naaf.db
+sqlite3 /var/lib/naaf/restore-check.db \
+  'PRAGMA integrity_check; SELECT count(*) FROM clients; SELECT length(server_privkey) FROM settings;'
+rm -f /var/lib/naaf/restore-check.db
 ```
 
 `length(server_privkey)`, never the value — that key is never printed anywhere.
+And the scratch file goes in `/var/lib/naaf` (0750 `naaf:naaf`), not `/tmp`:
+a restored database is a *complete copy of the server private key*, and `/tmp` is
+world-readable. Delete it when the check is done.
 
-A healthy replica gains a snapshot per `NAAF_LITESTREAM_SNAPSHOT_INTERVAL`, so a
-stale newest date from check 2 is the cheapest alarm available without a
-monitoring stack.
+`runuser -u naaf --`, not `sudo -u naaf`: `runuser` keeps the environment you
+just sourced, and `sudo` strips it — so the `sudo` form fails with the IMDS error
+above even after you have sourced the credentials.
+
+Naaf's own reconcile loop writes handshake counters every
+`NAAF_RECONCILE_INTERVAL` seconds, so on a box with clients the TXID in check 3
+advances on its own within a minute. A TXID that is *not* moving on a live box is
+the signal, and it is the cheapest alarm available without a monitoring stack.
 
 ### Restore from the replica
 
 ```sh
+set -a; . /etc/naaf/litestream.env; set +a          # s3 replicas only
 systemctl stop naaf litestream
 mv /var/lib/naaf/naaf.db{,.broken}
 rm -f /var/lib/naaf/naaf.db-wal /var/lib/naaf/naaf.db-shm
-sudo -u naaf litestream restore -config /etc/litestream.yml /var/lib/naaf/naaf.db
+runuser -u naaf -- litestream restore -config /etc/litestream.yml /var/lib/naaf/naaf.db
+chmod 0600 /var/lib/naaf/naaf.db
 sqlite3 /var/lib/naaf/naaf.db 'PRAGMA integrity_check;'
 systemctl start litestream naaf
 ```
 
-`sudo -u naaf` so the restored file is owned by the service, not by root.
+`runuser -u naaf --` so the restored file is owned by the service, not by root,
+and so the sourced credentials survive into the command — `sudo` would strip
+them.
+
+The `chmod` is not cosmetic. Litestream writes the restored file `0644` under the
+default umask, while the live database is `0600`; skipping it leaves the server
+private key world-readable on the box. Nothing later puts it back.
 
 For a point-in-time restore, always write to a side path and inspect before
 swapping:
 
 ```sh
-sudo -u naaf litestream restore -config /etc/litestream.yml \
+runuser -u naaf -- litestream restore -config /etc/litestream.yml \
   -timestamp 2026-08-07T11:00:00Z -o /var/lib/naaf/naaf.db.pit /var/lib/naaf/naaf.db
+chmod 0600 /var/lib/naaf/naaf.db.pit
 sqlite3 /var/lib/naaf/naaf.db.pit 'select name, wg_ip from clients'
 ```
 
@@ -239,8 +308,10 @@ done
 # 2. restore the database BEFORE 50-bringup. Its already_bootstrapped() guard
 #    keys on settings.server_pubkey, so a restored database makes it skip
 #    bootstrap entirely and keep the original server identity.
-./deploy.sh --ssh "$IP" -- 'systemctl stop litestream &&
-  sudo -u naaf litestream restore -config /etc/litestream.yml /var/lib/naaf/naaf.db &&
+./deploy.sh --ssh "$IP" -- 'set -a; . /etc/naaf/litestream.env; set +a
+  systemctl stop litestream &&
+  runuser -u naaf -- litestream restore -config /etc/litestream.yml /var/lib/naaf/naaf.db &&
+  chmod 0600 /var/lib/naaf/naaf.db &&
   systemctl start litestream'
 #    (or: scp a snapshot into /var/lib/naaf/naaf.db and chown naaf:naaf)
 
