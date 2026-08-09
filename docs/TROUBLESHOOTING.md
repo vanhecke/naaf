@@ -69,10 +69,15 @@ sudo nft list tables             # want ONLY: inet filter, inet naaf
 
 > **The dashboard charts exactly this.** The **Packet pipeline** strip on `/`
 > shows WAN packets/s → UDP datagrams/s delivered to a socket → wg0 packets/s
-> out of the tunnel, live. When the first number is healthy and the second is
-> flat for two ticks running it turns red and names the `nft list tables` check
-> for you. Watch it while you change a rule instead of grepping in a loop.
-> Note it reads IPv4 counters only.
+> out of the tunnel, live. Watch it while you change a rule instead of grepping
+> in a loop.
+>
+> Read the middle number as a hint, not a verdict: `Udp: InDatagrams` is
+> host-wide and IPv4-wide, so this box's own DNS replies keep it moving even
+> when WireGuard is being dropped. The panel deliberately does **not** claim to
+> have detected a firewall. What it does assert is narrower and reliable — if
+> peers are enabled, traffic is arriving, and not one peer has handshaked in
+> three minutes, it says so in red and points back here.
 
 **4. Does WireGuard itself see it?**
 ```bash
