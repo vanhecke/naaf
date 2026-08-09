@@ -15,6 +15,7 @@ require_relative "reconciler"
 require_relative "config_builder"
 require_relative "zone"
 require_relative "metrics"
+require_relative "renderers/svg"
 
 module Naaf
   class App < Roda
@@ -37,6 +38,12 @@ module Naaf
     plugin :flash
     plugin :route_csrf
     plugin :halt
+    plugin :h # escaping for the dashboard, which renders names off the network
+
+    # Milliseconds. Only tunes the browser's own EventSource reconnect; once the
+    # browser gives up, the htmx extension's backoff takes over and that one is
+    # fixed and not settable from here.
+    SSE_RETRY_MS = 3000
     plugin :error_handler do |e|
       Console.error(self, "request failed", exception: e)
       response.status = 500
@@ -51,6 +58,12 @@ module Naaf
     # with no /proc there never will be much. An empty snapshot has every key a
     # fragment touches, so no template needs a nil guard around a container.
     def snapshot = metrics&.snapshot || Metrics::Snapshot.empty
+
+    # Short names because every dashboard fragment uses them on nearly every
+    # line. Both are pure modules; neither touches the request or the database.
+    def fmt = Naaf::Format
+
+    def svg = Renderers::SVG
 
     # The one-shot generated private key is bound to the client it was generated
     # for. take_/peek_ only yield it when the requested id matches, so client A's
@@ -263,6 +276,20 @@ module Naaf
       end
 
       unless session["admin"]
+        # EventSource follows a 302, gets 200 text/html back, and fails the
+        # connection with no retry of its own — so an expired session would turn
+        # the dashboard into a page that silently stops updating while the
+        # extension's backoff hammers /events forever. A 401 says what actually
+        # happened; the health strip's slow poll is what bounces the tab.
+        r.halt(401, "Unauthorized") if r.path == "/events"
+
+        # htmx follows a redirect transparently and would swap the whole login
+        # PAGE into whichever panel asked. HX-Redirect navigates the tab instead.
+        if r.env["HTTP_HX_REQUEST"]
+          response["HX-Redirect"] = "/login"
+          r.halt(204, "")
+        end
+
         # Only remember page navigations. A browser fetches /favicon.ico on its
         # own, and that request lands here too — recording it would send the
         # admin to a 404 after logging in instead of the page they asked for.
@@ -276,9 +303,58 @@ module Naaf
       check_csrf! unless r.get?
 
       r.root do
-        # / becomes the live dashboard in the next change. Until then it points
-        # at the page that used to live here, so no bookmark breaks in between.
-        r.redirect "/clients"
+        @snapshot = snapshot
+        view("dashboard")
+      end
+
+      # The same fragments the SSE stream pushes, as plain GETs. They are what
+      # the page polls when NAAF_METRICS_SSE=0, and they are how every panel is
+      # tested without a reactor. Read-only, so no CSRF work and no forms.
+      r.on "metrics" do
+        r.get String do |name|
+          # A whitelist, not a convenience: interpolating an arbitrary segment
+          # into a template path is a directory traversal.
+          r.halt(404) unless Metrics::FRAGMENTS.include?(name)
+          render("metrics/#{name}", locals: {s: snapshot})
+        end
+      end
+
+      # One long-lived response per open dashboard tab.
+      #
+      # A Rack 3 *callable* body, deliberately NOT Roda's :streaming plugin. An
+      # each-able body is pulled through an Enumerator fiber the scheduler does
+      # not own: Async::Task.current does not exist inside it, a client
+      # disconnect raises nothing, and the block's ensure never runs — so every
+      # closed tab would leak. protocol-rack runs a callable body under
+      # Fiber.schedule instead, as a real task where stream.write raises EPIPE
+      # when the browser goes away.
+      #
+      # Set Content-Type and nothing else. protocol-rack turns a Content-Length
+      # into a hard transport length and raises on the first chunk past it, and
+      # strips Transfer-Encoding as a hop header — chunking is added for us.
+      r.get "events" do
+        response["Content-Type"] = "text/event-stream"
+        hub = metrics.hub
+        seen = 0
+        body = proc do |stream|
+          stream.write(Metrics::SSE.retry_after(SSE_RETRY_MS))
+          loop do
+            result = hub.wait(seen) or break # nil once the hub has closed
+            seen, snap = result
+            Metrics::FRAGMENTS.each do |name|
+              stream.write(Metrics::SSE.frame(render("metrics/#{name}", locals: {s: snap}),
+                event: name))
+            end
+          end
+        rescue Errno::EPIPE, Errno::ECONNRESET, IOError
+          # The tab closed. Normal termination, not an error — and it is the
+          # only way the server ever learns the peer is gone.
+        ensure
+          stream.close
+        end
+        # finish_with_body, not a bare rack array: it keeps Cache-Control:
+        # no-store and still runs the session and flash after-hooks.
+        throw :halt, response.finish_with_body(body)
       end
 
       r.on "clients" do

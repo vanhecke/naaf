@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Naaf — WireGuard control plane</title>
   <link rel="stylesheet" href="/bulma.min.css">
+  <link rel="stylesheet" href="/naaf.css">
+  <%# Core first, extension second, both deferred. Never async: that discards
+      ordering and the extension would run before htmx.defineExtension exists. %>
   <script src="/htmx.min.js" defer></script>
+  <script src="/htmx-ext-sse.min.js" defer></script>
 </head>
 <body>
   <nav class="navbar is-dark" role="navigation" aria-label="main navigation">
@@ -15,6 +19,7 @@
     <div class="navbar-menu is-active">
       <% if session["admin"] %>
         <div class="navbar-start">
+          <a class="navbar-item" href="/">Dashboard</a>
           <a class="navbar-item" href="/clients">Clients</a>
           <a class="navbar-item" href="/exposed-ports">Exposed ports</a>
           <a class="navbar-item" href="/port-forwards">Port forwards</a>

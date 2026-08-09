@@ -1,0 +1,93 @@
+<div class="box naaf-tile">
+  <h2 class="title is-6">DNS</h2>
+
+  <div class="level is-mobile mb-2">
+    <div class="level-item has-text-centered">
+      <div>
+        <p class="heading has-text-grey">Rate</p>
+        <p class="is-size-5 naaf-num"><%= fmt.per_sec(s.dns[:qps]) %></p>
+      </div>
+    </div>
+    <div class="level-item has-text-centered">
+      <div>
+        <p class="heading has-text-grey">Answered here</p>
+        <p class="is-size-5 naaf-num"><%= fmt.pct(s.dns[:local_pct]) %></p>
+      </div>
+    </div>
+    <div class="level-item has-text-centered">
+      <div>
+        <p class="heading has-text-grey">Upstream p50 / p95</p>
+        <p class="is-size-5 naaf-num">
+          <%= fmt.dash(s.dns[:p50_ms]) %> / <%= fmt.dash(s.dns[:p95_ms]) %> ms
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <%= svg.sparkline(s.dns[:series], height: 30, label: "DNS queries per second") %>
+
+  <div class="tags mt-3 mb-2">
+    <span class="tag is-light">local <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:local]) %></span></span>
+    <span class="tag is-light">upstream <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:upstream]) %></span></span>
+    <% if s.dns[:outcomes][:upstream_fail].to_i.positive? %>
+      <span class="tag is-danger is-light">
+        failed <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:outcomes][:upstream_fail]) %></span>
+      </span>
+    <% end %>
+    <% if s.dns[:outcomes][:aaaa_suppressed].to_i.positive? %>
+      <span class="tag is-light">
+        AAAA suppressed <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:outcomes][:aaaa_suppressed]) %></span>
+      </span>
+    <% end %>
+  </div>
+
+  <% if s.dns[:names] %>
+    <div class="columns is-mobile">
+      <div class="column">
+        <p class="heading has-text-grey">Top names</p>
+        <% if s.dns[:top_domains].empty? %>
+          <p class="is-size-7 has-text-grey">nothing yet</p>
+        <% else %>
+          <table class="table is-narrow is-fullwidth is-size-7">
+            <tbody>
+              <% s.dns[:top_domains].each do |name, n| %>
+                <tr>
+                  <td class="has-text-weight-normal"><%= h(name) %></td>
+                  <td class="has-text-right naaf-num"><%= fmt.count(n) %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        <% end %>
+      </div>
+      <div class="column">
+        <p class="heading has-text-grey">Top clients</p>
+        <% if s.dns[:top_clients].empty? %>
+          <p class="is-size-7 has-text-grey">nothing yet</p>
+        <% else %>
+          <table class="table is-narrow is-fullwidth is-size-7">
+            <tbody>
+              <% s.dns[:top_clients].each do |who, n| %>
+                <tr>
+                  <td><%= h(who) %></td>
+                  <td class="has-text-right naaf-num"><%= fmt.count(n) %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        <% end %>
+      </div>
+    </div>
+    <p class="is-size-7 has-text-grey">
+      Counted in memory since the process started, never written to disk or logged.
+      <% if s.dns[:approximate] %>
+        The name table is capped, so it is approximate under load.
+      <% end %>
+      Set <code>NAAF_METRICS_DNS_NAMES=0</code> to collect rates only.
+    </p>
+  <% else %>
+    <p class="is-size-7 has-text-grey">
+      Name-level detail is switched off (<code>NAAF_METRICS_DNS_NAMES=0</code>); rates only.
+    </p>
+  <% end %>
+</div>

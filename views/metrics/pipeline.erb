@@ -1,0 +1,48 @@
+<%# docs/TROUBLESHOOTING.md step 3, as a row instead of a shell session.
+    tcpdump sees traffic BEFORE netfilter, so a firewall quietly eating
+    WireGuard shows up as a healthy first number and a flat second one. %>
+<div class="box mb-4">
+  <div class="level is-mobile is-flex-wrap-wrap mb-2">
+    <div class="level-left">
+      <h2 class="title is-6 level-item mb-0">Packet pipeline</h2>
+    </div>
+    <div class="level-right">
+      <% case s.pipeline[:verdict] %>
+      <% when :suspect %>
+        <span class="level-item tag is-danger">✕ not reaching the socket</span>
+      <% when :ok %>
+        <span class="level-item tag is-success is-light">✓ flowing</span>
+      <% else %>
+        <span class="level-item tag is-light">— no reading yet</span>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="columns is-mobile is-vcentered has-text-centered is-flex-wrap-wrap">
+    <div class="column">
+      <p class="heading has-text-grey"><%= fmt.dash(s.pipeline[:wan]) %> received</p>
+      <p class="is-size-4 naaf-num"><%= fmt.per_sec(s.pipeline[:wan_pps], unit: " pkt/s") %></p>
+      <p class="is-size-7 has-text-grey">at the interface, before netfilter</p>
+    </div>
+    <div class="column is-narrow has-text-grey is-size-4">→</div>
+    <div class="column">
+      <p class="heading has-text-grey">UDP delivered</p>
+      <p class="is-size-4 naaf-num"><%= fmt.per_sec(s.pipeline[:udp_dps], unit: " dg/s") %></p>
+      <p class="is-size-7 has-text-grey">reached a socket</p>
+    </div>
+    <div class="column is-narrow has-text-grey is-size-4">→</div>
+    <div class="column">
+      <p class="heading has-text-grey"><%= fmt.dash(s.pipeline[:wg]) %> decrypted</p>
+      <p class="is-size-4 naaf-num"><%= fmt.per_sec(s.pipeline[:wg_pps], unit: " pkt/s") %></p>
+      <p class="is-size-7 has-text-grey">out of the tunnel</p>
+    </div>
+  </div>
+
+  <% if s.pipeline[:message] %>
+    <div class="notification is-danger is-light mt-2 mb-0 py-2">
+      <%= h(s.pipeline[:message]) %>
+      See <code>docs/TROUBLESHOOTING.md</code>.
+    </div>
+  <% end %>
+  <p class="is-size-7 has-text-grey mt-2">IPv4 counters only.</p>
+</div>

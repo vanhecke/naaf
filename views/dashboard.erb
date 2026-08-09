@@ -1,0 +1,76 @@
+<%
+  sse = Naaf::Config.bool("NAAF_METRICS_SSE")
+  poll = Naaf::Config.int("NAAF_METRICS_POLL_INTERVAL")
+  s = @snapshot
+
+  # SSE and polling are mutually exclusive, chosen here on the server. Putting
+  # sse-swap and hx-trigger="every Ns" on the same element makes BOTH fire —
+  # two writers racing on one target — and htmx has no "poll only if the stream
+  # is dead" primitive that would not need application JavaScript.
+  panel = lambda do |name|
+    if sse
+      %(sse-swap="#{name}")
+    else
+      %(hx-get="/metrics/#{name}" hx-trigger="every #{poll}s")
+    end
+  end
+%>
+
+<%# The hx-ext / sse-connect wrapper MUST stay outside every swap target. If
+    htmx re-processes this element it opens a second EventSource and the first
+    is leaked with no handle left to close it (htmx-extensions#190). %>
+<div <%= sse ? %{hx-ext="sse" sse-connect="/events"} : "" %>>
+
+  <div class="level mb-3">
+    <div class="level-left">
+      <h1 class="title level-item mb-0">Dashboard</h1>
+    </div>
+    <div class="level-right">
+      <span class="tag is-info is-light level-item"><%= sse ? "live" : "polling every #{poll}s" %></span>
+    </div>
+  </div>
+
+  <div id="m-health" <%= panel.call("health") %>>
+    <%# Every panel is rendered server-side for the first paint, so the page is
+        complete before the stream connects and stays complete if it never does. %>
+    <%= render("metrics/health", locals: {s: s}) %>
+  </div>
+
+  <div id="m-kpis" <%= panel.call("kpis") %>>
+    <%= render("metrics/kpis", locals: {s: s}) %>
+  </div>
+
+  <div id="m-pipeline" <%= panel.call("pipeline") %>>
+    <%= render("metrics/pipeline", locals: {s: s}) %>
+  </div>
+
+  <div id="m-clients" <%= panel.call("clients") %>>
+    <%= render("metrics/clients", locals: {s: s}) %>
+  </div>
+
+  <div class="columns">
+    <div class="column is-half">
+      <div id="m-dns" <%= panel.call("dns") %>>
+        <%= render("metrics/dns", locals: {s: s}) %>
+      </div>
+    </div>
+    <div class="column is-half">
+      <div id="m-interfaces" <%= panel.call("interfaces") %>>
+        <%= render("metrics/interfaces", locals: {s: s}) %>
+      </div>
+    </div>
+  </div>
+
+  <div class="columns">
+    <div class="column is-half">
+      <div id="m-policy" <%= panel.call("policy") %>>
+        <%= render("metrics/policy", locals: {s: s}) %>
+      </div>
+    </div>
+    <div class="column is-half">
+      <div id="m-app" <%= panel.call("app") %>>
+        <%= render("metrics/app", locals: {s: s}) %>
+      </div>
+    </div>
+  </div>
+</div>

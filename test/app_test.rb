@@ -29,6 +29,25 @@ class StubReconciler
   end
 
   def apply! = true
+  def last_poll_at = nil
+  def last_apply_at = nil
+  def last_error = nil
+end
+
+# Rack::MockResponse drains a response body eagerly the moment it is built, so a
+# stream that loops forever would wedge the whole suite with no timeout to save
+# it. A hub that has been published to and then closed makes GET /events finite
+# by the same code path production uses at shutdown: wait() drains the pending
+# frame and then reports the end.
+class ScriptedMetrics
+  attr_reader :hub, :snapshot
+
+  def initialize(frames = 1)
+    @hub = Naaf::Metrics::Hub.new
+    @snapshot = Naaf::Metrics::Snapshot.empty
+    frames.times { @hub.publish(@snapshot) }
+    @hub.close
+  end
 end
 
 describe "Naaf::App integration" do
@@ -39,6 +58,7 @@ describe "Naaf::App integration" do
       admin_pw_hash: BCrypt::Password.create("secret")
     )
     Naaf::App.reconciler = StubReconciler.new
+    Naaf::App.metrics = nil
     @app = Naaf::App.app
     @cookie = nil
   end
@@ -119,6 +139,102 @@ describe "Naaf::App integration" do
   end
 
   # --- the client list, moved from / to /clients ---
+
+  # --- the dashboard at / ---
+
+  it "serves the dashboard at /" do
+    login!
+    res = get("/")
+    expect(res.status).to be == 200
+    expect(res.body).to be(:include?, "Dashboard")
+    expect(res.body).to be(:include?, "Packet pipeline")
+    expect(res.body).to be(:include?, "Peers")
+  end
+
+  # The add form lives on /clients and nowhere else. If it ever appeared here
+  # too, add_client's csrf_for would silently lift a token from the wrong page
+  # and the two would drift apart without any test noticing.
+  it "keeps the add-client form off the dashboard" do
+    login!
+    expect(get("/").body.include?('action="/clients"')).to be == false
+  end
+
+  # Before the collector has ever ticked — and forever on a box with no /proc —
+  # every panel still has to render. An empty snapshot carries every key a
+  # fragment touches, so the formatters turn the gaps into em dashes.
+  it "renders every panel before the collector has produced anything" do
+    login!
+    Naaf::App.metrics = nil
+    body = get("/").body
+
+    expect(body).to be(:include?, "—")
+    expect(body).not.to be(:match?, /NaN|Infinity/)
+  end
+
+  it "serves each fragment as a plain GET so the page works without the stream" do
+    login!
+    Naaf::Metrics::FRAGMENTS.each do |name|
+      res = get("/metrics/#{name}")
+      expect(res.status).to be == 200
+      expect(res.body.include?("<html")).to be == false # a fragment, not a page
+      expect(res.body).not.to be(:match?, /NaN|Infinity/)
+    end
+  end
+
+  # The fragment name is interpolated into a template path, so the whitelist is
+  # load-bearing rather than a convenience.
+  it "serves only whitelisted fragment names" do
+    login!
+    expect(get("/metrics/nope").status).to be == 404
+    expect(get("/metrics/..%2Fsettings").status).to be == 404
+  end
+
+  it "streams the fragments as named SSE events" do
+    login!
+    Naaf::App.metrics = ScriptedMetrics.new
+    res = get("/events")
+
+    expect(res.status).to be == 200
+    expect(res.headers["content-type"]).to be == "text/event-stream"
+    expect(res.headers["cache-control"]).to be == "no-store"
+    # protocol-rack turns a Content-Length into a hard transport length and
+    # raises on the first chunk past it, so the stream must not carry one.
+    expect(res.headers.key?("content-length")).to be == false
+
+    expect(res.body).to be(:include?, "retry: 3000")
+    Naaf::Metrics::FRAGMENTS.each do |name|
+      expect(res.body).to be(:match?, /^event: #{name}$/)
+    end
+    # Every payload line carries its own data: prefix — the first bare newline
+    # in a data: line would terminate the event and drop the rest of the panel.
+    expect(res.body.lines.grep_v(/\A(event:|data:|retry:|:|\n)/)).to be(:empty?)
+  end
+
+  # EventSource follows a 302, gets HTML, and fails with no retry of its own —
+  # so a redirect here reads to the user as a dashboard that silently froze.
+  it "answers an unauthenticated stream request with 401, not a redirect" do
+    expect(get("/events").status).to be == 401
+  end
+
+  # htmx follows a redirect transparently and would swap the login page into
+  # whichever panel asked for a fragment.
+  it "bounces a lapsed htmx request with HX-Redirect rather than a redirect" do
+    res = mr.get("/metrics/kpis", "HTTP_HX_REQUEST" => "true")
+    expect(res.status).to be == 204
+    expect(res.headers["HX-Redirect"]).to be == "/login"
+  end
+
+  it "still redirects an ordinary browser request to the login form" do
+    expect(get("/metrics/kpis").status).to be == 302
+  end
+
+  it "serves the vendored SSE extension and the stylesheet, cacheably" do
+    %w[/htmx-ext-sse.min.js /naaf.css].each do |path|
+      res = mr.get(path)
+      expect(res.status).to be == 200
+      expect(res.headers["cache-control"]).to be_nil
+    end
+  end
 
   it "serves the client list at /clients" do
     login!

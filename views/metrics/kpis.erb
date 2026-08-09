@@ -1,0 +1,83 @@
+<%# Stat tiles, not charts: each is a label, a value, and a trend beside it.
+    The one hero figure on the page is tunnel throughput. %>
+<div class="columns is-multiline mb-2">
+  <div class="column is-half">
+    <div class="box naaf-tile">
+      <p class="heading has-text-grey">Tunnel throughput</p>
+      <%# Two series, ONE axis, mirrored about a shared baseline — never two
+          y-scales. Both are direct-labelled here so identity never depends on
+          colour alone. %>
+      <p class="naaf-hero">
+        <span class="has-text-weight-semibold"><%= fmt.bps(s.wg[:rx_bps]) %></span>
+        <span class="is-size-6 has-text-grey">in</span>
+      </p>
+      <p class="is-size-5 mb-2">
+        <span class="has-text-weight-semibold"><%= fmt.bps(s.wg[:tx_bps]) %></span>
+        <span class="is-size-6 has-text-grey">out</span>
+      </p>
+      <%= svg.throughput(down: s.wg[:rx_series], up: s.wg[:tx_series], height: 48,
+                         label: "tunnel throughput, in above the line and out below") %>
+      <p class="is-size-7 has-text-grey mt-2">
+        <%= s.wg[:online] %> of <%= s.wg[:enabled] %> peers up ·
+        measured every <%= fmt.duration(s.wg[:interval]) %>
+      </p>
+    </div>
+  </div>
+
+  <div class="column is-one-quarter">
+    <div class="box naaf-tile">
+      <p class="heading has-text-grey">DNS queries</p>
+      <p class="naaf-value"><%= fmt.per_sec(s.dns[:qps]) %></p>
+      <p class="is-size-7 has-text-grey mb-2"><%= fmt.compact(s.dns[:total]) %> since start</p>
+      <%= svg.sparkline(s.dns[:series], height: 34, label: "DNS queries per second") %>
+    </div>
+  </div>
+
+  <div class="column is-one-quarter">
+    <div class="box naaf-tile">
+      <p class="heading has-text-grey">CPU</p>
+      <p class="naaf-value"><%= fmt.pct(s.system[:cpu_pct]) %></p>
+      <p class="is-size-7 has-text-grey mb-2">
+        load <span class="naaf-num"><%= fmt.dash(s.system[:load1]) %></span>
+        <% if s.system[:steal_pct] && s.system[:steal_pct] >= 1 %>
+          · <span class="has-text-warning-dark">steal <%= fmt.pct(s.system[:steal_pct]) %></span>
+        <% end %>
+      </p>
+      <%= svg.sparkline(s.system[:cpu_series], height: 34, max: 100, label: "CPU busy percent") %>
+    </div>
+  </div>
+
+  <div class="column is-one-quarter">
+    <div class="box naaf-tile">
+      <p class="heading has-text-grey">Memory</p>
+      <p class="naaf-value"><%= fmt.pct(s.system[:mem_pct]) %></p>
+      <p class="is-size-7 has-text-grey mb-2">
+        <%= fmt.bytes(s.system[:mem_used]) %> of <%= fmt.bytes(s.system[:mem_total]) %>
+      </p>
+      <%# A ratio against a fixed limit is a meter, not a chart. %>
+      <progress class="progress is-small <%= s.system[:mem_pct].to_f >= 90 ? "is-danger" : "is-info" %>"
+                value="<%= s.system[:mem_pct].to_f.round %>" max="100">
+        <%= fmt.pct(s.system[:mem_pct]) %>
+      </progress>
+      <% if s.system[:swap_used].to_i.positive? %>
+        <p class="is-size-7 has-text-grey">swap <%= fmt.bytes(s.system[:swap_used]) %></p>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="column is-one-quarter">
+    <div class="box naaf-tile">
+      <%# "conntrack entries", not "connections": every UDP pseudo-flow gets an
+          entry, so this is table utilisation rather than a session count. %>
+      <p class="heading has-text-grey">Conntrack entries</p>
+      <p class="naaf-value naaf-num"><%= fmt.compact(s.system[:conntrack_count]) %></p>
+      <p class="is-size-7 has-text-grey mb-2">
+        of <%= fmt.compact(s.system[:conntrack_max]) %> · <%= fmt.pct(s.system[:conntrack_pct]) %>
+      </p>
+      <progress class="progress is-small <%= s.system[:conntrack_pct].to_f >= 80 ? "is-warning" : "is-info" %>"
+                value="<%= s.system[:conntrack_pct].to_f.round %>" max="100">
+        <%= fmt.pct(s.system[:conntrack_pct]) %>
+      </progress>
+    </div>
+  </div>
+</div>

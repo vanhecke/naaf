@@ -1,0 +1,64 @@
+<div class="box naaf-tile">
+  <h2 class="title is-6">Naaf</h2>
+
+  <table class="table is-fullwidth is-narrow is-size-7">
+    <tbody>
+      <tr>
+        <th>Uptime</th>
+        <td class="naaf-num">
+          <%= fmt.duration(s.app[:uptime]) %>
+          <span class="has-text-grey">· host <%= fmt.duration(s.system[:uptime]) %></span>
+        </td>
+      </tr>
+      <tr>
+        <th>Process</th>
+        <td class="naaf-num">
+          <%= fmt.bytes(s.app[:rss]) %> RSS · <%= fmt.pct(s.app[:cpu_pct], places: 1) %> cpu
+        </td>
+      </tr>
+      <tr>
+        <th>Ruby</th>
+        <td class="naaf-num">
+          <%= h(s.app[:ruby]) %>
+          <% if s.app[:yjit] %><span class="tag is-success is-light ml-1">YJIT</span><% end %>
+          <span class="has-text-grey">· <%= fmt.compact(s.app[:gc_count]) %> GCs</span>
+        </td>
+      </tr>
+      <tr>
+        <th>Database</th>
+        <td class="naaf-num">
+          <%= fmt.bytes(s.app[:db_bytes]) %>
+          <span class="has-text-grey">+ <%= fmt.bytes(s.app[:wal_bytes]) %> WAL</span>
+        </td>
+      </tr>
+      <tr>
+        <th>Backup</th>
+        <td class="naaf-num">
+          <% if s.app[:backups_enabled] %>
+            <%= fmt.ago(s.app[:backup_at]) %>
+            <span class="has-text-grey">· <%= fmt.bytes(s.app[:backup_bytes]) %></span>
+          <% else %>
+            <span class="tag is-warning is-light">disabled</span>
+          <% end %>
+        </td>
+      </tr>
+      <tr>
+        <th>Reconcile</th>
+        <td class="naaf-num">
+          <% if s.app[:reconcile_error] %>
+            <span class="tag is-danger">failing</span>
+            <span class="has-text-grey"><%= h(s.app[:reconcile_error]) %></span>
+          <% else %>
+            <%= fmt.ago(s.app[:reconcile_at]) %>
+            <span class="has-text-grey">· applied <%= fmt.ago(s.app[:apply_at]) %></span>
+          <% end %>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="is-size-7 has-text-grey">
+    Charts are held in memory and reset when the service restarts — there is no
+    metrics table, deliberately.
+  </p>
+</div>

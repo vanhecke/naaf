@@ -1,0 +1,59 @@
+<div class="box mb-4">
+  <div class="level is-mobile mb-2">
+    <div class="level-left"><h2 class="title is-6 level-item mb-0">Peers</h2></div>
+    <div class="level-right">
+      <a class="level-item is-size-7" href="/clients">manage →</a>
+    </div>
+  </div>
+
+  <% if s.peers.empty? %>
+    <p class="has-text-grey">No clients yet. <a href="/clients">Add the first one.</a></p>
+  <% else %>
+    <div class="naaf-scroll">
+      <%# This table is also the table view for the per-peer sparklines beside
+          it — every value in a chart is readable as a number here. %>
+      <table class="table is-fullwidth is-narrow is-hoverable">
+        <thead>
+          <tr>
+            <th>Name</th><th>VPN IP</th><th>Status</th><th>Last handshake</th>
+            <th>Endpoint</th><th class="has-text-right">In</th>
+            <th class="has-text-right">Out</th><th class="has-text-right">Session</th>
+            <th>Trend</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% s.peers.each do |p| %>
+            <tr>
+              <td><%= h(p[:name]) %></td>
+              <td><code class="naaf-num"><%= h(p[:wg_ip]) %></code></td>
+              <td>
+                <% if !p[:enabled] %>
+                  <span class="tag is-light">disabled</span>
+                <% elsif p[:online] %>
+                  <span class="tag is-success is-light">online</span>
+                <% else %>
+                  <span class="tag is-warning is-light">idle</span>
+                <% end %>
+              </td>
+              <td class="naaf-num"><%= fmt.ago(p[:last_handshake_at]) %></td>
+              <td><code class="naaf-num"><%= h(fmt.dash(p[:endpoint])) %></code></td>
+              <td class="has-text-right naaf-num"><%= fmt.bps(p[:rx_bps]) %></td>
+              <td class="has-text-right naaf-num"><%= fmt.bps(p[:tx_bps]) %></td>
+              <td class="has-text-right naaf-num has-text-grey">
+                <%= fmt.bytes(p[:rx_bytes].to_i + p[:tx_bytes].to_i) %>
+              </td>
+              <td style="width: 8rem">
+                <%= svg.sparkline(p[:rx_series], height: 22,
+                                  label: "#{p[:name]} inbound throughput") %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    <p class="is-size-7 has-text-grey">
+      Peer counters refresh every <%= fmt.duration(s.wg[:interval]) %> — the reconciler is the
+      only reader of kernel peer state, so this is coarser than the rest of the page.
+    </p>
+  <% end %>
+</div>

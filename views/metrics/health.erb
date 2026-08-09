@@ -1,0 +1,35 @@
+<%# The strip that answers "is anything wrong" without reading a number. Every
+    status colour is paired with a word, so state never rides on hue alone. %>
+<div class="level is-mobile is-flex-wrap-wrap mb-4">
+  <div class="level-left is-flex-wrap-wrap">
+    <span class="level-item tag <%= (s.wg[:online]).positive? ? "is-success" : "is-light" %>">
+      <strong class="mr-1"><%= s.wg[:online] %>/<%= s.wg[:enabled] %></strong> peers up
+    </span>
+
+    <span class="level-item tag is-info is-light">
+      DNS <span class="naaf-num ml-1"><%= fmt.per_sec(s.dns[:qps]) %></span>
+    </span>
+
+    <% if s.app[:reconcile_error] %>
+      <span class="level-item tag is-danger" title="<%= h(s.app[:reconcile_error]) %>">reconcile failing</span>
+    <% else %>
+      <span class="level-item tag is-light">reconciled <%= fmt.ago(s.app[:reconcile_at]) %></span>
+    <% end %>
+
+    <% if s.app[:backups_enabled] %>
+      <span class="level-item tag is-light">backup <%= fmt.ago(s.app[:backup_at]) %></span>
+    <% else %>
+      <span class="level-item tag is-warning is-light">backups off</span>
+    <% end %>
+
+    <% if (s.app[:drift]).positive? %>
+      <a class="level-item tag is-warning" href="/settings"><%= s.app[:drift] %> config drift</a>
+    <% end %>
+  </div>
+
+  <div class="level-right">
+    <%# The only way to notice a stream that has silently stopped. There is no
+        client-side way to detect a dead EventSource without JavaScript. %>
+    <span class="level-item has-text-grey is-size-7">as of <%= fmt.clock(s.at) %></span>
+  </div>
+</div>

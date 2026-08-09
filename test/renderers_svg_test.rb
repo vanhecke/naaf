@@ -6,6 +6,36 @@ require "naaf/renderers/svg"
 describe Naaf::Renderers::SVG do
   def svg = Naaf::Renderers::SVG
 
+  # Every shape the renderer can produce, including the degenerate ones.
+  def every_shape
+    [
+      svg.sparkline([]),
+      svg.sparkline([5]),
+      svg.sparkline([0, 0, 0]),
+      svg.sparkline([1, nil, 3], series: "in", label: %(a "quoted" & <tagged> label)),
+      svg.throughput(down: [], up: []),
+      svg.throughput(down: [1, 2, 3], up: [3, 2, 1])
+    ]
+  end
+
+  # A browser renders broken markup as nothing at all, with no error anywhere —
+  # so structure gets asserted rather than assumed. There is no XML parser in
+  # this project's dependencies and adding a gem is an "Ask first" boundary, so
+  # this checks the three things that actually break: element balance,
+  # self-closing children, and attribute quoting.
+  it "emits structurally sound markup for every shape it can produce" do
+    every_shape.each do |out|
+      expect(out.scan("<svg").length).to be == 1
+      expect(out.scan("</svg>").length).to be == 1
+      # Children are self-closing, so no child can ever be left unclosed.
+      expect(out.scan(/<(?:path|line|title)\b/).length)
+        .to be == out.scan(/\/>|<\/title>/).length
+      # An odd number of quotes means a value broke out of its attribute.
+      expect(out.count("\"").even?).to be == true
+      expect(out).not.to be(:match?, /<[^>]*<|>[^<]*>/)
+    end
+  end
+
   # A NaN or Infinity in path data does not raise and does not warn — the
   # browser silently draws nothing. Every degenerate input below produced one at
   # some point during development, which is why each gets its own test.

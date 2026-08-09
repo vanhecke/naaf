@@ -1,0 +1,61 @@
+<div class="box naaf-tile">
+  <h2 class="title is-6">Interfaces</h2>
+
+  <% if s.interfaces.empty? %>
+    <p class="has-text-grey is-size-7">
+      No interface counters — <code>/proc/net/dev</code> is not readable here.
+    </p>
+  <% else %>
+    <div class="naaf-scroll">
+      <table class="table is-fullwidth is-narrow is-size-7">
+        <thead>
+          <tr>
+            <th>Interface</th><th class="has-text-right">In</th><th class="has-text-right">Out</th>
+            <th class="has-text-right">In pkt/s</th><th class="has-text-right">Errors</th>
+            <th class="has-text-right">Dropped</th><th>Trend</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% s.interfaces.each do |i| %>
+            <tr>
+              <td>
+                <code><%= h(i[:name]) %></code>
+                <% if i[:role] %>
+                  <span class="tag is-info is-light ml-1"><%= (i[:role] == :wan) ? "wan" : "tunnel" %></span>
+                <% end %>
+              </td>
+              <td class="has-text-right naaf-num"><%= fmt.bps(i[:rx_bps]) %></td>
+              <td class="has-text-right naaf-num"><%= fmt.bps(i[:tx_bps]) %></td>
+              <td class="has-text-right naaf-num"><%= fmt.per_sec(i[:rx_pps], unit: "") %></td>
+              <td class="has-text-right naaf-num <%= (i[:rx_errs].to_i + i[:tx_errs].to_i).positive? ? "has-text-danger" : "has-text-grey" %>">
+                <%= fmt.count(i[:rx_errs].to_i + i[:tx_errs].to_i) %>
+              </td>
+              <td class="has-text-right naaf-num has-text-grey">
+                <%= fmt.count(i[:rx_drop].to_i + i[:tx_drop].to_i) %>
+              </td>
+              <td style="width: 7rem">
+                <%= svg.sparkline(i[:rx_series], height: 20, label: "#{i[:name]} inbound") %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+
+  <p class="heading has-text-grey mt-3">UDP sockets (IPv4)</p>
+  <div class="tags">
+    <span class="tag is-light">
+      delivered <span class="naaf-num ml-1"><%= fmt.per_sec(s.udp[:in_dps]) %></span>
+    </span>
+    <span class="tag <%= s.udp[:no_ports].to_i.positive? ? "is-warning is-light" : "is-light" %>">
+      no port <span class="naaf-num ml-1"><%= fmt.count(s.udp[:no_ports]) %></span>
+    </span>
+    <span class="tag <%= s.udp[:in_errors].to_i.positive? ? "is-danger is-light" : "is-light" %>">
+      errors <span class="naaf-num ml-1"><%= fmt.count(s.udp[:in_errors]) %></span>
+    </span>
+    <span class="tag is-light">
+      buffer overruns <span class="naaf-num ml-1"><%= fmt.count(s.udp[:rcvbuf_errors]) %></span>
+    </span>
+  </div>
+</div>

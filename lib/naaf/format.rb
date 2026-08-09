@@ -92,6 +92,15 @@ module Naaf
       "#{trim(v / 1_000_000_000.0, 1)}B"
     end
 
+    # A countable rate: queries, packets, datagrams. Sub-1 rates keep a decimal
+    # so a quiet-but-alive link does not read as a dead one.
+    def per_sec(v, unit: "/s")
+      return DASH unless finite?(v)
+      f = v.to_f
+      value = (f < 10 && f.positive?) ? trim(f, 1) : count(f.round)
+      "#{value}#{unit}"
+    end
+
     def clock(t)
       return DASH unless t
       t.to_time.strftime("%H:%M:%S")

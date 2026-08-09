@@ -1,0 +1,48 @@
+<div class="box naaf-tile">
+  <h2 class="title is-6">Network &amp; policy</h2>
+
+  <table class="table is-fullwidth is-narrow is-size-7">
+    <tbody>
+      <tr><th>Subnet</th><td class="naaf-num"><code><%= h(fmt.dash(s.policy[:subnet])) %></code></td></tr>
+      <tr><th>Gateway</th><td class="naaf-num"><code><%= h(fmt.dash(s.policy[:server_ip])) %></code></td></tr>
+      <tr>
+        <th>Endpoint</th>
+        <td class="naaf-num">
+          <code><%= h(fmt.dash(s.policy[:endpoint])) %>:<%= h(fmt.dash(s.policy[:listen_port])) %></code>
+        </td>
+      </tr>
+      <tr>
+        <th>DNS</th>
+        <td class="naaf-num">
+          <code>.<%= h(fmt.dash(s.policy[:dns_domain])) %></code>
+          via <code><%= h(fmt.dash(s.policy[:dns_upstream])) %></code>
+        </td>
+      </tr>
+      <tr>
+        <th>Interfaces</th>
+        <td class="naaf-num">
+          <code><%= h(fmt.dash(s.policy[:wg_interface])) %></code> /
+          <code><%= h(fmt.dash(s.policy[:wan_interface])) %></code>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="tags">
+    <a class="tag is-light" href="/clients">
+      clients <span class="naaf-num ml-1"><%= s.policy[:enabled] %>/<%= s.policy[:clients] %></span>
+    </a>
+    <a class="tag is-light" href="/exposed-ports">
+      exposed ports <span class="naaf-num ml-1"><%= s.policy[:exposed_ports] %></span>
+    </a>
+    <a class="tag is-light" href="/port-forwards">
+      forwards <span class="naaf-num ml-1"><%= s.policy[:port_forwards_enabled] %>/<%= s.policy[:port_forwards] %></span>
+    </a>
+    <a class="tag is-light" href="/extra-routes">
+      routes <span class="naaf-num ml-1"><%= s.policy[:extra_routes] %></span>
+    </a>
+    <a class="tag is-light" href="/dns-records">
+      dns records <span class="naaf-num ml-1"><%= s.policy[:dns_records] %></span>
+    </a>
+  </div>
+</div>

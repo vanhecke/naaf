@@ -1,0 +1,98 @@
+/* Naaf's own stylesheet — the only one. It lives beside the vendored assets
+ * because vendor/ is the static root Roda's :public plugin serves; there is no
+ * asset pipeline and there must not be one.
+ *
+ * Its entire job is colour for the inline SVG charts. The renderers in
+ * lib/naaf/renderers/svg.rb emit structure and class names and never name a
+ * colour, which is what lets dark mode use *selected* steps for the dark
+ * surface rather than an automatic flip of the light ones.
+ *
+ * Bulma 1.0.4 already switches on prefers-color-scheme and on a data-theme
+ * attribute, so both scopes are declared here: the media query follows the OS,
+ * the attribute follows an explicit choice, and the attribute wins either way.
+ */
+
+:root {
+  --naaf-in: #2a78d6;      /* inbound / primary trend */
+  --naaf-out: #eb6834;     /* outbound */
+  --naaf-grid: #c3c2b7;    /* baselines and rules, one step off the surface */
+  --naaf-good: #0ca30c;
+  --naaf-warning: #fab219;
+  --naaf-critical: #d03b3b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    --naaf-in: #3987e5;
+    --naaf-out: #d95926;
+    --naaf-grid: #383835;
+  }
+}
+
+:root[data-theme="dark"] {
+  --naaf-in: #3987e5;
+  --naaf-out: #d95926;
+  --naaf-grid: #383835;
+}
+
+:root[data-theme="light"] {
+  --naaf-in: #2a78d6;
+  --naaf-out: #eb6834;
+  --naaf-grid: #c3c2b7;
+}
+
+/* --- charts ------------------------------------------------------------- */
+
+.naaf-spark {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+/* 2px lines, thin marks, a wash rather than a saturated block. */
+.naaf-line {
+  fill: none;
+  stroke: var(--naaf-in);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.naaf-area {
+  fill: var(--naaf-in);
+  fill-opacity: 0.12;
+  stroke: none;
+}
+
+.naaf-out.naaf-line { stroke: var(--naaf-out); }
+.naaf-out.naaf-area { fill: var(--naaf-out); }
+
+/* Hairline, solid, recessive — never dashed, which reads as a threshold. */
+.naaf-baseline {
+  stroke: var(--naaf-grid);
+  stroke-width: 1;
+}
+
+/* --- figures ------------------------------------------------------------ */
+
+/* Proportional figures: tabular-nums gives every digit the width of a zero,
+ * which makes a number like 121 look loose at display sizes. */
+.naaf-value {
+  font-size: 1.9rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.naaf-hero {
+  font-size: 2.6rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+/* Columns of numbers do want to line up. */
+.naaf-num { font-variant-numeric: tabular-nums; }
+
+.naaf-tile { height: 100%; }
+
+/* A wide table stays inside its card instead of scrolling the whole page. */
+.naaf-scroll { overflow-x: auto; }
