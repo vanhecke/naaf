@@ -9,6 +9,7 @@ require "console" # error_handler and structured logging reference Console direc
 require_relative "config"
 require_relative "db"
 require_relative "backup"
+require_relative "format"
 require_relative "ipam"
 require_relative "reconciler"
 require_relative "config_builder"
