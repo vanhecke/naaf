@@ -39,6 +39,29 @@ end
 # it. A hub that has been published to and then closed makes GET /events finite
 # by the same code path production uses at shutdown: wait() drains the pending
 # frame and then reports the end.
+# A snapshot carrying the shape of a real helper failure. bin/naaf-helper folds
+# the child's stderr into the exception it raises, and `wg` echoes an offending
+# key verbatim — so this is what a leak would actually look like.
+class LeakyMetrics
+  attr_reader :hub, :snapshot
+
+  SECRET = "SUPERSECRETKEYSUPERSECRETKEYSUPERSECRETKEY0="
+
+  def initialize
+    empty = Naaf::Metrics::Snapshot.empty
+    # reconcile_failing is the only field the snapshot carries. reconcile_error
+    # is planted here as a field a future change might reintroduce — if a
+    # template ever renders free-form helper text again, this test fails.
+    @snapshot = empty.with(app: empty.app.merge(
+      reconcile_failing: true,
+      reconcile_error: "wg-quick failed (1): Key is not the correct length or format: `#{SECRET}'"
+    ).freeze).freeze
+    @hub = Naaf::Metrics::Hub.new
+    @hub.publish(@snapshot)
+    @hub.close
+  end
+end
+
 class ScriptedMetrics
   attr_reader :hub, :snapshot
 
@@ -202,9 +225,12 @@ describe "Naaf::App integration" do
     expect(res.headers.key?("content-length")).to be == false
 
     expect(res.body).to be(:include?, "retry: 3000")
-    Naaf::Metrics::FRAGMENTS.each do |name|
+    Naaf::Metrics::LIVE_FRAGMENTS.each do |name|
       expect(res.body).to be(:match?, /^event: #{name}$/)
     end
+    # Configuration, not telemetry: swapping it every couple of seconds would
+    # destroy text selection and focus inside it for no new information.
+    expect(res.body).not.to be(:match?, /^event: policy$/)
     # Every payload line carries its own data: prefix — the first bare newline
     # in a data: line would terminate the event and drop the rest of the panel.
     expect(res.body.lines.grep_v(/\A(event:|data:|retry:|:|\n)/)).to be(:empty?)
@@ -226,6 +252,47 @@ describe "Naaf::App integration" do
 
   it "still redirects an ordinary browser request to the login form" do
     expect(get("/metrics/kpis").status).to be == 302
+  end
+
+  # An EventSource cannot navigate the tab, so without this the page just
+  # freezes when the session lapses and the extension retries forever.
+  it "keeps an auth canary on the page that can bounce a lapsed tab" do
+    login!
+    body = get("/").body
+    expect(body).to be(:match?, /hx-get="\/metrics\/health"[^>]*hx-trigger="every 60s"/)
+    expect(body).to be(:include?, 'hx-swap="none"')
+  end
+
+  # The wrapper carrying hx-ext/sse-connect must never itself be swapped: htmx
+  # re-processing it opens a second EventSource and leaks the first.
+  it "keeps the stream wrapper out of every swap target" do
+    login!
+    body = get("/").body
+    Naaf::Metrics::FRAGMENTS.each do |name|
+      fragment = get("/metrics/#{name}").body
+      expect(fragment.include?("sse-connect")).to be == false
+      expect(fragment.include?("hx-ext")).to be == false
+    end
+    expect(body.scan("sse-connect").length).to be == 1
+  end
+
+  # The reconciler records the exception CLASS and never its message, because
+  # the message can carry the WireGuard server private key. This asserts the
+  # rendered output rather than the snapshot, since rendering is what would
+  # actually put it in front of an admin and onto every open stream.
+  it "never renders a helper failure message into a fragment or a frame" do
+    login!
+    Naaf::App.metrics = LeakyMetrics.new
+
+    %w[app health].each do |name|
+      body = get("/metrics/#{name}").body
+      expect(body.include?(LeakyMetrics::SECRET)).to be == false
+      expect(body).not.to be(:match?, %r{[A-Za-z0-9+/]{43}=})
+    end
+
+    frames = get("/events").body
+    expect(frames.include?(LeakyMetrics::SECRET)).to be == false
+    expect(frames).not.to be(:match?, %r{[A-Za-z0-9+/]{43}=})
   end
 
   it "serves the vendored SSE extension and the stylesheet, cacheably" do
@@ -596,6 +663,29 @@ describe "Naaf::App integration" do
     add_client("nas")
     post_form("/dns-records", "/dns-records", "name" => "nas.vpn", "value" => "10.8.0.99")
     expect(get("/dns-records").body).to be(:include?, "overridden by static")
+  end
+
+  # Renderers::WireGuard writes the name into wg0.conf as `# <name> (<host>)`,
+  # so a newline in it injects lines into the file the root helper hands to
+  # `wg-quick strip` — which is also how you would steer `wg` into echoing a key
+  # back out through its stderr.
+  it "rejects a client name carrying a newline, and never writes it" do
+    login!
+    body = get("/clients").body
+    post("/clients", "name" => "evil\nPrivateKey = x", "hostname" => "evil", "pubkey" => "",
+      "_csrf" => csrf_for(body, "/clients"))
+
+    expect(Naaf.db[:clients].where(hostname: "evil").count).to be == 0
+  end
+
+  it "escapes a client name on the list page" do
+    login!
+    add_client("bob")
+    Naaf.db[:clients].where(name: "bob").update(name: "<img src=x onerror=alert(1)>")
+
+    body = get("/clients").body
+    expect(body.include?("<img src=x")).to be == false
+    expect(body).to be(:include?, "&lt;img src=x")
   end
 
   it "rejects a client hostname that is not a DNS label" do

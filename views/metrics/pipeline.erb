@@ -8,10 +8,12 @@
     </div>
     <div class="level-right">
       <% case s.pipeline[:verdict] %>
-      <% when :suspect %>
-        <span class="level-item tag is-danger">✕ not reaching the socket</span>
+      <% when :stalled %>
+        <span class="level-item tag is-danger">✕ no peer connected</span>
       <% when :ok %>
-        <span class="level-item tag is-success is-light">✓ flowing</span>
+        <span class="level-item tag is-success is-light">✓ <%= s.wg[:online] %> connected</span>
+      <% when :idle %>
+        <span class="level-item tag is-light">no peers configured</span>
       <% else %>
         <span class="level-item tag is-light">— no reading yet</span>
       <% end %>
@@ -44,5 +46,11 @@
       See <code>docs/TROUBLESHOOTING.md</code>.
     </div>
   <% end %>
-  <p class="is-size-7 has-text-grey mt-2">IPv4 counters only.</p>
+  <p class="is-size-7 has-text-grey mt-2">
+    Read left to right: packets at the interface arrive <em>before</em> netfilter, so
+    a healthy first number with a flat third is traffic being dropped in between.
+    UDP delivered is a host-wide IPv4 counter — it includes this box's own traffic,
+    not just WireGuard — so use it as a hint, not a verdict.
+    (<code>docs/TROUBLESHOOTING.md</code> §3.)
+  </p>
 </div>

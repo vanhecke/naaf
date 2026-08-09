@@ -97,6 +97,10 @@ module Naaf
     def per_sec(v, unit: "/s")
       return DASH unless finite?(v)
       f = v.to_f
+      # Anything nonzero must not round away to "0": on a long interval a real
+      # trickle of traffic would read as a dead link, which is the one thing
+      # this formatter exists to prevent.
+      return "<0.1#{unit}" if f.positive? && f < 0.05
       value = (f < 10 && f.positive?) ? trim(f, 1) : count(f.round)
       "#{value}#{unit}"
     end

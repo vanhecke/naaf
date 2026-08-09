@@ -77,7 +77,7 @@ module Naaf
       gc_count: nil, gc_major: nil, heap_live: nil, yjit: nil,
       db_bytes: nil, wal_bytes: nil,
       backup_name: nil, backup_at: nil, backup_bytes: nil, backups_enabled: false,
-      drift: 0, reconcile_at: nil, reconcile_error: nil, apply_at: nil,
+      drift: 0, reconcile_at: nil, reconcile_failing: false, apply_at: nil,
       ruby: RUBY_VERSION
     }.freeze
 

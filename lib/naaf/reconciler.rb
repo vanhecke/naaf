@@ -35,8 +35,18 @@ module Naaf
 
     # Recorded rather than only logged, so the dashboard can show that
     # reconciling has stopped working without anyone reading the journal.
+    #
+    # The CLASS only, never the message. bin/naaf-helper merges the child's
+    # stderr into its stdout and interpolates the result into the exception it
+    # raises, and the command it runs is `wg-quick strip` / `wg syncconf` over a
+    # conf containing `PrivateKey = <server key>` and a `PresharedKey` per peer.
+    # wireguard-tools echoes the offending value verbatim ("Key is not the
+    # correct length or format: `<value>'"), so the message can carry key
+    # material — and this field is rendered into the admin's browser and pushed
+    # down every open SSE stream. The full message still goes to the journal via
+    # Console.error, which is where AGENTS.md expects it to stop.
     def failed!(error)
-      @last_error = error.message
+      @last_error = error.class.name
       @last_error_at = Time.now
     end
 

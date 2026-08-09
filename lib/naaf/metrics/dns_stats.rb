@@ -68,8 +68,11 @@ module Naaf
         live[:total] += 1
         live[:outcomes][outcome] += 1
         observe(live, ms) if ms
+        # Both are gated. A per-client query count is still a profile of a
+        # person's activity, so NAAF_METRICS_DNS_NAMES=0 has to stop collecting
+        # it rather than merely stop rendering it.
         bump(live, :domains, normalize(name), DOMAIN_CAP) if @names && name
-        bump(live, :clients, remote, CLIENT_CAP) if remote
+        bump(live, :clients, remote, CLIENT_CAP) if @names && remote
         nil
       end
 
@@ -177,6 +180,7 @@ module Naaf
           # .map would hand back a fresh unfrozen array, which is exactly the
           # kind of mutable thing that must not cross the publish boundary.
           top_clients: top(@totals[:clients]).map { |ip, n| [names[ip] || ip, n].freeze }.freeze,
+          servfails: outcomes[:servfail] + outcomes[:upstream_fail],
           names: @names,
           approximate: @totals[:dropped].values.sum.positive?
         }.freeze

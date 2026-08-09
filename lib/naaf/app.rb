@@ -150,6 +150,22 @@ module Naaf
       raise ValidationError, "That overlaps #{proto} #{other}, which is already exposed."
     end
 
+    # A human-facing label: the client name. Unlike param_name it keeps case and
+    # spaces, because it is a display name rather than a DNS label — but it must
+    # reject control characters. Renderers::WireGuard writes the name into
+    # wg0.conf as `# <name> (<hostname>)`, so an embedded newline would break out
+    # of that comment and inject lines into the file the root helper feeds to
+    # `wg-quick strip`.
+    LABEL = /\A[^[:cntrl:]]{1,64}\z/
+    def param_label(raw)
+      s = raw.to_s.strip
+      raise ValidationError, "Name is required." if s.empty?
+      unless LABEL.match?(s)
+        raise ValidationError, "Name must be at most 64 characters and contain no control characters."
+      end
+      s
+    end
+
     def param_name(raw)
       name = raw.to_s.strip.downcase
       raise ValidationError, "Name is required." if name.empty?
@@ -280,7 +296,8 @@ module Naaf
         # connection with no retry of its own — so an expired session would turn
         # the dashboard into a page that silently stops updating while the
         # extension's backoff hammers /events forever. A 401 says what actually
-        # happened; the health strip's slow poll is what bounces the tab.
+        # happened; the canary element at the foot of views/dashboard.erb is
+        # what actually bounces the tab, via the HX-Redirect below.
         r.halt(401, "Unauthorized") if r.path == "/events"
 
         # htmx follows a redirect transparently and would swap the whole login
@@ -341,14 +358,25 @@ module Naaf
           loop do
             result = hub.wait(seen) or break # nil once the hub has closed
             seen, snap = result
-            Metrics::FRAGMENTS.each do |name|
-              stream.write(Metrics::SSE.frame(render("metrics/#{name}", locals: {s: snap}),
-                event: name))
+            Metrics::LIVE_FRAGMENTS.each do |name|
+              # One panel that raises must not end the stream. The response has
+              # already been returned, so error_handler cannot see this; the
+              # browser would just see a cleanly finished response and reconnect
+              # every SSE_RETRY_MS forever, logging a backtrace each time.
+              html = begin
+                render("metrics/#{name}", locals: {s: snap})
+              rescue => e
+                Console.error(self, "dashboard fragment failed", fragment: name, exception: e)
+                next
+              end
+              stream.write(Metrics::SSE.frame(html, event: name))
             end
           end
-        rescue Errno::EPIPE, Errno::ECONNRESET, IOError
-          # The tab closed. Normal termination, not an error — and it is the
-          # only way the server ever learns the peer is gone.
+        rescue SystemCallError, IOError, Protocol::HTTP::Body::Writable::Closed
+          # The tab went away: EPIPE or ECONNRESET locally, ETIMEDOUT or
+          # EHOSTUNREACH when a VPN peer vanishes mid-stream, and Closed when
+          # the body was shut from the other side. All normal termination — and
+          # a failed write is the only way the server learns the peer is gone.
         ensure
           stream.close
         end
@@ -375,7 +403,7 @@ module Naaf
           pubkey = supplied.empty? ? keys[:public_key] : supplied
 
           id = Naaf.db[:clients].insert(
-            name: r.params["name"],
+            name: param_label(r.params["name"]),
             hostname: hostname,
             wg_ip: IPAM.allocate(Naaf.db),
             pubkey: pubkey,

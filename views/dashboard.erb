@@ -63,7 +63,8 @@
 
   <div class="columns">
     <div class="column is-half">
-      <div id="m-policy" <%= panel.call("policy") %>>
+      <%# Configuration, not telemetry: rendered once, never swapped. %>
+      <div id="m-policy" <%= sse ? "" : panel.call("policy") %>>
         <%= render("metrics/policy", locals: {s: s}) %>
       </div>
     </div>
@@ -73,4 +74,13 @@
       </div>
     </div>
   </div>
+
+  <% if sse %>
+    <%# The auth canary, and the only reason this element exists. An EventSource
+        cannot navigate the tab: when the session lapses, /events answers 401 and
+        the extension just backs off, leaving a frozen page with no explanation.
+        This asks for something once a minute and swaps nothing — but a 401 from
+        the gate carries HX-Redirect, and htmx honours that regardless of swap. %>
+    <div hx-get="/metrics/health" hx-trigger="every 60s" hx-swap="none"></div>
+  <% end %>
 </div>

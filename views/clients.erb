@@ -37,9 +37,9 @@
     <tbody>
       <% @clients.each do |c| %>
         <tr>
-          <td><%= c[:name] %></td>
-          <td><code><%= c[:hostname] %>.<%= @settings[:dns_domain] %></code></td>
-          <td><code><%= c[:wg_ip] %></code></td>
+          <td><%= h(c[:name]) %></td>
+          <td><code><%= h(c[:hostname]) %>.<%= h(@settings[:dns_domain]) %></code></td>
+          <td><code><%= h(c[:wg_ip]) %></code></td>
           <td>
             <% if c[:enabled] %>
               <span class="tag is-success">enabled</span>
@@ -48,7 +48,7 @@
             <% end %>
           </td>
           <td><%= Naaf::Format.ago(c[:last_handshake_at]) %></td>
-          <td><code title="<%= c[:pubkey] %>"><%= c[:pubkey][0, 12] %>…</code></td>
+          <td><code title="<%= h(c[:pubkey]) %>"><%= h(c[:pubkey][0, 12]) %>…</code></td>
           <td>
             <div class="buttons are-small has-addons">
               <a class="button" href="/clients/<%= c[:id] %>/config/split">split</a>

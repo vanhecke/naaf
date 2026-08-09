@@ -23,5 +23,13 @@ module Naaf
   # path traversal — and as the list of SSE event names.
   module Metrics
     FRAGMENTS = %w[health kpis pipeline clients dns interfaces policy app].freeze
+
+    # `policy` is the network's configuration — subnet, endpoint, rule counts —
+    # and changes only when the admin changes it, so it is rendered once with
+    # the page and left alone. Swapping it every couple of seconds would destroy
+    # text selection, keyboard focus and browser find-highlighting inside it for
+    # no new information. It stays in FRAGMENTS so the polling fallback and its
+    # own GET route still work.
+    LIVE_FRAGMENTS = (FRAGMENTS - %w[policy]).freeze
   end
 end

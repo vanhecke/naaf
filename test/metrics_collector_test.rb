@@ -21,6 +21,32 @@ class MovingProcFS
   end
 end
 
+# A /proc whose WAN packet counters keep climbing, so "traffic is arriving" can
+# be held true across as many ticks as a test needs. Everything else comes from
+# a real fixture, so only the one variable under test moves.
+class AdvancingProcFS
+  def initialize(dir)
+    @fs = Naaf::Metrics::ProcFS.new(root: dir)
+    @packets = 0
+  end
+
+  def advance!(by = 1900) = (@packets += by)
+
+  def net_dev
+    devs = @fs.net_dev
+    return devs unless devs&.key?("eth0")
+    devs.merge("eth0" => devs["eth0"].merge(
+      rx_packets: devs["eth0"][:rx_packets] + @packets,
+      rx_bytes: devs["eth0"][:rx_bytes] + (@packets * 137)
+    ))
+  end
+
+  %i[stat loadavg meminfo uptime snmp_udp default_interface
+    conntrack pressure self_status self_stat].each do |name|
+    define_method(name) { |*args| @fs.public_send(name, *args) }
+  end
+end
+
 class StubReconciler
   attr_reader :last_poll_at, :last_apply_at, :last_error
 
@@ -59,6 +85,13 @@ describe Naaf::Metrics::Collector do
   end
 
   def advance(seconds) = (@mono += seconds)
+
+  # One interval in which packets kept arriving at the WAN interface.
+  def traffic!(c, fs, seconds: 5.0)
+    fs.advance!
+    advance(seconds)
+    c.tick!
+  end
 
   # Step the fake /proc forward and tick, which is what a real interval does.
   def step!(c, to: "t1", seconds: 5.0)
@@ -120,28 +153,67 @@ describe Naaf::Metrics::Collector do
     end
   end
 
-  # docs/TROUBLESHOOTING.md step 3, as a verdict instead of a shell session.
+  # docs/TROUBLESHOOTING.md step 3, as a row instead of a shell session.
   describe "the packet pipeline" do
-    it "says nothing until it has two samples to compare" do
+    it "says nothing until it has a reading" do
       expect(collector.tick!.pipeline[:verdict]).to be == :unknown
     end
 
-    it "reports a healthy pipeline when datagrams are reaching the socket" do
+    it "reports no peers configured rather than a fault" do
+      c = collector
+      c.tick!
+      expect(step!(c).pipeline[:verdict]).to be == :idle
+    end
+
+    it "reports the pipeline as healthy while a peer is connected" do
+      make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB",
+        last_handshake_at: Time.now)
       c = collector
       c.tick!
       expect(step!(c).pipeline[:verdict]).to be == :ok
     end
 
-    # One tick of this is noise; two in a row is a finding.
-    it "flags packets arriving at the NIC that never reach a socket" do
+    # The obvious rule — packets at the NIC but no UDP datagrams delivered —
+    # cannot work here: Udp: InDatagrams is host-wide, so this box's own DNS
+    # replies keep it moving straight through the ufw outage the panel exists
+    # for. The claim is narrowed to something the data supports.
+    it "does not claim a fault merely because host-wide UDP is quiet" do
+      make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB",
+        last_handshake_at: Time.now)
       c = collector
       c.tick!
-      first = step!(c, to: "edge/firewall-drop")
-      expect(first.pipeline[:verdict]).to be == :ok # one tick is not enough
+      s = step!(c, to: "edge/firewall-drop")
+      expect(s.pipeline[:verdict]).to be == :ok
+      expect(s.pipeline[:message]).to be_nil
+    end
 
-      second = step!(c, to: "edge/firewall-drop2")
-      expect(second.pipeline[:verdict]).to be == :suspect
-      expect(second.pipeline[:message]).to be(:include?, "nft list tables")
+    it "flags enabled peers that have all stopped handshaking while traffic arrives" do
+      make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB",
+        last_handshake_at: Time.now - 7200)
+      fs = AdvancingProcFS.new(fixtures("t0"))
+      c = collector(procfs: fs)
+      c.tick!
+
+      first = traffic!(c, fs) # 5s of the condition is not yet a finding
+      expect(first.pipeline[:verdict]).to be == :ok
+
+      # STALLED_AFTER is 30 seconds, so hold the condition well past it.
+      7.times { traffic!(c, fs) }
+      expect(c.snapshot.pipeline[:verdict]).to be == :stalled
+      expect(c.snapshot.pipeline[:message]).to be(:include?, "nft list tables")
+    end
+
+    it "clears the flag as soon as a peer connects again" do
+      make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB",
+        last_handshake_at: Time.now - 7200)
+      fs = AdvancingProcFS.new(fixtures("t0"))
+      c = collector(procfs: fs)
+      c.tick!
+      8.times { traffic!(c, fs) }
+      expect(c.snapshot.pipeline[:verdict]).to be == :stalled
+
+      @db[:clients].update(last_handshake_at: Time.now)
+      expect(traffic!(c, fs).pipeline[:verdict]).to be == :ok
     end
   end
 

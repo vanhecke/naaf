@@ -31,9 +31,10 @@ module Naaf
       # three means it is gone.
       ONLINE_WITHIN = 180
 
-      # One tick of "packets are arriving but not reaching the socket" is noise.
-      # Two in a row is a finding.
-      SUSPECT_AFTER = 2
+      # How long the "enabled peers, none connected" condition has to hold before
+      # it is worth showing. Expressed in seconds rather than ticks so it does
+      # not change meaning when NAAF_METRICS_INTERVAL does.
+      STALLED_AFTER = 30
 
       def initialize(db:, settings:, dns_stats:, peers:, reconciler: nil,
         procfs: ProcFS.new, hub: Hub.new, history: 180, backup: nil,
@@ -53,7 +54,7 @@ module Naaf
         @snapshot = Snapshot.empty(at: now.call)
         @started_mono = clock.call
         @ticks = 0
-        @suspect_ticks = 0
+        @stalled_for = 0.0
         @peer_generation = 0
       end
 
@@ -88,6 +89,10 @@ module Naaf
       # One pass over /proc and one pass over the database. The DNS counters are
       # rotated here too — exactly once per tick, whatever else happens.
       def sample(_at, elapsed)
+        # Re-read rather than holding the boot-time row: the Settings UI edits
+        # these, and a stale copy would keep reporting the old DNS upstream,
+        # interface names and endpoint until the service restarted.
+        @settings = Naaf.settings
         rows = @db[:clients].order(:wg_ip).all
         names = rows.each_with_object({}) { |c, h| h[c[:wg_ip]] = c[:name] }
         {
@@ -118,7 +123,7 @@ module Naaf
           system: system_section(raw, elapsed),
           interfaces: interfaces,
           udp: udp,
-          pipeline: pipeline_section(raw, interfaces, udp),
+          pipeline: pipeline_section(raw, interfaces, udp, wg, elapsed),
           peers: peers,
           wg: wg,
           dns: dns_section(raw),
@@ -157,7 +162,7 @@ module Naaf
           uptime: raw.dig(:uptime, :seconds),
           conntrack_count: ct && ct[:count], conntrack_max: ct && ct[:max],
           conntrack_pct: ct_pct, conntrack_series: tail(:conntrack),
-          pressure: raw[:pressure]
+          pressure: freeze_deep(raw[:pressure])
         }.freeze
       end
 
@@ -222,35 +227,50 @@ module Naaf
       # and packets coming out of the tunnel. tcpdump sees traffic before
       # netfilter, so a firewall silently eating WireGuard shows up as a healthy
       # first number and a flat second one.
-      def pipeline_section(raw, interfaces, udp)
+      def pipeline_section(raw, interfaces, udp, wg, elapsed)
         wan = interfaces.find { |i| i[:role] == :wan }
-        wg = interfaces.find { |i| i[:role] == :wg }
+        tunnel = interfaces.find { |i| i[:role] == :wg }
         wan_pps = wan&.dig(:rx_pps)
-        wg_pps = wg&.dig(:rx_pps)
-        dps = udp[:in_dps]
 
-        verdict, message = judge(wan_pps, dps, wg_pps)
+        verdict, message = judge(wan_pps, wg, elapsed)
         {
           wan: wan&.dig(:name) || raw[:wan], wan_pps: wan_pps,
-          udp_dps: dps, wg: wg&.dig(:name), wg_pps: wg_pps,
+          udp_dps: udp[:in_dps], wg: tunnel&.dig(:name), wg_pps: tunnel&.dig(:rx_pps),
           verdict: verdict, message: message
         }.freeze
       end
 
-      def judge(wan_pps, dps, wg_pps)
-        if wan_pps.nil? || dps.nil?
-          @suspect_ticks = 0
-          return [:unknown, nil]
+      # Deliberately NOT "UDP is not reaching the socket".
+      #
+      # `Udp: InDatagrams` in /proc/net/snmp is host-wide and IPv4-wide: this
+      # box's own upstream DNS replies and timesyncd keep it moving, so the
+      # obvious rule ("packets at the NIC but no datagrams delivered") stays
+      # green through the exact ufw outage docs/TROUBLESHOOTING.md is written
+      # for, while firing red on an idle box that is merely being port-scanned.
+      # A detector that is green during the outage is worse than none.
+      #
+      # So the claim is narrowed to something the data actually supports and
+      # that needs no per-port counters: peers are configured and enabled, the
+      # box is receiving traffic, and yet not one peer has completed a handshake
+      # recently. That is a fact, it is worth surfacing, and where to look next
+      # is left to the operator rather than asserted.
+      def judge(wan_pps, wg, elapsed)
+        return [:unknown, nil] if wan_pps.nil?
+        return [:idle, nil] if wg[:enabled].zero?
+        if wg[:online].positive?
+          @stalled_for = 0.0
+          return [:ok, nil]
         end
-        stalled = wan_pps >= 1 && dps.zero? && (wg_pps.nil? || wg_pps.zero?)
-        @suspect_ticks = stalled ? @suspect_ticks + 1 : 0
-        if @suspect_ticks >= SUSPECT_AFTER
-          [:suspect,
-            "Packets are reaching the interface but no UDP datagram is reaching a socket. " \
-            "Run `sudo nft list tables` — it should show only inet filter and inet naaf."]
-        else
-          [:ok, nil]
-        end
+
+        @stalled_for = (wan_pps >= 1) ? @stalled_for + (elapsed || 0) : 0.0
+        return [:ok, nil] if @stalled_for < STALLED_AFTER
+
+        [:stalled,
+          "#{wg[:enabled]} peers are enabled and traffic is arriving, but none has " \
+          "completed a handshake in the last #{ONLINE_WITHIN / 60} minutes. If clients " \
+          "are trying to connect, work through docs/TROUBLESHOOTING.md §1 — the usual " \
+          "cause is a second firewall (`sudo nft list tables` should show only " \
+          "inet filter and inet naaf)."]
       end
 
       # Peer rates come from PeerStats, published by the reconciler. A new
@@ -262,8 +282,13 @@ module Naaf
         @peer_generation = @peers&.generation || 0
         now = @now.call
 
-        total_rx = 0
-        total_tx = 0
+        # nil until something is actually measured. Seeding these at 0 would put
+        # "0 B/s" in the hero tile for a tunnel nobody has measured yet — for a
+        # whole reconcile interval after boot, and indefinitely while the
+        # reconciler is failing — which is exactly the unknown-rendered-as-zero
+        # lie the rest of this file goes out of its way to avoid.
+        total_rx = nil
+        total_tx = nil
         online = 0
 
         peers = raw[:clients].map { |c|
@@ -277,8 +302,8 @@ module Naaf
           handshake = c[:last_handshake_at]
           up = c[:enabled] && handshake && (now - handshake.to_time) <= ONLINE_WITHIN
           online += 1 if up
-          total_rx += rx if rx
-          total_tx += tx if tx
+          total_rx = total_rx.to_f + rx if rx
+          total_tx = total_tx.to_f + tx if tx
           {
             id: c[:id], name: c[:name], hostname: c[:hostname], wg_ip: c[:wg_ip],
             enabled: c[:enabled], online: up,
@@ -293,6 +318,13 @@ module Naaf
             rx_series: tail(:"peer.#{c[:pubkey]}.rx"),
             tx_series: tail(:"peer.#{c[:pubkey]}.tx")
           }.freeze
+        }.freeze
+
+        # Busiest first, then offline/idle, then by address. The operator's
+        # first question is "what is moving traffic", and a table ordered by IP
+        # answers it only by accident.
+        peers = peers.sort_by { |p|
+          [-(p[:rx_bps].to_f + p[:tx_bps].to_f), p[:online] ? 0 : 1, p[:wg_ip].to_s]
         }.freeze
 
         if fresh
@@ -337,7 +369,12 @@ module Naaf
           ruby: RUBY_VERSION,
           drift: Config.drift(@settings).size,
           reconcile_at: @reconciler&.last_poll_at,
-          reconcile_error: @reconciler&.last_error,
+          # A FLAG, never the text. bin/naaf-helper folds the child's stderr into
+          # the exception it raises and `wg` echoes an offending key verbatim, so
+          # carrying the message here would put key material one template away
+          # from the browser and every open SSE stream. The message stays in the
+          # journal, which is where AGENTS.md expects it to stop.
+          reconcile_failing: !@reconciler&.last_error.nil?,
           apply_at: @reconciler&.last_apply_at
         }.merge(slow).freeze
       end
@@ -367,6 +404,12 @@ module Naaf
 
       # --- helpers -----------------------------------------------------------
 
+      def freeze_deep(hash)
+        return nil unless hash
+        hash.each_value(&:freeze)
+        hash.freeze
+      end
+
       def push(key, value) = @series.for(key) << value
 
       def tail(key) = (@series[key]&.last || []).freeze
@@ -374,11 +417,16 @@ module Naaf
       # A client that no longer exists, or an interface that has gone away, must
       # not keep a full-length ring alive for the life of the process.
       def retain_series!(raw)
+        # One unreadable /proc/net/dev would otherwise present as "no interfaces
+        # exist" and throw away every interface's history — six minutes of chart
+        # lost to a transient EACCES, with no way to rebuild it. Remember the
+        # last set we actually saw and keep those alive across a failed read.
+        @interface_keys = raw[:net].keys if raw[:net]
         live = [:cpu, :mem, :conntrack, :udp, :dns, :"wg.rx", :"wg.tx"]
         raw[:clients].each do |c|
           live << :"peer.#{c[:pubkey]}.rx" << :"peer.#{c[:pubkey]}.tx"
         end
-        (raw[:net] || {}).each_key { |n| live << :"if.#{n}.rx" << :"if.#{n}.tx" }
+        (@interface_keys || []).each { |n| live << :"if.#{n}.rx" << :"if.#{n}.tx" }
         @series.retain!(live)
       end
 

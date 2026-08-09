@@ -12,7 +12,7 @@
           <tr>
             <th>Interface</th><th class="has-text-right">In</th><th class="has-text-right">Out</th>
             <th class="has-text-right">In pkt/s</th><th class="has-text-right">Errors</th>
-            <th class="has-text-right">Dropped</th><th>Trend</th>
+            <th class="has-text-right">Dropped</th><th>In, recent</th>
           </tr>
         </thead>
         <tbody>
@@ -27,7 +27,7 @@
               <td class="has-text-right naaf-num"><%= fmt.bps(i[:rx_bps]) %></td>
               <td class="has-text-right naaf-num"><%= fmt.bps(i[:tx_bps]) %></td>
               <td class="has-text-right naaf-num"><%= fmt.per_sec(i[:rx_pps], unit: "") %></td>
-              <td class="has-text-right naaf-num <%= (i[:rx_errs].to_i + i[:tx_errs].to_i).positive? ? "has-text-danger" : "has-text-grey" %>">
+              <td class="has-text-right naaf-num has-text-grey" title="since boot">
                 <%= fmt.count(i[:rx_errs].to_i + i[:tx_errs].to_i) %>
               </td>
               <td class="has-text-right naaf-num has-text-grey">
@@ -43,13 +43,15 @@
     </div>
   <% end %>
 
-  <p class="heading has-text-grey mt-3">UDP sockets (IPv4)</p>
+  <p class="heading has-text-grey mt-3">UDP sockets (IPv4, host-wide)</p>
   <div class="tags">
     <span class="tag is-light">
       delivered <span class="naaf-num ml-1"><%= fmt.per_sec(s.udp[:in_dps]) %></span>
     </span>
-    <span class="tag <%= s.udp[:no_ports].to_i.positive? ? "is-warning is-light" : "is-light" %>">
-      no port <span class="naaf-num ml-1"><%= fmt.count(s.udp[:no_ports]) %></span>
+    <%# Rate, not the since-boot total: on a public IP the total is nonzero
+        within minutes and a permanently yellow tag teaches people to ignore it. %>
+    <span class="tag <%= s.udp[:no_ports_ps].to_f.positive? ? "is-warning is-light" : "is-light" %>">
+      no port <span class="naaf-num ml-1"><%= fmt.per_sec(s.udp[:no_ports_ps]) %></span>
     </span>
     <span class="tag <%= s.udp[:in_errors].to_i.positive? ? "is-danger is-light" : "is-light" %>">
       errors <span class="naaf-num ml-1"><%= fmt.count(s.udp[:in_errors]) %></span>

@@ -98,7 +98,11 @@ module Naaf
       result
     rescue => e
       @stats&.record(:servfail, name: name, remote: remote)
-      Console.error(self, "resolution failed", name: name.to_s, exception: e)
+      # No query name in the journal. A resolver log is a record of what
+      # everyone on the tunnel looked at, and the whole point of keeping the
+      # counters in memory is that it never lands on disk — writing the name
+      # here on the failure path would undo that one ServFail at a time.
+      Console.error(self, "resolution failed", exception: e)
       transaction.fail!(:ServFail)
     end
 

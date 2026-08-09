@@ -13,7 +13,10 @@ module Naaf
     #
     # A sample may be nil, meaning "not known for this interval" — the first
     # tick after boot, or an interval spanning a counter reset. Aggregations skip
-    # nils; the renderer draws them as a hole in the baseline.
+    # nils, so a reset never drags a mean down. The sparkline draws them at the
+    # baseline (Renderers::SVG.clean), which is indistinguishable from a genuine
+    # idle period; the headline number beside the chart is the one that says
+    # "—", and that is where the distinction is meant to be read.
     class Series
       attr_reader :capacity
 

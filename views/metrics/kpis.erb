@@ -38,9 +38,9 @@
       <p class="heading has-text-grey">CPU</p>
       <p class="naaf-value"><%= fmt.pct(s.system[:cpu_pct]) %></p>
       <p class="is-size-7 has-text-grey mb-2">
-        load <span class="naaf-num"><%= fmt.dash(s.system[:load1]) %></span>
+        load <span class="naaf-num"><%= fmt.dash(s.system[:load1]) %></span><%= s.system[:ncpu] ? " / #{s.system[:ncpu]} cores" : "" %>
         <% if s.system[:steal_pct] && s.system[:steal_pct] >= 1 %>
-          · <span class="has-text-warning-dark">steal <%= fmt.pct(s.system[:steal_pct]) %></span>
+          · <span class="tag is-warning is-light">steal <%= fmt.pct(s.system[:steal_pct]) %></span>
         <% end %>
       </p>
       <%= svg.sparkline(s.system[:cpu_series], height: 34, max: 100, label: "CPU busy percent") %>
@@ -54,11 +54,15 @@
       <p class="is-size-7 has-text-grey mb-2">
         <%= fmt.bytes(s.system[:mem_used]) %> of <%= fmt.bytes(s.system[:mem_total]) %>
       </p>
-      <%# A ratio against a fixed limit is a meter, not a chart. %>
-      <progress class="progress is-small <%= s.system[:mem_pct].to_f >= 90 ? "is-danger" : "is-info" %>"
-                value="<%= s.system[:mem_pct].to_f.round %>" max="100">
-        <%= fmt.pct(s.system[:mem_pct]) %>
-      </progress>
+      <%# A ratio against a fixed limit is a meter, not a chart. Only drawn when
+          there is a reading: an empty bar at 0% would read as "plenty free". %>
+      <% if s.system[:mem_pct] %>
+        <progress class="progress is-small <%= (s.system[:mem_pct] >= 90) ? "is-danger" : "is-info" %>"
+                  value="<%= s.system[:mem_pct].round %>" max="100"
+                  aria-label="memory used, percent">
+          <%= fmt.pct(s.system[:mem_pct]) %>
+        </progress>
+      <% end %>
       <% if s.system[:swap_used].to_i.positive? %>
         <p class="is-size-7 has-text-grey">swap <%= fmt.bytes(s.system[:swap_used]) %></p>
       <% end %>
@@ -74,10 +78,15 @@
       <p class="is-size-7 has-text-grey mb-2">
         of <%= fmt.compact(s.system[:conntrack_max]) %> · <%= fmt.pct(s.system[:conntrack_pct]) %>
       </p>
-      <progress class="progress is-small <%= s.system[:conntrack_pct].to_f >= 80 ? "is-warning" : "is-info" %>"
-                value="<%= s.system[:conntrack_pct].to_f.round %>" max="100">
-        <%= fmt.pct(s.system[:conntrack_pct]) %>
-      </progress>
+      <% if s.system[:conntrack_pct] %>
+        <progress class="progress is-small <%= (s.system[:conntrack_pct] >= 80) ? "is-warning" : "is-info" %>"
+                  value="<%= s.system[:conntrack_pct].round %>" max="100"
+                  aria-label="conntrack table used, percent">
+          <%= fmt.pct(s.system[:conntrack_pct]) %>
+        </progress>
+      <% else %>
+        <p class="is-size-7 has-text-grey">conntrack counters not readable here</p>
+      <% end %>
     </div>
   </div>
 </div>

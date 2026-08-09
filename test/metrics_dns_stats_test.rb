@@ -143,15 +143,20 @@ describe Naaf::Metrics::DNSStats do
       expect(out[:top_clients].first.first).to be == "10.8.0.9"
     end
 
-    it "collects no names at all when name detail is switched off" do
+    # A per-client query count is a profile of a person's activity just as much
+    # as a domain list is, so the switch has to stop COLLECTING both — not merely
+    # stop rendering them while the process quietly keeps the profile in memory.
+    it "collects neither names nor per-client counts when name detail is off" do
       s = stats(names: false)
       s.record(:upstream_ok, name: "secret.example.com", remote: "10.8.0.2")
-      out = s.rotate!(elapsed: 1.0)
+      out = s.rotate!(elapsed: 1.0, names: {"10.8.0.2" => "alice-laptop"})
 
       expect(out[:top_domains]).to be(:empty?)
+      expect(out[:top_clients]).to be(:empty?)
       expect(out[:names]).to be == false
-      expect(out[:total]).to be == 1
+      expect(out[:total]).to be == 1 # the aggregate rate still works
       expect(out.inspect.include?("secret")).to be == false
+      expect(out.inspect.include?("alice-laptop")).to be == false
     end
   end
 

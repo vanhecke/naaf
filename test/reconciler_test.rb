@@ -176,12 +176,19 @@ describe Naaf::Reconciler do
 
   # Same contract as Naaf::Backup.tick!: the reactor task must survive a helper
   # that has gone away, and the failure has to be visible without reading logs.
-  it "tick! swallows a failed poll and records why" do
+  #
+  # The CLASS is recorded, never the message. bin/naaf-helper folds the child's
+  # stderr into the exception it raises, and the command it runs parses a conf
+  # containing `PrivateKey = <server key>` — wireguard-tools echoes an offending
+  # value verbatim, so the message can carry key material, and this field is
+  # rendered into the admin's browser and pushed down every SSE stream.
+  it "tick! swallows a failed poll and records its class, never its message" do
     r = reconciler("")
-    def r.poll! = raise("helper socket is gone")
+    def r.poll! = raise("Key is not the correct length or format: `SUPERSECRETKEY='")
 
     expect(Naaf::Reconciler.tick!(r)).to be_nil
-    expect(r.last_error).to be == "helper socket is gone"
+    expect(r.last_error).to be == "RuntimeError"
+    expect(r.last_error.include?("SUPERSECRET")).to be == false
   end
 
   it "poll! re-applies when the kernel peer set has drifted from the DB" do

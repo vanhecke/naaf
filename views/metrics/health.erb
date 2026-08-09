@@ -10,8 +10,8 @@
       DNS <span class="naaf-num ml-1"><%= fmt.per_sec(s.dns[:qps]) %></span>
     </span>
 
-    <% if s.app[:reconcile_error] %>
-      <span class="level-item tag is-danger" title="<%= h(s.app[:reconcile_error]) %>">reconcile failing</span>
+    <% if s.app[:reconcile_failing] %>
+      <span class="level-item tag is-danger">reconcile failing</span>
     <% else %>
       <span class="level-item tag is-light">reconciled <%= fmt.ago(s.app[:reconcile_at]) %></span>
     <% end %>

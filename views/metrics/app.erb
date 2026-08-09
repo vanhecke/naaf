@@ -45,9 +45,11 @@
       <tr>
         <th>Reconcile</th>
         <td class="naaf-num">
-          <% if s.app[:reconcile_error] %>
+          <% if s.app[:reconcile_failing] %>
             <span class="tag is-danger">failing</span>
-            <span class="has-text-grey"><%= h(s.app[:reconcile_error]) %></span>
+            <%# Deliberately no detail: the helper's message can carry key
+                material. `journalctl -u naaf` has the whole thing. %>
+            <span class="has-text-grey">see <code>journalctl -u naaf</code></span>
           <% else %>
             <%= fmt.ago(s.app[:reconcile_at]) %>
             <span class="has-text-grey">· applied <%= fmt.ago(s.app[:apply_at]) %></span>

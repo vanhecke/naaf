@@ -18,8 +18,10 @@
       <div>
         <p class="heading has-text-grey">Upstream p50 / p95</p>
         <p class="is-size-5 naaf-num">
-          <%= fmt.dash(s.dns[:p50_ms]) %> / <%= fmt.dash(s.dns[:p95_ms]) %> ms
+          <%= (s.dns[:p50_ms] == :over) ? "&gt;1000" : fmt.dash(s.dns[:p50_ms]) %> /
+          <%= (s.dns[:p95_ms] == :over) ? "&gt;1000" : fmt.dash(s.dns[:p95_ms]) %> ms
         </p>
+        <p class="is-size-7 has-text-grey">bucketed, so an upper bound</p>
       </div>
     </div>
   </div>
@@ -32,6 +34,11 @@
     <% if s.dns[:outcomes][:upstream_fail].to_i.positive? %>
       <span class="tag is-danger is-light">
         failed <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:outcomes][:upstream_fail]) %></span>
+      </span>
+    <% end %>
+    <% if s.dns[:outcomes][:servfail].to_i.positive? %>
+      <span class="tag is-danger is-light">
+        servfail <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:outcomes][:servfail]) %></span>
       </span>
     <% end %>
     <% if s.dns[:outcomes][:aaaa_suppressed].to_i.positive? %>
