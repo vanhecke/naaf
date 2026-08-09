@@ -21,7 +21,6 @@
           <%= (s.dns[:p50_ms] == :over) ? "&gt;1000" : fmt.dash(s.dns[:p50_ms]) %> /
           <%= (s.dns[:p95_ms] == :over) ? "&gt;1000" : fmt.dash(s.dns[:p95_ms]) %> ms
         </p>
-        <p class="is-size-7 has-text-grey">bucketed, so an upper bound</p>
       </div>
     </div>
   </div>
@@ -85,16 +84,5 @@
         <% end %>
       </div>
     </div>
-    <p class="is-size-7 has-text-grey">
-      Counted in memory since the process started, never written to disk or logged.
-      <% if s.dns[:approximate] %>
-        The name table is capped, so it is approximate under load.
-      <% end %>
-      Set <code>NAAF_METRICS_DNS_NAMES=0</code> to collect rates only.
-    </p>
-  <% else %>
-    <p class="is-size-7 has-text-grey">
-      Name-level detail is switched off (<code>NAAF_METRICS_DNS_NAMES=0</code>); rates only.
-    </p>
   <% end %>
 </div>
