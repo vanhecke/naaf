@@ -27,6 +27,7 @@ NAAF_CONF="${NAAF_CONF:-/etc/naaf/naaf.conf}"
 : "${NAAF_BACKUP_ENABLED:=1}"
 : "${NAAF_BACKUP_DIR:=/var/lib/naaf/backups}"
 : "${NAAF_LITESTREAM_ENABLED:=0}"
+: "${NAAF_LITESTREAM_REPLICA_TYPE:=file}"
 
 pass=0; fail=0; warn=0
 # Count files matching a glob. A glob that matches nothing stays literal, so the
@@ -133,6 +134,30 @@ if [ "$NAAF_LITESTREAM_ENABLED" = "1" ]; then
      "$(find "$NAAF_STATE_DIR" -maxdepth 1 -name 'naaf.db-*' -user root 2>/dev/null | grep -c .)"
   has "tracks the database" "$NAAF_DB" \
       "$(litestream databases -config /etc/litestream.yml 2>&1)"
+
+  if [ "$NAAF_LITESTREAM_REPLICA_TYPE" = "s3" ]; then
+    # The replica holds server_privkey in plaintext (litestream 0.5 has no
+    # encryption), so these keys reach the whole database. Guard them like it.
+    ck "credentials file mode" "640" "$(stat -c %a /etc/naaf/litestream.env 2>/dev/null)"
+    ck "credentials file owner" "root:$NAAF_GROUP" \
+       "$(stat -c '%U:%G' /etc/naaf/litestream.env 2>/dev/null)"
+    # The keys must reach the config by ${VAR} expansion at load time. A literal
+    # value here means that indirection broke and the secret is now on disk twice.
+    ck "no literal key in /etc/litestream.yml" "0" \
+       "$(grep -cE '^[[:space:]]*(access-key-id|secret-access-key):[[:space:]]*[^$[:space:]]' \
+          /etc/litestream.yml 2>/dev/null)"
+    # Objects in the bucket are the ONLY proof the replica is real: the daemon
+    # reports active just as happily against a bucket it cannot write. The unit's
+    # EnvironmentFile= does not reach a command we run, so source it ourselves —
+    # without this every litestream command fails with an EC2 IMDS error that
+    # looks nothing like its cause.
+    n=$( ( set -a; . /etc/naaf/litestream.env; set +a
+           litestream ltx -config /etc/litestream.yml -level 0 "$NAAF_DB" 2>/dev/null
+         ) | grep -cE '^0[[:space:]]' )
+    [ "${n:-0}" -ge 1 ] &&
+      ok "replica reachable and holding transactions" "$n L0 files" ||
+      no "replica reachable and holding transactions" "none — wrong bucket, bad keys, or no egress"
+  fi
 else
   note "replication disabled" "NAAF_LITESTREAM_ENABLED=$NAAF_LITESTREAM_ENABLED"
 fi
