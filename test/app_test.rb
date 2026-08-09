@@ -79,7 +79,7 @@ describe "Naaf::App integration" do
 
   # Returns the actual new client id (ids are AUTOINCREMENT — never assume 1).
   def add_client(name, pubkey: "")
-    body = get("/").body
+    body = get("/clients").body
     post("/clients", "name" => name, "hostname" => name, "pubkey" => pubkey,
       "_csrf" => csrf_for(body, "/clients"))
     Naaf.db[:clients].where(name: name).get(:id)
@@ -95,7 +95,7 @@ describe "Naaf::App integration" do
 
   it "logs in with a request-specific CSRF token and reaches the dashboard" do
     expect(login!.status).to be == 302
-    expect(get("/").status).to be == 200
+    expect(get("/clients").status).to be == 200
   end
 
   # Every other dashboard test runs against clients with a NULL last_handshake_at,
@@ -107,7 +107,7 @@ describe "Naaf::App integration" do
       last_handshake_at: Time.now - 7200, endpoint: "81.82.83.84:51820",
       rx_bytes: 12_345_678, tx_bytes: 9_876_543
     )
-    res = get("/")
+    res = get("/clients")
     expect(res.status).to be == 200
     expect(res.body).to be(:include?, "2h ago")
   end
@@ -116,6 +116,66 @@ describe "Naaf::App integration" do
     res = get("/")
     expect(res.status).to be == 302
     expect(res.headers["location"]).to be == "/login"
+  end
+
+  # --- the client list, moved from / to /clients ---
+
+  it "serves the client list at /clients" do
+    login!
+    res = get("/clients")
+    expect(res.status).to be == 200
+    expect(res.body).to be(:include?, "Add client")
+    expect(res.body).to be(:include?, "Clients")
+  end
+
+  it "guards /clients behind the same auth gate as every other page" do
+    res = get("/clients")
+    expect(res.status).to be == 302
+    expect(res.headers["location"]).to be == "/login"
+  end
+
+  it "sends every client mutation back to the list it was made from" do
+    login!
+    dave = add_client("dave")
+
+    body = get("/clients").body
+    toggled = post("/clients/#{dave}/toggle",
+      "_csrf" => csrf_for(body, "/clients/#{dave}/toggle"))
+    expect(toggled.headers["location"]).to be == "/clients"
+
+    body = get("/clients").body
+    deleted = post("/clients/#{dave}/delete",
+      "_csrf" => csrf_for(body, "/clients/#{dave}/delete"))
+    expect(deleted.headers["location"]).to be == "/clients"
+  end
+
+  it "sends a newly added client back to the list" do
+    login!
+    body = get("/clients").body
+    res = post("/clients", "name" => "erin", "hostname" => "erin", "pubkey" => "",
+      "_csrf" => csrf_for(body, "/clients"))
+    expect(res.headers["location"]).to be == "/clients"
+  end
+
+  # The list is matched with `r.get true`. A bare `r.get` would match any GET
+  # under /clients and swallow these two before they ever reached a handler,
+  # which is the one ordering mistake available here.
+  it "still routes the per-client config and QR downloads" do
+    login!
+    frank = add_client("frank")
+
+    conf = get("/clients/#{frank}/config/split")
+    expect(conf.status).to be == 200
+    expect(conf.headers["content-type"]).to be == "text/plain"
+
+    qr = get("/clients/#{frank}/qr/split")
+    expect(qr.status).to be == 200
+    expect(qr.headers["content-type"]).to be == "image/svg+xml"
+  end
+
+  it "leaves the client list reachable from the navigation" do
+    login!
+    expect(get("/clients").body).to be(:include?, 'href="/clients"')
   end
 
   # Falcon installs a *shared* HTTP cache by default. It stores 302s, keys only on
@@ -129,7 +189,7 @@ describe "Naaf::App integration" do
     expect(get("/").headers["cache-control"]).to be == "no-store"
     expect(get("/login").headers["cache-control"]).to be == "no-store"
     login!
-    expect(get("/").headers["cache-control"]).to be == "no-store"
+    expect(get("/clients").headers["cache-control"]).to be == "no-store"
     expect(get("/exposed-ports").headers["cache-control"]).to be == "no-store"
   end
 
@@ -195,7 +255,7 @@ describe "Naaf::App integration" do
   # session had lapsed failed the CSRF check first and surfaced as a bare 500.
   it "sends a lapsed-session POST back to the login form instead of erroring" do
     login!
-    body = get("/").body
+    body = get("/clients").body
     token = csrf_for(body, "/apply")
     @cookie = nil # session gone: browser restart, expiry, server-side clear
     res = post("/apply", "_csrf" => token)
@@ -238,7 +298,7 @@ describe "Naaf::App integration" do
 
   it "accepts the re-apply action from the navbar form" do
     login!
-    body = get("/").body
+    body = get("/clients").body
     res = post("/apply", "_csrf" => csrf_for(body, "/apply"))
     expect(res.status).to be == 302
     expect(res.headers["location"]).to be == "/"
@@ -247,7 +307,7 @@ describe "Naaf::App integration" do
   it "accepts a request-specific delete and removes the client" do
     login!
     dave = add_client("dave")
-    body = get("/").body
+    body = get("/clients").body
     res = post("/clients/#{dave}/delete", "_csrf" => csrf_for(body, "/clients/#{dave}/delete"))
     expect(res.status).to be == 302
     expect(Naaf.db[:clients][id: dave]).to be_nil
@@ -424,7 +484,7 @@ describe "Naaf::App integration" do
 
   it "rejects a client hostname that is not a DNS label" do
     login!
-    body = get("/").body
+    body = get("/clients").body
     post("/clients", "name" => "bad", "hostname" => "bad_host!", "pubkey" => "",
       "_csrf" => csrf_for(body, "/clients"))
     expect(Naaf.db[:clients].where(hostname: "bad_host!").count).to be == 0
@@ -436,9 +496,9 @@ describe "Naaf::App integration" do
     login!
     dave = add_client("dave")
     expect(Naaf.db[:clients][id: dave][:enabled]).to be == true
-    post_form("/", "/clients/#{dave}/toggle", {})
+    post_form("/clients", "/clients/#{dave}/toggle", {})
     expect(Naaf.db[:clients][id: dave][:enabled]).to be == false
-    post_form("/", "/clients/#{dave}/toggle", {})
+    post_form("/clients", "/clients/#{dave}/toggle", {})
     expect(Naaf.db[:clients][id: dave][:enabled]).to be == true
   end
 

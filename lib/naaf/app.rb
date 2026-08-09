@@ -276,12 +276,22 @@ module Naaf
       check_csrf! unless r.get?
 
       r.root do
-        @clients = Naaf.db[:clients].order(:wg_ip).all
-        @settings = Naaf.settings
-        view("dashboard")
+        # / becomes the live dashboard in the next change. Until then it points
+        # at the page that used to live here, so no bookmark breaks in between.
+        r.redirect "/clients"
       end
 
       r.on "clients" do
+        # r.get true, not r.root: inside this block the remaining path is "",
+        # and r.root wants "/". A bare `r.get` would be worse still — with no
+        # argument it matches ANY get and would swallow /clients/5/config/split
+        # and /clients/5/qr/split before they ever reached their handlers.
+        r.get true do
+          @clients = Naaf.db[:clients].order(:wg_ip).all
+          @settings = Naaf.settings
+          view("clients")
+        end
+
         r.post true do
           hostname = param_hostname(r.params["hostname"])
           keys = reconciler.helper.genkeys
@@ -301,13 +311,13 @@ module Naaf
           if supplied.empty?
             session["oneshot_privkey"] = {"id" => id.to_s, "key" => keys[:private_key]}
           end
-          r.redirect "/"
+          r.redirect "/clients"
         rescue ValidationError => e
           flash["error"] = e.message
-          r.redirect "/"
+          r.redirect "/clients"
         rescue Sequel::UniqueConstraintViolation
           flash["error"] = "That name or hostname is already taken."
-          r.redirect "/"
+          r.redirect "/clients"
         end
 
         r.on Integer do |id|
@@ -316,13 +326,13 @@ module Naaf
           r.post("delete") do
             Naaf.db[:clients].where(id: id).delete
             reconciler.apply!
-            r.redirect "/"
+            r.redirect "/clients"
           end
 
           r.post("toggle") do
             Naaf.db[:clients].where(id: id).update(enabled: !client[:enabled])
             reconciler.apply!
-            r.redirect "/"
+            r.redirect "/clients"
           end
 
           r.get "config", String do |flavor|
