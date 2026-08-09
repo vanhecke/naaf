@@ -6,6 +6,7 @@ require "naaf/reconciler"
 # Minimal stand-ins so we can drive the reconciler without a live helper/kernel.
 class FakeHelper
   attr_reader :applies
+  attr_accessor :dump_text
 
   def initialize(dump_text)
     @dump_text = dump_text
@@ -14,6 +15,19 @@ class FakeHelper
 
   def dump = @dump_text
   def apply(**) = (@applies += 1) && {ok: true}
+end
+
+# Sequel writes every statement to any object in db.loggers, so this is the
+# cheapest way to assert "no write happened" without reaching into the adapter.
+class SQLSpy
+  attr_reader :statements
+
+  def initialize = @statements = []
+
+  def info(msg) = @statements << msg.to_s
+  def error(msg) = @statements << msg.to_s
+  def warn(msg) = @statements << msg.to_s
+  def debug(msg) = @statements << msg.to_s
 end
 
 class FakeZone
@@ -32,6 +46,15 @@ describe Naaf::Reconciler do
 
   def reconciler(dump_text)
     Naaf::Reconciler.new(@db, FakeZone.new, helper: FakeHelper.new(dump_text))
+  end
+
+  def sql_during
+    spy = SQLSpy.new
+    @db.loggers << spy
+    yield
+    spy.statements
+  ensure
+    @db.loggers.delete(spy)
   end
 
   it "parses a peer line into endpoint/handshake/rx/tx" do
@@ -63,6 +86,43 @@ describe Naaf::Reconciler do
     expect(c[:tx_bytes]).to be == 99
     expect(c[:last_handshake_at].nil?).to be == false
     expect(helper.applies).to be == 0 # peer set matches DB -> no re-apply
+  end
+
+  # An idle VPN reports identical counters every 30s forever. Rewriting the row
+  # anyway costs a WAL frame per client per poll, which Litestream then ships to
+  # the object store — for no new information.
+  it "poll! issues no UPDATE when a peer's counters have not moved" do
+    make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB")
+    helper = FakeHelper.new(dump_for("PEERPUB", handshake: 1_700_000_000, rx: 42, tx: 99))
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.poll!
+
+    expect(sql_during { r.poll! }.grep(/UPDATE/)).to be(:empty?)
+  end
+
+  # `wg` reports handshake 0 for a peer that has never connected and the column
+  # stores NULL. If those two are not normalized to the same thing, every
+  # never-connected peer is rewritten on every poll — the exact churn the skip
+  # exists to avoid, on the rows least likely to ever change.
+  it "poll! issues no UPDATE for a peer that has never handshaked" do
+    make_client(@db, name: "spare", wg_ip: "10.8.0.3", pubkey: "NEVER")
+    helper = FakeHelper.new(dump_for("NEVER", handshake: 0, endpoint: "(none)", rx: 0, tx: 0))
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.poll!
+
+    expect(@db[:clients][pubkey: "NEVER"][:last_handshake_at]).to be_nil
+    expect(sql_during { r.poll! }.grep(/UPDATE/)).to be(:empty?)
+  end
+
+  it "poll! still writes once a counter actually moves" do
+    make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB")
+    helper = FakeHelper.new(dump_for("PEERPUB", handshake: 1_700_000_000, rx: 42, tx: 99))
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.poll!
+
+    helper.dump_text = dump_for("PEERPUB", handshake: 1_700_000_000, rx: 43, tx: 99)
+    expect(sql_during { r.poll! }.grep(/UPDATE/)).not.to be(:empty?)
+    expect(@db[:clients][pubkey: "PEERPUB"][:rx_bytes]).to be == 43
   end
 
   it "poll! re-applies when the kernel peer set has drifted from the DB" do
