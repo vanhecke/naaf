@@ -73,6 +73,43 @@
   stroke-width: 1;
 }
 
+/* --- chrome ------------------------------------------------------------- */
+
+/* Bulma derives --bulma-code from the DANGER hue, so every inline <code> comes
+ * out red: a hostname, a VPN IP, a config key, a doc path. On a page whose
+ * entire job is telling you whether something is wrong, red text that means
+ * "this is a filename" is the worst possible default. Neutral, on both schemes.
+ */
+code {
+  color: var(--bulma-text-strong);
+  background-color: var(--bulma-background);
+}
+
+/* Neutral pills.
+ *
+ * Bulma's `is-light` tag variants pin a fixed background lightness, so on the
+ * dark surface they land as near-white chips — which makes "backup 55m ago"
+ * shout louder than "reconcile failing" beside it. Status keeps Bulma's solid
+ * colours (it computes a readable foreground for both schemes); everything
+ * merely informational uses this instead, and reads as quiet in both.
+ */
+.tag.naaf-chip {
+  background-color: var(--bulma-background);
+  color: var(--bulma-text);
+  border: 1px solid var(--bulma-border-weak);
+}
+
+.tag.naaf-chip code {
+  background-color: transparent;
+}
+
+/* The default track is one step off the surface and effectively invisible on
+ * dark; a meter reading 0 then looks like a broken element rather than a low
+ * number. */
+.progress {
+  background-color: var(--bulma-border-weak);
+}
+
 /* --- figures ------------------------------------------------------------ */
 
 /* Proportional figures: tabular-nums gives every digit the width of a zero,

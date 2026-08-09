@@ -16,10 +16,11 @@
         <thead>
           <tr>
             <th>Name</th><th>VPN IP</th><th>Status</th><th>Last handshake</th>
-            <th>Endpoint</th><th class="has-text-right">From peer</th>
-            <th class="has-text-right">To peer</th>
-            <th class="has-text-right">Total since wg0 up</th>
-            <th>From peer, recent</th>
+            <th>Endpoint</th>
+            <th class="has-text-right" title="traffic from the peer to this server">In</th>
+            <th class="has-text-right" title="traffic from this server to the peer">Out</th>
+            <th class="has-text-right" title="total both ways since wg0 came up">Total</th>
+            <th title="inbound throughput over the last few minutes">Recent</th>
           </tr>
         </thead>
         <tbody>
@@ -29,11 +30,11 @@
               <td><code class="naaf-num"><%= h(p[:wg_ip]) %></code></td>
               <td>
                 <% if !p[:enabled] %>
-                  <span class="tag is-light">disabled</span>
+                  <span class="tag naaf-chip">disabled</span>
                 <% elsif p[:online] %>
-                  <span class="tag is-success is-light">online</span>
+                  <span class="tag naaf-chip has-text-success-on-scheme">online</span>
                 <% else %>
-                  <span class="tag is-warning is-light">idle</span>
+                  <span class="tag is-warning">idle</span>
                 <% end %>
               </td>
               <td class="naaf-num"><%= fmt.ago(p[:last_handshake_at]) %></td>

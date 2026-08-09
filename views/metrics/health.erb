@@ -2,24 +2,24 @@
     status colour is paired with a word, so state never rides on hue alone. %>
 <div class="level is-mobile is-flex-wrap-wrap mb-4">
   <div class="level-left is-flex-wrap-wrap">
-    <span class="level-item tag <%= (s.wg[:online]).positive? ? "is-success" : "is-light" %>">
+    <span class="level-item tag <%= (s.wg[:online]).positive? ? "is-success" : "naaf-chip" %>">
       <strong class="mr-1"><%= s.wg[:online] %>/<%= s.wg[:enabled] %></strong> peers up
     </span>
 
-    <span class="level-item tag is-info is-light">
+    <span class="level-item tag naaf-chip">
       DNS <span class="naaf-num ml-1"><%= fmt.per_sec(s.dns[:qps]) %></span>
     </span>
 
     <% if s.app[:reconcile_failing] %>
       <span class="level-item tag is-danger">reconcile failing</span>
     <% else %>
-      <span class="level-item tag is-light">reconciled <%= fmt.ago(s.app[:reconcile_at]) %></span>
+      <span class="level-item tag naaf-chip">reconciled <%= fmt.ago(s.app[:reconcile_at]) %></span>
     <% end %>
 
     <% if s.app[:backups_enabled] %>
-      <span class="level-item tag is-light">backup <%= fmt.ago(s.app[:backup_at]) %></span>
+      <span class="level-item tag naaf-chip">backup <%= fmt.ago(s.app[:backup_at]) %></span>
     <% else %>
-      <span class="level-item tag is-warning is-light">backups off</span>
+      <span class="level-item tag is-warning">backups off</span>
     <% end %>
 
     <% if (s.app[:drift]).positive? %>

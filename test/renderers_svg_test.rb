@@ -66,6 +66,22 @@ describe Naaf::Renderers::SVG do
       expect(out).not.to be(:match?, /NaN|Infinity/)
     end
 
+    # Flattening an entirely-unmeasured series to zeros paints a hard line
+    # across the chart that reads exactly like a measured idle period — and in
+    # the duplex chart it paints that line in the outbound colour, so a tunnel
+    # nobody has measured yet shows up as a red streak.
+    it "draws no line at all for a series with nothing measured in it" do
+      out = svg.sparkline([nil, nil, nil])
+      expect(out).to be(:include?, "<svg")
+      expect(out.include?("<path")).to be == false
+    end
+
+    it "draws no arm for a duplex series with nothing measured in it" do
+      out = svg.throughput(down: [nil, nil], up: [nil, nil])
+      expect(out).to be(:include?, "naaf-baseline")
+      expect(out.include?("naaf-line")).to be == false
+    end
+
     it "draws an unknown sample at the baseline instead of emitting NaN" do
       out = svg.sparkline([1, nil, 2])
       expect(out).not.to be(:match?, /NaN|Infinity/)

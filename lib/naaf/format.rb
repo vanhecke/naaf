@@ -60,7 +60,14 @@ module Naaf
 
     def pct(v, places: 0)
       return DASH unless finite?(v)
-      "#{trim(v.to_f, places)}%"
+      f = v.to_f
+      # 303 of 65536 conntrack entries is 0.46%, and "0%" beside an empty meter
+      # reads as "nothing there" rather than "a small number". Spelled out
+      # rather than "<1%": everything here goes straight into HTML, and a bare
+      # "<" is parsed as the start of a tag — it silently ate the meter's own
+      # fallback label the first time round.
+      return "under 1%" if places.zero? && f.positive? && f < 0.5
+      "#{trim(f, places)}%"
     end
 
     def duration(secs)
@@ -100,7 +107,7 @@ module Naaf
       # Anything nonzero must not round away to "0": on a long interval a real
       # trickle of traffic would read as a dead link, which is the one thing
       # this formatter exists to prevent.
-      return "<0.1#{unit}" if f.positive? && f < 0.05
+      return "under 0.1#{unit}" if f.positive? && f < 0.05
       value = (f < 10 && f.positive?) ? trim(f, 1) : count(f.round)
       "#{value}#{unit}"
     end

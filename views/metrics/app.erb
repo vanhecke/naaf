@@ -20,7 +20,7 @@
         <th>Ruby</th>
         <td class="naaf-num">
           <%= h(s.app[:ruby]) %>
-          <% if s.app[:yjit] %><span class="tag is-success is-light ml-1">YJIT</span><% end %>
+          <% if s.app[:yjit] %><span class="tag naaf-chip has-text-success-on-scheme ml-1">YJIT</span><% end %>
           <span class="has-text-grey">· <%= fmt.compact(s.app[:gc_count]) %> GCs</span>
         </td>
       </tr>
@@ -38,7 +38,7 @@
             <%= fmt.ago(s.app[:backup_at]) %>
             <span class="has-text-grey">· <%= fmt.bytes(s.app[:backup_bytes]) %></span>
           <% else %>
-            <span class="tag is-warning is-light">disabled</span>
+            <span class="tag is-warning">disabled</span>
           <% end %>
         </td>
       </tr>

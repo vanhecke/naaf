@@ -93,8 +93,16 @@ module Naaf
       # A nil sample means "not known for this interval" and a non-finite one
       # means an upstream divisor was zero. Both are drawn at the baseline; what
       # must never happen is either reaching the path data.
+      #
+      # A series with NOTHING measured in it is different again, and draws no
+      # line at all. Flattening it to zeros paints a hard line across the chart
+      # that is indistinguishable from a measured idle period — and in the
+      # duplex chart it paints that line in the outbound colour, so an unmeasured
+      # tunnel reads as a red alarm.
       def clean(values)
-        Array(values).map do |v|
+        vals = Array(values)
+        return [] unless vals.any? { |v| v.is_a?(Numeric) && v.to_f.finite? }
+        vals.map do |v|
           f = v.to_f
           (v.is_a?(Numeric) && f.finite? && f >= 0) ? f : 0.0
         end

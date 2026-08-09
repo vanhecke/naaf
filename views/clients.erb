@@ -12,7 +12,7 @@
     <h1 class="title level-item">Clients</h1>
   </div>
   <div class="level-right">
-    <span class="tag is-info is-light level-item">
+    <span class="tag naaf-chip level-item">
       subnet <%= @settings[:wg_subnet] %> · gateway <%= @settings[:server_ip] %>
     </span>
   </div>
@@ -44,7 +44,7 @@
             <% if c[:enabled] %>
               <span class="tag is-success">enabled</span>
             <% else %>
-              <span class="tag is-light">disabled</span>
+              <span class="tag naaf-chip">disabled</span>
             <% end %>
           </td>
           <td><%= Naaf::Format.ago(c[:last_handshake_at]) %></td>

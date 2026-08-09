@@ -29,20 +29,20 @@
   <%= svg.sparkline(s.dns[:series], height: 30, label: "DNS queries per second") %>
 
   <div class="tags mt-3 mb-2">
-    <span class="tag is-light">local <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:local]) %></span></span>
-    <span class="tag is-light">upstream <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:upstream]) %></span></span>
+    <span class="tag naaf-chip">local <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:local]) %></span></span>
+    <span class="tag naaf-chip">upstream <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:upstream]) %></span></span>
     <% if s.dns[:outcomes][:upstream_fail].to_i.positive? %>
-      <span class="tag is-danger is-light">
+      <span class="tag is-danger">
         failed <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:outcomes][:upstream_fail]) %></span>
       </span>
     <% end %>
     <% if s.dns[:outcomes][:servfail].to_i.positive? %>
-      <span class="tag is-danger is-light">
+      <span class="tag is-danger">
         servfail <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:outcomes][:servfail]) %></span>
       </span>
     <% end %>
     <% if s.dns[:outcomes][:aaaa_suppressed].to_i.positive? %>
-      <span class="tag is-light">
+      <span class="tag naaf-chip">
         AAAA suppressed <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:outcomes][:aaaa_suppressed]) %></span>
       </span>
     <% end %>

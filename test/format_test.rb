@@ -103,11 +103,33 @@ describe Naaf::Format do
     end
   end
 
+  # Every one of these goes straight into a template. A bare "<" would be parsed
+  # as the start of a tag and swallow whatever followed it, which is exactly what
+  # happened when "<1%" was the wording for a small percentage.
+  it "never emits a character that HTML would treat as markup" do
+    values = [nil, 0, 1, -1, 0.46, 0.04, 1536, 12_900, 273_600, Float::NAN, Float::INFINITY]
+    outputs = values.flat_map do |v|
+      [f.bytes(v), f.bps(v), f.pct(v), f.pct(v, places: 2), f.per_sec(v),
+        f.duration(v), f.count(v), f.compact(v)]
+    end
+    outputs << f.ago(nil) << f.ago(Time.now - 60) << f.clock(nil)
+
+    outputs.each { |out| expect(out).not.to be(:match?, /[<>&"]/) }
+  end
+
   describe ".pct and .bps" do
     it "drops a trailing .0 so the tiles stay quiet" do
       expect(f.pct(42.0, places: 1)).to be == "42%"
       expect(f.pct(42.5, places: 1)).to be == "42.5%"
       expect(f.pct(42.4)).to be == "42%"
+    end
+
+    # 303 of 65536 conntrack entries is 0.46%. Rounding that to "0%" beside an
+    # empty meter reads as "nothing there" rather than "a small number".
+    it "does not round a nonzero percentage away to zero" do
+      expect(f.pct(0.46)).to be == "under 1%"
+      expect(f.pct(0.0)).to be == "0%"
+      expect(f.pct(0.46, places: 2)).to be == "0.46%"
     end
 
     it "renders a throughput with its unit" do
