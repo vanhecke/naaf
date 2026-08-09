@@ -36,6 +36,13 @@ def reset_db!(**settings)
 end
 
 # Insert a client with sensible defaults; returns the new row id.
+# standardrb's Lint/FloatComparison rejects `expect(x).to be == 1.5`, and in
+# general it is right to. Round to a fixed number of decimals and compare the
+# resulting string: exact, lint-clean, and a failure still prints the number.
+def decimals(value, places = 3)
+  value.nil? ? nil : format("%.#{places}f", value)
+end
+
 def make_client(db, name:, wg_ip:, hostname: name, pubkey: "PUB-#{name}", psk: "PSK-#{name}", enabled: true, **extra)
   db[:clients].insert(
     name: name, hostname: hostname, wg_ip: wg_ip,
