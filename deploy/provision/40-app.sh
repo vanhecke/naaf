@@ -90,4 +90,9 @@ for unit in naaf-helper.service naaf.service; do
       -e "s#__NAAF_WG_INTERFACE__#$NAAF_WG_INTERFACE#g" \
       "$REPO_ROOT/deploy/$unit" >"/etc/systemd/system/$unit"
 done
+# Without this the unit is on disk and systemd is still running the old one, and
+# it says so only as a warning on the next unrelated systemctl call. A full
+# ./deploy.sh hides that because 50-bringup reloads afterwards — but `--step
+# 40-app` is the way you change a unit, and on its own it silently did nothing.
+systemctl daemon-reload
 log "units installed"
