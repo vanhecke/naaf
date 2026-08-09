@@ -32,14 +32,30 @@
   new process and not a Thread.
 
 ## Frontend
-- htmx is the ONLY client-side JavaScript. There is no application .js file and
-  there must not be one. No inline <script>. No Alpine/Stimulus/React.
+- htmx AND its official SSE extension (`vendor/htmx-ext-sse.min.js`, 0BSD) are
+  the only client-side JavaScript. There is no application .js file and there
+  must not be one. No inline <script>. No Alpine/Stimulus/React. A THIRD
+  vendored script is an "Ask first".
 - Interactivity is server-rendered fragments swapped via hx-* attributes.
   If something seems to need scripting, move the behaviour to the server.
 - Bulma is class-based: table.is-fullwidth, .field/.control, .button.is-danger,
   .notification. Bulma ships no JS — do not add its optional JS snippets.
-- Both CSS and htmx are vendored in vendor/ and served by Roda's :public
-  plugin. No CDN at runtime.
+- Everything static is vendored in `vendor/` and served by Roda's `:public`
+  plugin: bulma.min.css, htmx.min.js, htmx-ext-sse.min.js, and naaf.css (ours —
+  it exists only to colour the inline SVG charts for light and dark). No CDN at
+  runtime. `bin/ci` pins both scripts by sha384.
+- The dashboard at `/` pushes fragments over ONE SSE stream (`GET /events`).
+  Every fragment is also a plain `GET /metrics/<name>`, so the page degrades to
+  `hx-trigger="every Ns"` polling with `NAAF_METRICS_SSE=0` and every panel is
+  testable without a reactor. The `hx-ext`/`sse-connect` wrapper must stay
+  OUTSIDE every swap target — if htmx re-processes it, a second EventSource
+  opens and the first leaks. Never put `sse-swap` and `hx-trigger` on the same
+  element; they are two writers racing on one target.
+- The SSE route is a Rack 3 **callable** body (`throw :halt,
+  response.finish_with_body(proc { |stream| ... })`), never Roda's `:streaming`
+  plugin: an each-able body runs in an Enumerator fiber where the reactor cannot
+  reach it, a disconnect raises nothing, and the `ensure` never runs. Never set
+  Content-Length on it.
 
 ## Style
 - standardrb is the single authority. No .rubocop.yml, no arguing with it.
@@ -157,8 +173,23 @@
 - NEVER bind the admin UI to 0.0.0.0 or the public interface. Two binds only:
   the WireGuard IP and 127.0.0.1.
 - NEVER add Node, npm, or a package.json.
-- NEVER add client-side JavaScript beyond the vendored htmx — no app .js file,
-  no inline <script>, no JS framework.
+- NEVER add client-side JavaScript beyond the vendored htmx and its official SSE
+  extension — no app .js file, no inline <script>, no JS framework. A third
+  vendored script is an "Ask first".
+- NEVER add a metrics table. Dashboard history lives in in-memory ring buffers
+  and resets on restart, deliberately: naaf.db is configuration truth, and a
+  high-frequency table in it would multiply the WAL churn Litestream replicates
+  to the object store.
+- NEVER read `wg show dump` anywhere but `Reconciler#poll!`. Line 1 field 0 of
+  that output is the server private key and every peer line's field 1 is that
+  peer's PSK, so a second parser feeding anything the browser renders puts both
+  one bug away from the page. Peer telemetry reaches the dashboard through
+  `Metrics::PeerStats`, published by that one reader.
+- NEVER let a mutable object cross the metrics publish boundary. async-dns runs
+  a fiber per datagram; if a render iterated a live counter hash and yielded on
+  a socket write, a DNS fiber adding a key would raise inside the DNS fiber and
+  `DNSServer#process` would turn it into a ServFail. Counters rotate by
+  whole-object swap and snapshots are published frozen.
 - NEVER leave `ufw` (or any second firewall on the input/forward hooks) enabled on a
   host — it silently drops WireGuard, tunnel DNS, and forwarding. `nft list tables`
   must show only `inet filter` and `inet naaf`.

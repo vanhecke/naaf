@@ -16,7 +16,17 @@ Environment=RUBY_YJIT_ENABLE=1
 ExecStart=__NAAF_RUBY_BIN__ __NAAF_APP_DIR__/bin/naaf
 Restart=on-failure
 RestartSec=2
+# Open dashboard streams end when the collector task's ensure closes the hub.
+# This is the backstop if one ever does not: fail fast on restart rather than
+# waiting out the 90s default and being SIGKILLed, possibly mid-snapshot.
+TimeoutStopSec=10
 
+# DO NOT add ProcSubset=pid here. It hides every non-process file under /proc —
+# stat, meminfo, loadavg, net/dev, net/snmp, sys/net/* — and the dashboard's
+# samplers treat an unreadable file as "unavailable" rather than an error, so
+# the whole thing would go blank silently. ProtectProc= is safe (the app only
+# ever reads /proc/self and the world-readable aggregates).
+#
 # Only capability needed: bind DNS to port 53.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE

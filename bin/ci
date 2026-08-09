@@ -32,6 +32,28 @@ if grep -nE '^[[:space:]]*require' lib/naaf/config.rb; then
 fi
 echo "config.rb is require-free"
 
+echo "== vendored assets =="
+# The two scripts in vendor/ are the only client-side JavaScript that ships, and
+# they arrive by download rather than through a lockfile. Pin them by digest so
+# a swapped or truncated file fails the build instead of the browser.
+#   htmx.min.js         htmx 2.0.10
+#   htmx-ext-sse.min.js htmx-ext-sse 2.2.4 (0BSD)
+check_digest() {
+  want="$2"
+  got="$(openssl dgst -sha384 -binary "$1" | openssl base64 -A)"
+  if [ "$got" != "$want" ]; then
+    echo "$1 has an unexpected sha384" >&2
+    echo "  expected $want" >&2
+    echo "  actual   $got" >&2
+    exit 1
+  fi
+}
+check_digest vendor/htmx.min.js \
+  "H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V"
+check_digest vendor/htmx-ext-sse.min.js \
+  "A986SAtodyH8eg8x8irJnYUk7i9inVQqYigD6qZ9evobksGNIXfeFvDwLSHcp31N"
+echo "vendored scripts match their pinned digests"
+
 echo "== nft render check =="
 # Render against a throwaway DB so the check never depends on /var/lib/naaf, and
 # keep the output in the same temp dir so concurrent runs cannot collide.

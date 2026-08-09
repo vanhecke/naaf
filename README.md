@@ -7,7 +7,11 @@ DNS zone, and server settings. **SQLite is the single source of truth**; the ker
 a small root helper.
 
 - **One process, one reactor.** Falcon (web) + async-dns (DNS) + a 30 s reconcile
-  loop, all as tasks on one shared Async reactor.
+  loop + a metrics collector, all as tasks on one shared Async reactor.
+- **A live dashboard with no build step.** Server-rendered HTML fragments and
+  inline SVG pushed over server-sent events; history lives in in-memory ring
+  buffers, so there is no metrics table and nothing extra for Litestream to
+  replicate.
 - **One privilege boundary.** A ~120-line root helper on a Unix socket is the only
   privileged code. It speaks a fixed four-command JSON vocabulary
   (`genkeys` / `apply` / `dump` / `ping`) and never builds a shell string.
@@ -38,7 +42,8 @@ change something.
 
 | Page | What it does |
 |---|---|
-| **Clients** | Add a client (server generates keys, or paste your own pubkey), enable/disable, delete, and download the config in three flavors (`split`, `split·nodns`, `full`) or as a QR. IPAM assigns the next free VPN IP. |
+| **Dashboard** (`/`) | Live single pane of glass: tunnel throughput, peers up, DNS rate and top names, CPU/memory/conntrack, per-interface counters, and a packet-pipeline strip that makes the "a second firewall is eating WireGuard" failure visible at a glance. Pushed over one SSE stream. |
+| **Clients** (`/clients`) | Add a client (server generates keys, or paste your own pubkey), enable/disable, delete, and download the config in three flavors (`split`, `split·nodns`, `full`) or as a QR. IPAM assigns the next free VPN IP. |
 | **Exposed ports** | Which ports a spoke may accept **from other spokes** — a single port or a range like `8000-8100` (default-deny spoke-to-spoke, allow-list via an nftables interval set). |
 | **Port forwards** | Inbound DNAT from the public interface to a client's port, with an enable toggle. |
 | **Routes** | Extra split-tunnel subnets folded into a client's `AllowedIPs` (global, or per-client). |
@@ -65,11 +70,15 @@ bin/naaf-helper         privileged root helper (separate systemd unit)
 bin/bootstrap.rb        one-time: server keys + admin pw + endpoint; --refresh-network
 bin/ci                  standardrb + sus + config lint + nft render check
 lib/naaf/               app, config, backup, renderers (pure), reconciler, zone,
-                        ipam, helper client, config_builder, bootstrap
+                        ipam, helper client, config_builder, bootstrap, format
+lib/naaf/metrics/       ring buffers, /proc samplers, DNS counters, SSE hub,
+                        collector — all in memory, never persisted
 db/schema.rb            idempotent SQLite schema (settings, clients, exposed_ports,
                         port_forwards, dns_records, extra_routes), run on boot
 views/                  ERB templates (Bulma markup; plain form POST + redirect)
-vendor/                 bulma.min.css, htmx.min.js (served by Roda :public)
+views/metrics/          dashboard fragments (also served as GET /metrics/<name>)
+vendor/                 bulma.min.css, htmx.min.js, htmx-ext-sse.min.js,
+                        naaf.css (served by Roda :public; digests pinned by bin/ci)
 test/                   sus tests (renderers, ipam, reconciler, zone, app, config,
                         backup, bootstrap)
 deploy.sh               the one deploy command (create, provision, update, verify)
@@ -155,6 +164,7 @@ Full runbook, including what each provisioning step does: **`deploy/DEPLOY.md`**
 ```bash
 sudo systemctl status naaf naaf-helper wg-quick@wg0
 sudo wg show wg0                       # peers, handshakes, transfer
+# or just open the dashboard at / — same signals, live, plus DNS and host load
 sudo nft list table inet naaf          # app-owned firewall (NAT + spoke policy)
 journalctl -u naaf -f                  # app logs
 ```

@@ -67,6 +67,13 @@ sudo nft list tables             # want ONLY: inet filter, inet naaf
 ```
 `InErrors`/`InCsumErrors` incrementing instead = a UDP-layer/checksum problem.
 
+> **The dashboard charts exactly this.** The **Packet pipeline** strip on `/`
+> shows WAN packets/s → UDP datagrams/s delivered to a socket → wg0 packets/s
+> out of the tunnel, live. When the first number is healthy and the second is
+> flat for two ticks running it turns red and names the `nft list tables` check
+> for you. Watch it while you change a rule instead of grepping in a loop.
+> Note it reads IPv4 counters only.
+
 **4. Does WireGuard itself see it?**
 ```bash
 sudo mount -t debugfs none /sys/kernel/debug 2>/dev/null
@@ -159,6 +166,35 @@ on normal reboots systemd raises `wg0` before the app. Only the *first* bring-up
 the app before `wg0` exists — hence the rescue + `ip_nonlocal_bind` + post-wg-quick
 restart. `wg0.conf` is written by the app's boot `apply!` (the helper writes the file
 before `wg syncconf`, which is expected to fail the first time with no interface).
+
+---
+
+## 3a. The dashboard is frozen
+
+Every panel carries an **as of HH:MM:SS** stamp in the health strip. If it stops
+advancing, the numbers on screen are stale — there is no client-side way to
+notice a dead stream without JavaScript, so that stamp is the signal.
+
+```bash
+journalctl -u naaf | grep 'metrics collection failed'   # the collector died
+journalctl -u naaf | grep 'metrics collecting'          # what it started with
+curl -sN --max-time 5 http://127.0.0.1:8080/events      # 401 = your session lapsed
+```
+
+- **Stamp advances on reload but not on its own** → something between you and the
+  box is buffering `text/event-stream`. Set `NAAF_METRICS_SSE=0` in
+  `/etc/naaf/naaf.conf` and restart; the page then polls the same fragments.
+- **`metrics collection failed` in the journal** → the collector task caught an
+  exception; the message names it. The reactor is unaffected by design.
+- **Everything reads `—`** → `/proc` is not readable. Check nobody has added
+  `ProcSubset=pid` to `naaf.service`; that hides `stat`, `meminfo`, `net/dev`
+  and `net/snmp` in one line and the samplers report unavailable, not an error.
+- **Peer throughput lags the rest of the page** → expected. Peer counters come
+  from `Reconciler#poll!`, the only reader of kernel peer state, so they refresh
+  every `NAAF_RECONCILE_INTERVAL` (30 s by default) rather than every metrics
+  tick. Lower that if you want a livelier per-client chart.
+
+History is in memory and resets on restart. That is deliberate — see AGENTS.md.
 
 ---
 

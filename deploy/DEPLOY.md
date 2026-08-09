@@ -73,7 +73,8 @@ before you have a client, reach it over an SSH forward:
 ssh -L 8080:127.0.0.1:8080 root@<box>     # then open http://localhost:8080
 ```
 
-Add a client, scan the QR, and you are on the tunnel. After that the UI is at
+`/` is the live dashboard; the client list is one click away at `/clients`. Add a
+client there, scan the QR, and you are on the tunnel. After that the UI is at
 `http://10.8.0.1:8080` whenever the tunnel is up.
 
 ## When something goes wrong

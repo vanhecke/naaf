@@ -268,7 +268,8 @@ summary() {
         ssh ${NAAF_SSH_KEY:+-i $NAAF_SSH_KEY }-L $NAAF_WEB_PORT:127.0.0.1:$NAAF_WEB_PORT $NAAF_SSH_USER@$HOST
         open http://localhost:$NAAF_WEB_PORT
 
-    Add a client there, scan the QR, and you are on the tunnel.
+    That lands on the dashboard; add a client under Clients, scan the QR, and
+    you are on the tunnel.
 EOF
   # Read the endpoint from the database, not from naaf.conf: the config only
   # seeds it on first boot and the settings UI edits it afterwards, so the local
