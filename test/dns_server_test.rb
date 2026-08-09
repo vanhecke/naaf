@@ -2,6 +2,7 @@
 
 require_relative "helper"
 require "naaf/dns_server"
+require "naaf/metrics/dns_stats"
 
 # Stand-ins for async-dns's Transaction and for Naaf::Zone, so every branch of
 # the query path can be driven without a reactor, a socket, or an upstream.
@@ -126,5 +127,64 @@ describe Naaf::DNSServer do
     @server.process("example.com", in_class(:A), tx)
 
     expect(tx.failed).to be == :ServFail
+  end
+
+  describe "with metrics attached" do
+    before do
+      @stats = Naaf::Metrics::DNSStats.new
+      @server = Naaf::DNSServer.new(zone: @zone, upstream: "1.1.1.1",
+        endpoint: nil, stats: @stats)
+    end
+
+    def outcomes = @stats.rotate!(elapsed: 1.0)[:outcomes]
+
+    it "counts each branch of the query path separately" do
+      @server.process("nas.vpn", in_class(:A), StubTransaction.new)
+      @server.process("5.0.8.10.in-addr.arpa", in_class(:PTR), StubTransaction.new)
+      @server.process("nas.vpn", in_class(:AAAA), StubTransaction.new)
+      @server.process("example.com", in_class(:A), StubTransaction.new)
+
+      out = outcomes
+      expect(out[:local_a]).to be == 1
+      expect(out[:local_ptr]).to be == 1
+      expect(out[:aaaa_suppressed]).to be == 1
+      expect(out[:upstream_ok]).to be == 1
+    end
+
+    it "times the upstream round trip" do
+      @server.process("example.com", in_class(:A), StubTransaction.new)
+      expect(@stats.rotate!(elapsed: 1.0)[:p50_ms].nil?).to be == false
+    end
+
+    it "counts a ServFail answer as an upstream failure, not a success" do
+      @server.process("example.com", in_class(:A),
+        StubTransaction.new(rcode: Resolv::DNS::RCode::ServFail))
+
+      expect(outcomes[:upstream_fail]).to be == 1
+    end
+
+    it "counts a raised failure and still answers ServFail" do
+      tx = StubTransaction.new(raise_with: IOError.new("upstream gone"))
+      @server.process("example.com", in_class(:A), tx)
+
+      expect(tx.failed).to be == :ServFail
+      expect(outcomes[:servfail]).to be == 1
+    end
+
+    it "attributes a query to the client that asked" do
+      @server.process("example.com", in_class(:A), StubTransaction.new(remote: "10.8.0.7"))
+      out = @stats.rotate!(elapsed: 1.0, names: {"10.8.0.7" => "phone"})
+
+      expect(out[:top_clients].first).to be == ["phone", 1]
+    end
+
+    # Attribution is a nice-to-have; answering the query is not.
+    it "still answers when the transaction carries no remote address" do
+      tx = StubTransaction.new(remote: nil)
+      @server.process("nas.vpn", in_class(:A), tx)
+
+      expect(tx.responded).to be == ["10.8.0.5"]
+      expect(outcomes[:local_a]).to be == 1
+    end
   end
 end

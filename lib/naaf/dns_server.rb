@@ -28,9 +28,17 @@ module Naaf
     # `upstream` is a String or a callable. Passing a callable (bin/naaf passes
     # `-> { zone.upstream }`) makes an edit in the Settings UI take effect on the
     # next query instead of the next restart.
-    def initialize(zone:, upstream:, endpoint:)
+    # Named by number rather than reached for through Resolv::DNS::RCode on the
+    # hot path. Only the codes an upstream realistically returns are listed.
+    RCODES = {0 => :NoError, 1 => :FormErr, 2 => :ServFail,
+              3 => :NXDomain, 4 => :NotImp, 5 => :Refused}.freeze
+
+    # `stats` is optional and every call to it is guarded, because answering
+    # queries must never depend on the dashboard existing.
+    def initialize(zone:, upstream:, endpoint:, stats: nil)
       @zone = zone
       @upstream = upstream
+      @stats = stats
       super(endpoint)
     end
 
@@ -49,28 +57,62 @@ module Naaf
     end
 
     def process(name, resource_class, transaction)
+      remote = remote_ip(transaction)
+
       case type_of(resource_class)
       when TYPE_A
         if (ip = @zone.lookup_a(name))
+          @stats&.record(:local_a, name: name, remote: remote)
           return transaction.respond!(ip, ttl: 60)
         end
       when TYPE_PTR
         if (host = @zone.lookup_ptr(name))
+          @stats&.record(:local_ptr, name: name, remote: remote)
           return transaction.respond!(Resolv::DNS::Name.create(host))
         end
       when TYPE_AAAA
         # Internal network is IPv4-only. Return an empty NOERROR for internal
         # names so clients fall back to A instead of waiting for a timeout.
-        return transaction.fail!(:NoError) if @zone.lookup_a(name)
+        if @zone.lookup_a(name)
+          @stats&.record(:aaaa_suppressed, name: name, remote: remote)
+          return transaction.fail!(:NoError)
+        end
       end
 
-      transaction.passthrough!(resolver)
+      # Only the upstream round trip is timed. The branches above are hash reads
+      # against an in-memory zone, so timing them would add two clock reads to
+      # the fastest path in the server to measure a number that is always ~0.
+      began = @stats && Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      result = transaction.passthrough!(resolver)
+      if @stats
+        ms = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - began) * 1000
+        # passthrough! turns "the resolver returned nothing" into ServFail
+        # itself, so a ServFail here is either the upstream's own answer or an
+        # upstream we could not reach. Telling those apart would mean reaching
+        # into async-dns; the panel labels the bucket for both rather than
+        # claiming to know which one it was.
+        code = RCODES[transaction.response&.rcode] || :NoError
+        @stats.record((code == :ServFail) ? :upstream_fail : :upstream_ok,
+          name: name, remote: remote, ms: ms)
+      end
+      result
     rescue => e
+      @stats&.record(:servfail, name: name, remote: remote)
       Console.error(self, "resolution failed", name: name.to_s, exception: e)
       transaction.fail!(:ServFail)
     end
 
     private
+
+    # Set by async-dns's datagram and stream handlers. Guarded because a
+    # transaction built without one, or over a non-IP socket, must not take
+    # resolution down for the sake of attributing a query.
+    def remote_ip(transaction)
+      addr = transaction[:remote_address]
+      addr.ip_address if addr.respond_to?(:ip_address)
+    rescue SocketError
+      nil
+    end
 
     # Every Resolv resource class carries TypeValue, but a caller could hand us
     # something else; an unknown type just falls through to the upstream.
