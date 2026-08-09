@@ -39,6 +39,13 @@ module Naaf
       "NAAF_SESSION_COOKIE" => "naaf.session",
       "NAAF_SESSION_DAYS" => "7",
 
+      # dashboard metrics (in-memory only; nothing here touches the database)
+      "NAAF_METRICS_INTERVAL" => "2",
+      "NAAF_METRICS_HISTORY" => "180",
+      "NAAF_METRICS_SSE" => "1",
+      "NAAF_METRICS_POLL_INTERVAL" => "5",
+      "NAAF_METRICS_DNS_NAMES" => "1",
+
       # first-boot seeds for the settings table (the DB wins after first boot)
       "NAAF_WG_INTERFACE" => "wg0",
       "NAAF_WG_SUBNET" => "10.8.0.0/24",

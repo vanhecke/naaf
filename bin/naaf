@@ -14,13 +14,26 @@ require "naaf/backup"
 require "naaf/zone"
 require "naaf/dns_server"
 require "naaf/reconciler"
+require "naaf/metrics"
 require "naaf/app"
 
-db       = Naaf.db
-settings = Naaf.settings
-zone     = Naaf::Zone.new(db)
-recon    = Naaf::Reconciler.new(db, zone)
+db        = Naaf.db
+settings  = Naaf.settings
+zone      = Naaf::Zone.new(db)
+peers     = Naaf::Metrics::PeerStats.new
+dns_stats = Naaf::Metrics::DNSStats.new(names: Naaf::Config.bool("NAAF_METRICS_DNS_NAMES"))
+recon     = Naaf::Reconciler.new(db, zone, peers: peers)
+
+metrics = Naaf::Metrics::Collector.new(
+  db: db, settings: settings, dns_stats: dns_stats, peers: peers,
+  reconciler: recon, history: Naaf::Config.int("NAAF_METRICS_HISTORY"),
+  backup: (Naaf::Config.bool("NAAF_BACKUP_ENABLED") ? Naaf::Backup.new(db) : nil)
+)
+
+# Both assigned before config.ru does `Naaf::App.freeze.app`, which is what
+# makes them writable at all — the same seam App.reconciler has always used.
 Naaf::App.reconciler = recon
+Naaf::App.metrics = metrics
 
 # naaf.conf only seeds the settings table on first boot; the DB is authoritative
 # afterwards. Surface a disagreement rather than letting it stay silent — a
@@ -61,7 +74,8 @@ Async do |task|
       # editing the upstream in the Settings UI takes effect on the next query
       # rather than the next restart.
       upstream: -> { zone.upstream },
-      endpoint: endpoint
+      endpoint: endpoint,
+      stats: dns_stats
     ).run
   end
 
@@ -90,12 +104,30 @@ Async do |task|
     interval = Naaf::Config.int("NAAF_RECONCILE_INTERVAL")
     loop do
       sleep interval
-      begin
-        recon.poll!
-      rescue => e
-        Console.error("naaf", "reconcile failed", exception: e)
-      end
+      Naaf::Reconciler.tick!(recon)
     end
+  end
+
+  # Metrics run on their own task, not folded into the reconcile loop: a
+  # reconcile failure (helper socket down) must not blind the dashboard, and a
+  # slow sample must not delay a reconcile. Sleep-first, like the others, so a
+  # crash loop cannot spam the journal at startup.
+  metrics_interval = Naaf::Config.int("NAAF_METRICS_INTERVAL")
+  Console.info("naaf", "metrics collecting",
+    every: metrics_interval,
+    history: Naaf::Config.int("NAAF_METRICS_HISTORY"),
+    sse: Naaf::Config.bool("NAAF_METRICS_SSE"),
+    dns_names: Naaf::Config.bool("NAAF_METRICS_DNS_NAMES"))
+  task.async do
+    loop do
+      sleep metrics_interval
+      Naaf::Metrics::Collector.tick!(metrics)
+    end
+  ensure
+    # Ends every open SSE stream. Without it, a browser tab left open holds a
+    # response fiber and `systemctl restart naaf` waits out its stop timeout
+    # before SIGKILL — possibly in the middle of a snapshot.
+    metrics.hub.close
   end
 
   # Snapshots run on their own task, not folded into the reconcile loop: a

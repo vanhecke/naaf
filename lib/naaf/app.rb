@@ -14,10 +14,13 @@ require_relative "ipam"
 require_relative "reconciler"
 require_relative "config_builder"
 require_relative "zone"
+require_relative "metrics"
 
 module Naaf
   class App < Roda
-    class << self; attr_accessor :reconciler; end
+    # Both set by bin/naaf before config.ru freezes this class. A test assigns
+    # its own stand-ins the same way and never freezes.
+    class << self; attr_accessor :reconciler, :metrics; end
 
     plugin :render, engine: "erb", views: "views", layout: "layouts/app"
     plugin :public, root: "vendor"
@@ -41,6 +44,13 @@ module Naaf
     end
 
     def reconciler = App.reconciler
+
+    def metrics = App.metrics
+
+    # Before the collector's first tick there is nothing to draw, and on a box
+    # with no /proc there never will be much. An empty snapshot has every key a
+    # fragment touches, so no template needs a nil guard around a container.
+    def snapshot = metrics&.snapshot || Metrics::Snapshot.empty
 
     # The one-shot generated private key is bound to the client it was generated
     # for. take_/peek_ only yield it when the requested id matches, so client A's

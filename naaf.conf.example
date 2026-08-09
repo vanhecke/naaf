@@ -45,6 +45,28 @@ NAAF_SESSION_SECRET=
 NAAF_SESSION_COOKIE=naaf.session
 NAAF_SESSION_DAYS=7
 
+# ─────────────────────────────────────────────────────── dashboard / metrics
+# The dashboard at / is fed by in-memory ring buffers, never by the database: a
+# metrics table would multiply the WAL churn Litestream replicates, and naaf.db
+# is configuration truth. History therefore resets when the process restarts.
+#
+# INTERVAL is the sample period in seconds and HISTORY the number of samples
+# kept per series, so 2 x 180 is six minutes of chart. Peer throughput is a
+# separate, coarser cadence — it can only be as fresh as
+# NAAF_RECONCILE_INTERVAL, because the only reader of kernel peer state is the
+# reconciler. Lower that if you want a livelier per-client chart.
+NAAF_METRICS_INTERVAL=2
+NAAF_METRICS_HISTORY=180
+# 1 = push updates over a single server-sent-events stream. Set to 0 if
+# something between you and the box buffers text/event-stream; the page then
+# polls the same fragments every NAAF_METRICS_POLL_INTERVAL seconds instead.
+NAAF_METRICS_SSE=1
+NAAF_METRICS_POLL_INTERVAL=5
+# 1 = also keep the most-queried domain names and per-client query counts, in
+# memory only and never written anywhere. Set to 0 to keep aggregate rates and
+# nothing that could identify what anyone looked up.
+NAAF_METRICS_DNS_NAMES=1
+
 # ──────────────────────────────────────────── first-boot seeds (the DB wins)
 # These seed the single-row `settings` table on FIRST boot only. After that the
 # database is authoritative and the admin UI edits it — changing a value here

@@ -2,6 +2,7 @@
 
 require_relative "helper"
 require "naaf/reconciler"
+require "naaf/metrics/peer_stats"
 
 # Minimal stand-ins so we can drive the reconciler without a live helper/kernel.
 class FakeHelper
@@ -123,6 +124,64 @@ describe Naaf::Reconciler do
     helper.dump_text = dump_for("PEERPUB", handshake: 1_700_000_000, rx: 43, tx: 99)
     expect(sql_during { r.poll! }.grep(/UPDATE/)).not.to be(:empty?)
     expect(@db[:clients][pubkey: "PEERPUB"][:rx_bytes]).to be == 43
+  end
+
+  # poll! is the ONLY reader of kernel peer state in the process, deliberately:
+  # `wg show dump` line 1 field 0 is the server private key and every peer
+  # line's field 1 is that peer's PSK, so a second parser feeding the dashboard
+  # would put both one bug away from a browser. It is also the only place that
+  # holds the previous counters (from the row) and the new ones (from the dump)
+  # at the same instant, which is exactly what a rate needs.
+  it "poll! publishes per-peer rates to the metrics sink" do
+    make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB")
+    peers = Naaf::Metrics::PeerStats.new
+    helper = FakeHelper.new(dump_for("PEERPUB", handshake: 1_700_000_000, rx: 1000, tx: 2000))
+    mono = 100.0
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper, peers: peers,
+      clock: -> { mono })
+
+    r.poll! # first poll has no previous instant, so no rate yet
+    expect(peers.generation).to be == 1
+    expect(peers.sample["PEERPUB"][:rx_bps]).to be_nil
+    expect(peers.sample["PEERPUB"][:rx_bytes]).to be == 1000
+
+    helper.dump_text = dump_for("PEERPUB", handshake: 1_700_000_100, rx: 3000, tx: 2000)
+    mono += 30.0
+    r.poll!
+    expect(peers.generation).to be == 2
+    # 2000 bytes over 30 seconds, measured against the real elapsed time rather
+    # than the nominal reconcile interval.
+    expect(decimals(peers.sample["PEERPUB"][:rx_bps], 2)).to be == "66.67"
+  end
+
+  it "poll! publishes a frozen sample so it can cross a fiber boundary" do
+    make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB")
+    peers = Naaf::Metrics::PeerStats.new
+    r = Naaf::Reconciler.new(@db, FakeZone.new, peers: peers,
+      helper: FakeHelper.new(dump_for("PEERPUB", handshake: 0)))
+    r.poll!
+
+    expect(peers.sample).to be(:frozen?)
+    expect(peers.sample["PEERPUB"]).to be(:frozen?)
+  end
+
+  it "records when it last polled and applied, so a stall is visible" do
+    make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB")
+    r = reconciler(dump_for("PEERPUB", handshake: 0))
+    expect(r.last_poll_at).to be_nil
+    r.poll!
+    expect(r.last_poll_at.nil?).to be == false
+    expect(r.last_error).to be_nil
+  end
+
+  # Same contract as Naaf::Backup.tick!: the reactor task must survive a helper
+  # that has gone away, and the failure has to be visible without reading logs.
+  it "tick! swallows a failed poll and records why" do
+    r = reconciler("")
+    def r.poll! = raise("helper socket is gone")
+
+    expect(Naaf::Reconciler.tick!(r)).to be_nil
+    expect(r.last_error).to be == "helper socket is gone"
   end
 
   it "poll! re-applies when the kernel peer set has drifted from the DB" do

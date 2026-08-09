@@ -3,15 +3,41 @@
 require_relative "helper_client"
 require_relative "renderers/wireguard"
 require_relative "renderers/nftables"
+require_relative "metrics/peer_stats"
 
 module Naaf
   class Reconciler
-    attr_reader :helper
+    attr_reader :helper, :last_poll_at, :last_apply_at, :last_error, :last_error_at
 
-    def initialize(db, zone, helper: HelperClient.new)
+    # `peers` is an optional Metrics::PeerStats sink. This is the only place in
+    # the process that reads kernel peer state, and it stays that way on
+    # purpose — see the comment on PeerStats.
+    def initialize(db, zone, helper: HelperClient.new, peers: nil,
+      clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) })
       @db = db
       @zone = zone
       @helper = helper
+      @peers = peers
+      @clock = clock
+    end
+
+    # The reactor loop body, with the rescue extracted so "a failed reconcile
+    # never takes down the reactor" is a testable claim rather than a comment in
+    # bin/naaf. Bare rescue (StandardError) so Async::Stop still propagates and
+    # the task can actually be shut down. Mirrors Naaf::Backup.tick!.
+    def self.tick!(reconciler)
+      reconciler.poll!
+    rescue => e
+      reconciler.failed!(e)
+      Console.error(reconciler, "reconcile failed", exception: e)
+      nil
+    end
+
+    # Recorded rather than only logged, so the dashboard can show that
+    # reconciling has stopped working without anyone reading the journal.
+    def failed!(error)
+      @last_error = error.message
+      @last_error_at = Time.now
     end
 
     def apply!
@@ -19,6 +45,7 @@ module Naaf
       nft = Renderers::Nftables.render(@db)
       @helper.apply(wg_conf: wg, nft_ruleset: nft)
       @zone.reload!
+      @last_apply_at = Time.now
       Console.info(self, "applied", peers: @db[:clients].where(enabled: true).count)
       true
     end
@@ -26,6 +53,12 @@ module Naaf
     # Refresh handshake/traffic stats and re-apply if the kernel has drifted
     # from the DB. The DB is always the source of truth.
     def poll!
+      now = Time.now
+      mono = @clock.call
+      # The real elapsed time between polls, not the nominal interval: a tick
+      # delayed behind an apply! would otherwise inflate every rate.
+      interval = @last_poll_mono && (mono - @last_poll_mono)
+
       live = parse_dump(@helper.dump)
 
       # Materialize before writing. Updating the clients table while streaming a
@@ -35,6 +68,7 @@ module Naaf
       # sqlite3 driver never releases the GVL, so every commit here freezes the
       # web server and the DNS server along with it.
       rows = @db[:clients].all
+      measured = {}
       @db.transaction do
         rows.each do |c|
           peer = live[c[:pubkey]] or next
@@ -44,10 +78,23 @@ module Naaf
             rx_bytes: peer[:rx],
             tx_bytes: peer[:tx]
           }
+          # The stored row still holds the previous counters here, which is what
+          # makes this the one place a per-peer rate can be computed at all.
+          measured[c[:pubkey]] = Metrics::PeerStats.entry(
+            previous_rx: c[:rx_bytes], previous_tx: c[:tx_bytes],
+            rx: peer[:rx], tx: peer[:tx],
+            handshake: peer[:handshake], endpoint: peer[:endpoint],
+            interval: interval
+          )
           next if unchanged?(c, attrs, peer[:handshake])
           @db[:clients].where(id: c[:id]).update(attrs)
         end
       end
+
+      @peers&.publish(measured, at: now, interval: interval)
+      @last_poll_mono = mono
+      @last_poll_at = now
+      @last_error = nil
 
       expected = @db[:clients].where(enabled: true).select_map(:pubkey).to_set
       apply! if expected != live.keys.to_set
