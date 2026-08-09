@@ -7,6 +7,19 @@ module Naaf
   class DNSServer < Async::DNS::Server
     IN = Resolv::DNS::Resource::IN
 
+    # Dispatch on the numeric type, never on the class name.
+    #
+    # Only A and AAAA are statically defined under Resolv::DNS::Resource::IN.
+    # The class-insensitive types — PTR, CNAME, MX, TXT — are generated at load
+    # time, so Resolv::DNS::Resource::IN::PTR is really a class called
+    # "Resolv::DNS::Resource::Type12_Class1". Matching the name with /IN::PTR\z/
+    # therefore never fires, and every reverse lookup for a .vpn host silently
+    # fell through to the upstream resolver, which has never heard of it. The
+    # type value is stable across Ruby versions; the generated name is not.
+    TYPE_A = IN::A::TypeValue
+    TYPE_AAAA = IN::AAAA::TypeValue
+    TYPE_PTR = IN::PTR::TypeValue
+
     # NOTE: async-dns 1.4 takes `endpoint` as a POSITIONAL argument to
     # Server#initialize (verified against the installed 1.4.1 source), so we
     # pass it positionally with `super(endpoint)`, not `super(endpoint:)`.
@@ -36,16 +49,16 @@ module Naaf
     end
 
     def process(name, resource_class, transaction)
-      case resource_class.to_s
-      when /IN::A\z/
+      case type_of(resource_class)
+      when TYPE_A
         if (ip = @zone.lookup_a(name))
           return transaction.respond!(ip, ttl: 60)
         end
-      when /IN::PTR\z/
+      when TYPE_PTR
         if (host = @zone.lookup_ptr(name))
           return transaction.respond!(Resolv::DNS::Name.create(host))
         end
-      when /IN::AAAA\z/
+      when TYPE_AAAA
         # Internal network is IPv4-only. Return an empty NOERROR for internal
         # names so clients fall back to A instead of waiting for a timeout.
         return transaction.fail!(:NoError) if @zone.lookup_a(name)
@@ -55,6 +68,16 @@ module Naaf
     rescue => e
       Console.error(self, "resolution failed", name: name.to_s, exception: e)
       transaction.fail!(:ServFail)
+    end
+
+    private
+
+    # Every Resolv resource class carries TypeValue, but a caller could hand us
+    # something else; an unknown type just falls through to the upstream.
+    def type_of(resource_class)
+      resource_class::TypeValue
+    rescue NameError
+      nil
     end
   end
 end
