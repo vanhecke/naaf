@@ -1,4 +1,4 @@
-<div class="box naaf-tile">
+<div class="box naaf-tile <%= s.udp[:in_errors].to_i.positive? ? "naaf-warn" : "" %>">
   <h2 class="title is-6">Interfaces</h2>
 
   <% if s.interfaces.empty? %>

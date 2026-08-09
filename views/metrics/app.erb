@@ -1,4 +1,4 @@
-<div class="box naaf-tile">
+<div class="box naaf-tile <%= s.app[:reconcile_failing] ? "naaf-alert" : (s.app[:backups_enabled] ? "" : "naaf-warn") %>">
   <h2 class="title is-6">Naaf</h2>
 
   <table class="table is-fullwidth is-narrow is-size-7">

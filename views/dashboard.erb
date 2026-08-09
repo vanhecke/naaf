@@ -26,7 +26,16 @@
       <h1 class="title level-item mb-0">Dashboard</h1>
     </div>
     <div class="level-right">
-      <span class="tag naaf-chip level-item"><%= sse ? "live" : "polling every #{poll}s" %></span>
+      <% if sse %>
+        <%# The dot carries the colour and the word carries the meaning: green
+            text on the light surface sits under 4.5:1, and a status hue on body
+            text is the thing the rest of this page is careful not to do. %>
+        <span class="tag naaf-chip naaf-live level-item">
+          <span class="naaf-dot" aria-hidden="true"></span> live
+        </span>
+      <% else %>
+        <span class="tag naaf-chip level-item">polling every <%= poll %>s</span>
+      <% end %>
     </div>
   </div>
 

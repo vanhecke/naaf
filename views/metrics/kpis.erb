@@ -64,7 +64,7 @@
       </div>
 
       <div class="column is-half">
-        <div class="box naaf-tile">
+        <div class="box naaf-tile <%= (s.system[:mem_pct].to_f >= 90) ? "naaf-alert" : ((s.system[:mem_pct].to_f >= 80) ? "naaf-warn" : "") %>">
           <p class="heading has-text-grey">Memory</p>
           <p class="naaf-value"><%= fmt.pct(s.system[:mem_pct]) %></p>
           <p class="is-size-7 has-text-grey mb-2">
@@ -86,7 +86,7 @@
       </div>
 
       <div class="column is-half">
-        <div class="box naaf-tile">
+        <div class="box naaf-tile <%= (s.system[:conntrack_pct].to_f >= 80) ? "naaf-warn" : "" %>">
           <%# "conntrack entries", not "connections": every UDP pseudo-flow gets
               an entry, so this is table utilisation rather than a session count. %>
           <p class="heading has-text-grey">Conntrack entries</p>

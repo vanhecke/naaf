@@ -1,7 +1,7 @@
 <%# docs/TROUBLESHOOTING.md step 3, as a row instead of a shell session.
     tcpdump sees traffic BEFORE netfilter, so a firewall quietly eating
     WireGuard shows up as a healthy first number and a flat second one. %>
-<div class="box mb-4">
+<div class="box mb-4 <%= (s.pipeline[:verdict] == :stalled) ? "naaf-alert" : "" %>">
   <div class="level is-mobile is-flex-wrap-wrap mb-2">
     <div class="level-left">
       <h2 class="title is-6 level-item mb-0">Packet pipeline</h2>

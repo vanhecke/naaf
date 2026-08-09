@@ -17,6 +17,7 @@
   --naaf-out: #eb6834;     /* outbound */
   --naaf-grid: #c3c2b7;    /* baselines and rules, one step off the surface */
   --naaf-good: #0ca30c;
+  --naaf-good-glow: rgba(12, 163, 12, 0.5);
   --naaf-warning: #fab219;
   --naaf-critical: #d03b3b;
 }
@@ -108,6 +109,62 @@ code {
  * number. */
 .progress {
   background-color: var(--bulma-border-weak);
+}
+
+/* --- widgets ------------------------------------------------------------ */
+
+/* Flat. A hairline separates a tile from the page; a drop shadow only pretends
+ * the tile is floating above it, and twenty of them on one screen reads as
+ * clutter. The border is also what the state colours below have to work with. */
+.box {
+  box-shadow: none;
+  border: 1px solid var(--bulma-border-weak);
+}
+
+/* A tile whose contents are in a warning or fault state colours its edge.
+ *
+ * The colour is never the only signal — the tile already says what is wrong in
+ * words and numbers (the meter reads 92%, the tag says "reconcile failing").
+ * This just lets you find that tile without reading the whole page.
+ */
+.box.naaf-warn {
+  border-color: var(--naaf-warning);
+}
+
+.box.naaf-alert {
+  border-color: var(--naaf-critical);
+}
+
+/* --- the live indicator ------------------------------------------------- */
+
+.tag.naaf-live {
+  border-color: var(--naaf-good);
+}
+
+.naaf-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background-color: var(--naaf-good);
+  animation: naaf-pulse 2.4s ease-out infinite;
+}
+
+/* The ring expands and fades rather than the dot itself blinking: a dot that
+ * disappears looks like a rendering fault on a page full of live numbers. */
+@keyframes naaf-pulse {
+  0% { box-shadow: 0 0 0 0 var(--naaf-good-glow); }
+  70% { box-shadow: 0 0 0 0.5rem transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* Anything that pulses forever needs an opt-out; the dot still reads as "live"
+ * standing still, because it is green and captioned. */
+@media (prefers-reduced-motion: reduce) {
+  .naaf-dot {
+    animation: none;
+  }
 }
 
 /* --- figures ------------------------------------------------------------ */

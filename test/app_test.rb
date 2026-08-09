@@ -62,6 +62,21 @@ class LeakyMetrics
   end
 end
 
+# Serves a snapshot with specific sections overridden, so a fragment can be
+# rendered in a state the fixtures cannot reach (a full disk, a dead reconciler).
+class StubMetrics
+  attr_reader :snapshot, :hub
+
+  def initialize(**sections)
+    empty = Naaf::Metrics::Snapshot.empty
+    merged = sections.to_h { |k, v| [k, empty.public_send(k).merge(v).freeze] }
+    @snapshot = empty.with(**merged).freeze
+    @hub = Naaf::Metrics::Hub.new
+    @hub.publish(@snapshot)
+    @hub.close
+  end
+end
+
 class ScriptedMetrics
   attr_reader :hub, :snapshot
 
@@ -293,6 +308,60 @@ describe "Naaf::App integration" do
     frames = get("/events").body
     expect(frames.include?(LeakyMetrics::SECRET)).to be == false
     expect(frames).not.to be(:match?, %r{[A-Za-z0-9+/]{43}=})
+  end
+
+  # A tile in trouble colours its own edge, so it can be found without reading
+  # the whole page. The colour is never the only signal — each of these tiles
+  # also states the problem in words or numbers.
+  describe "state borders" do
+    it "leaves a healthy tile unmarked" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(system: {mem_pct: 40.0, conntrack_pct: 5.0})
+      body = get("/metrics/kpis").body
+      expect(body.include?("naaf-alert")).to be == false
+      expect(body.include?("naaf-warn")).to be == false
+    end
+
+    it "marks memory as a fault past 90% and a warning past 80%" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(system: {mem_pct: 93.0})
+      expect(get("/metrics/kpis").body).to be(:include?, "naaf-alert")
+
+      Naaf::App.metrics = StubMetrics.new(system: {mem_pct: 84.0})
+      body = get("/metrics/kpis").body
+      expect(body).to be(:include?, "naaf-warn")
+      expect(body.include?("naaf-alert")).to be == false
+    end
+
+    it "marks a conntrack table filling up" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(system: {conntrack_pct: 88.0})
+      expect(get("/metrics/kpis").body).to be(:include?, "naaf-warn")
+    end
+
+    it "marks the pipeline when no peer is connected" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(pipeline: {verdict: :stalled, message: "x"})
+      expect(get("/metrics/pipeline").body).to be(:include?, "naaf-alert")
+    end
+
+    it "marks a failing reconciler as a fault and absent backups as a warning" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(app: {reconcile_failing: true, backups_enabled: true})
+      expect(get("/metrics/app").body).to be(:include?, "naaf-alert")
+
+      Naaf::App.metrics = StubMetrics.new(app: {backups_enabled: false})
+      body = get("/metrics/app").body
+      expect(body).to be(:include?, "naaf-warn")
+      expect(body.include?("naaf-alert")).to be == false
+    end
+  end
+
+  it "shows a live indicator while the stream is on" do
+    login!
+    body = get("/").body
+    expect(body).to be(:include?, "naaf-live")
+    expect(body).to be(:include?, "naaf-dot")
   end
 
   it "serves the vendored SSE extension and the stylesheet, cacheably" do
