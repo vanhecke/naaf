@@ -234,7 +234,12 @@ sync_code() {
 run_remote() {
   local remote_cmd="$1" logfile="$2"
   mkdir -p "$LOGDIR"
-  if [ -n "${NAAF_ADMIN_PASSWORD:-}${NAAF_LITESTREAM_ACCESS_KEY_ID:-}" ]; then
+  # NAAF_ENDPOINT_HOST is in this condition even though it is not a secret: it is
+  # a per-run value, and gating the whole channel on a secret being present meant
+  # it silently failed to travel on an already-bootstrapped box — where there is
+  # no admin password. That is exactly the box migration case, the one time you
+  # most want to set it.
+  if [ -n "${NAAF_ADMIN_PASSWORD:-}${NAAF_LITESTREAM_ACCESS_KEY_ID:-}${NAAF_ENDPOINT_HOST:-}" ]; then
     ssh_ "cat >/root/.naaf-deploy.env && chmod 600 /root/.naaf-deploy.env" <<EOF
 export NAAF_ADMIN_PASSWORD=$(printf '%q' "${NAAF_ADMIN_PASSWORD:-}")
 export NAAF_ENDPOINT_HOST=$(printf '%q' "${NAAF_ENDPOINT_HOST:-}")
