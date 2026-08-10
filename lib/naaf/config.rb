@@ -80,6 +80,60 @@ module Naaf
       "NAAF_LITESTREAM_SNAPSHOT_INTERVAL" => "24h",
       "NAAF_LITESTREAM_SNAPSHOT_RETENTION" => "168h",
 
+      # wstunnel — WireGuard inside a TLS WebSocket, for networks that pass only
+      # tcp/443. Off by default: an open 443 with nothing behind it is an
+      # advertisement, so the firewall rule, the unit and the client flavors all
+      # appear together or not at all.
+      #
+      # These are naaf.conf keys and NOT settings-table columns on purpose. The
+      # port has to match the systemd unit AND /etc/nftables.conf, both rendered
+      # from naaf.conf at provisioning time; a database copy would be a second
+      # source of truth that can drift. The *host* clients dial stays in settings.
+      #
+      # NAAF_WSTUNNEL_PATH_PREFIX is deliberately absent. deploy/install-config.sh
+      # iterates the INCOMING file only, so a key present on the box but missing
+      # from the operator's copy is dropped, re-appended empty by 40-app.sh, and
+      # regenerated — a silent outage for every split-ws config ever issued. It
+      # lives in /etc/naaf/wstunnel.env, written by 65-wstunnel.sh and pulled into
+      # naaf.service's environment by an EnvironmentFile=, so Config[] still
+      # finds it via ENV.
+      "NAAF_WSTUNNEL_ENABLED" => "0",
+      "NAAF_WSTUNNEL_VERSION" => "10.6.2",
+      "NAAF_WSTUNNEL_PORT" => "443",
+      # Fleet-wide cover name for --tls-sni-override. Empty is already correct:
+      # dialing wss://<endpoint>:443 puts the endpoint on the wire as SNI. Set it
+      # only to show an inspecting firewall a name in a category it does not
+      # decrypt. No per-client value — wstunnel's server never inspects SNI.
+      "NAAF_WSTUNNEL_SNI" => nil,
+      # auto | on | off. auto verifies when ACME is on and no SNI override is
+      # set, i.e. exactly when the dialed name and the served certificate agree.
+      "NAAF_WSTUNNEL_TLS_VERIFY" => "auto",
+
+      # certificates — a general-purpose store owned by 60-certs.sh. Not
+      # namespaced under wstunnel: wstunnel is its first consumer, not its owner,
+      # and consumers register in <cert>/consumers.d/ rather than growing a
+      # second ACME path. Self-signed by default and that is complete; ACME is
+      # DNS-01 only, so no inbound port is ever opened.
+      "NAAF_CERT_DIR" => "/etc/naaf/certs",
+      "NAAF_ACME_ENABLED" => "0",
+      "NAAF_ACME_EMAIL" => nil,
+      "NAAF_ACME_SERVER" => "letsencrypt",
+      "NAAF_ACME_DNS_API" => "dns_dnsimple",
+      "NAAF_ACME_CHALLENGE_ALIAS" => nil,
+      # Space-separated certificates, comma-separated SANs within one. The DNS
+      # API token is NOT a key here — naaf.conf is EnvironmentFile= for the web
+      # app, and a credential that can rewrite DNS has no business in that
+      # process. It reaches /etc/naaf/acme.env (0600 root:root) through
+      # deploy.sh's secret channel instead.
+      "NAAF_ACME_DOMAINS" => nil,
+      # acme.sh is installed from a git clone pinned to the tag AND asserted
+      # against the commit that tag pointed at, because a tag can be moved and a
+      # commit SHA is content-addressed. Not `curl | sh`, and not the release
+      # tarball: acme.sh publishes no assets and GitHub's generated ones are not
+      # byte-stable, so a pinned sha256 would be a time bomb. Bump both together.
+      "NAAF_ACME_SH_VERSION" => "3.1.4",
+      "NAAF_ACME_SH_COMMIT" => "3661fd86b6304115e42f43910e6dd452ab9866d6",
+
       # deploy (workstation-side; stripped before the file is installed on a box)
       "NAAF_SSH_HOST" => nil,
       "NAAF_SSH_USER" => "root",

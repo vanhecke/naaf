@@ -26,6 +26,16 @@ table inet filter {
     tcp dport 22 accept                           # SSH
     udp dport __NAAF_LISTEN_PORT__ accept         # WireGuard (v4 and v6 both hit this)
 
+    # Either a tcp accept for the wstunnel port or a bare comment, depending on
+    # NAAF_WSTUNNEL_ENABLED. Off by default: an open port with nothing listening
+    # behind it is an advertisement. A comment-only line is a legal empty
+    # statement inside a chain block, so the disabled render is still valid nft.
+    __NAAF_WSTUNNEL_RULE__
+
+    # There is deliberately no tcp/80 rule here, and there must never be one:
+    # certificates come from ACME DNS-01 (deploy/provision/60-certs.sh), which
+    # proves control with a TXT record and needs no inbound port at all.
+
     iifname "__NAAF_WG_INTERFACE__" accept        # from inside the tunnel: DNS, admin UI
 
     counter drop

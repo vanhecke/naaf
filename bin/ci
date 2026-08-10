@@ -21,7 +21,16 @@ echo "== naaf.conf.example =="
 # lib/naaf/config.rb. test/config_test.rb pins the systemd grammar and the key
 # parity with Config::DEFAULTS; this proves the shell half, which has no other
 # cheap check. The subshell keeps the sourced variables out of this script.
-( set -a; . ./naaf.conf.example; set +a ) && echo "sourceable by /bin/sh"
+#
+# The `|| { … }` shape is load-bearing. This used to be
+# `( set -a; . ./naaf.conf.example; set +a ) && echo …`, which could not fail:
+# the subshell's status is `set +a`'s, always 0, and `set -e` is suppressed
+# inside the left operand of `&&`, so an unterminated quote sourced with a loud
+# parse error on stderr and still reported success. Values that actually need
+# quoting (NAAF_ACME_DOMAINS) exist now, so make the check real: `.` is the last
+# command of the subshell, so its status is the subshell's.
+( set -a; . ./naaf.conf.example ) || { echo "naaf.conf.example is not sourceable by /bin/sh" >&2; exit 1; }
+echo "sourceable by /bin/sh"
 
 # bin/naaf-helper runs as root and loads lib/naaf/config.rb via require_relative.
 # Keeping that file require-free is what stops the privileged process growing a
@@ -63,16 +72,58 @@ NAAF_DB="$tmpdir/ci.db" NAAF_CONF=/dev/null CI_NFT="$tmpdir/ci.nft" bundle exec 
   $LOAD_PATH.unshift("lib"); require "naaf/db"; require "naaf/renderers/nftables"
   File.write(ENV.fetch("CI_NFT"), Naaf::Renderers::Nftables.render(Naaf.db))
 '
-if command -v nft >/dev/null 2>&1; then
-  nft -c -f "$tmpdir/ci.nft" 2>/dev/null && echo "nft check passed" \
-    || echo "(nft check skipped — needs root/nftables)"
-
-  # The base firewall ships as a template now, rendered at provisioning time.
-  # A syntax error there locks you out of the box, so check it here too.
+# The base firewall ships as a template, rendered at provisioning time by
+# 20-system.sh. A syntax error there locks you out of the box, so render it the
+# same way here — both branches of the conditional wstunnel rule, because the
+# disabled one is what ships by default and would otherwise never be checked.
+#
+# `|` is the delimiter for the wstunnel expression while the other two keep `#`,
+# for the same reason 20-system.sh uses it: both replacement texts contain a `#`,
+# so `s#__NAAF_WSTUNNEL_RULE__## wstunnel disabled (…)#g` parses as an empty
+# replacement plus a `w` (write-file) flag. sed exits 0, drops a junk file in the
+# CWD, and the output still passes the placeholder guard and `nft -c -f` with the
+# rule silently gone. This is the second render site, not a copy of that one.
+render_base() { # <outfile> <wstunnel rule>
   sed -e 's#__NAAF_LISTEN_PORT__#51820#g' -e 's#__NAAF_WG_INTERFACE__#wg0#g' \
-    deploy/nftables.conf.template >"$tmpdir/base.nft"
-  nft -c -f "$tmpdir/base.nft" 2>/dev/null && echo "base firewall template check passed" \
-    || echo "(base firewall template check skipped — needs root/nftables)"
+      -e "s|__NAAF_WSTUNNEL_RULE__|$2|g" \
+      deploy/nftables.conf.template >"$1"
+}
+render_base "$tmpdir/base-off.nft" '# wstunnel disabled (NAAF_WSTUNNEL_ENABLED=0)'
+render_base "$tmpdir/base-on.nft" 'tcp dport 443 accept                          # wstunnel'
+
+# The placeholder guard runs whether or not nft is installed — it is the half of
+# this check that catches a template growing a placeholder no renderer knows
+# about, and there is no nft on a macOS workstation. Written `if`, never
+# `grep -q … && { …; exit 1; }`: this script runs `set -euo pipefail`, and a
+# non-matching AND-list as the last command of a loop or of the script makes
+# bin/ci exit 1 on a clean tree.
+for f in "$tmpdir/base-off.nft" "$tmpdir/base-on.nft"; do
+  if grep -q '__NAAF_' "$f"; then
+    echo "$f still has an unsubstituted __NAAF_ placeholder" >&2
+    exit 1
+  fi
+done
+echo "base firewall template renders with every placeholder consumed"
+
+# `nft -c -f "$f" 2>/dev/null && echo passed || echo skipped` could not fail the
+# build: a genuine syntax error took the same branch as "not root" and the script
+# still exited 0. Keep the message, and downgrade to skipped only when the kernel
+# refused us — never when the parser did.
+nft_check() { # <label> <file>
+  if out="$(nft -c -f "$2" 2>&1)"; then
+    echo "$1 passed"
+  elif printf '%s' "$out" | grep -qiE 'not permitted|permission denied|must be root'; then
+    echo "($1 skipped — needs root/nftables)"
+  else
+    echo "$1 FAILED" >&2
+    printf '%s\n' "$out" >&2
+    exit 1
+  fi
+}
+if command -v nft >/dev/null 2>&1; then
+  nft_check "nft check" "$tmpdir/ci.nft"
+  nft_check "base firewall template check (wstunnel off)" "$tmpdir/base-off.nft"
+  nft_check "base firewall template check (wstunnel on)" "$tmpdir/base-on.nft"
 else
-  echo "(nft checks skipped — nft not installed on this host)"
+  echo "(nft syntax checks skipped — nft not installed on this host)"
 fi

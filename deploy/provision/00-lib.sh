@@ -51,10 +51,20 @@ fi
 : "${NAAF_BACKUP_DIR:=/var/lib/naaf/backups}"
 : "${NAAF_SWAP_GB:=2}"
 : "${NAAF_LITESTREAM_ENABLED:=0}"
+: "${NAAF_WSTUNNEL_ENABLED:=0}"
+: "${NAAF_WSTUNNEL_PORT:=443}"
+# NAAF_CERT_DIR is not optional here the way the wstunnel pair is. 60-certs.sh
+# runs unconditionally — only its ACME half is gated — so on exactly the
+# no-config-file path this block exists for, `install -d "$NAAF_CERT_DIR"` would
+# abort the step with `unbound variable` under `set -u`, and provision.sh turns
+# any failed step into a fatal die. shellcheck -S warning does not report SC2154,
+# so this default is the only thing standing between that and a dead deploy.
+: "${NAAF_CERT_DIR:=/etc/naaf/certs}"
 export NAAF_USER NAAF_GROUP NAAF_APP_DIR NAAF_STATE_DIR NAAF_DB NAAF_RUN_DIR \
   NAAF_HELPER_SOCKET NAAF_LOG_DIR NAAF_RUBY_VERSION NAAF_RUBY_PREFIX \
   NAAF_RV_VERSION NAAF_WG_INTERFACE NAAF_LISTEN_PORT NAAF_BACKUP_DIR \
-  NAAF_SWAP_GB NAAF_LITESTREAM_ENABLED NAAF_CONF
+  NAAF_SWAP_GB NAAF_LITESTREAM_ENABLED NAAF_WSTUNNEL_ENABLED NAAF_WSTUNNEL_PORT \
+  NAAF_CERT_DIR NAAF_CONF
 
 # The Ruby that rv installs (30-ruby.sh passes the parent of this as
 # --install-dir, and rv creates ruby-<version> inside it). Both systemd units are

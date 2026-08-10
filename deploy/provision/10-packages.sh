@@ -29,10 +29,19 @@ apt-get -y upgrade
 #   sqlite3          the CLI: verify.sh, 50-bringup's bootstrap guard, ops.
 #                    The sqlite3 *gem* ships precompiled per-platform, so it
 #                    needs no compiler and no libsqlite3-dev.
+#   openssl          60-certs.sh generates every certificate's self-signed
+#                    fallback and decides on renewal with `x509 -checkend`;
+#                    verify.sh re-checks expiry. The CLI is a separate package
+#                    from libssl-dev above, which is only gem build headers.
+#   bind9-dnsutils   `dig`, for 60-certs.sh proving the _acme-challenge CNAME
+#                    delegation exists BEFORE it asks a rate-limited CA. Debian
+#                    minimal ships no resolver CLI at all, and `getent hosts`
+#                    can only do A/AAAA — it cannot see a CNAME or a TXT.
 log "installing packages"
 apt-get install -y --no-install-recommends \
   wireguard wireguard-tools nftables sqlite3 git rsync curl ca-certificates jq \
-  xz-utils build-essential pkg-config libssl-dev unattended-upgrades
+  xz-utils build-essential pkg-config libssl-dev unattended-upgrades \
+  openssl bind9-dnsutils
 
 cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
 APT::Periodic::Update-Package-Lists "1";

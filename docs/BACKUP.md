@@ -289,7 +289,9 @@ gives it the *same cryptographic identity*. Repoint DNS and every existing clien
 reconnects with **zero config reissue**.
 
 This only works if `NAAF_ENDPOINT_HOST` is a name you control. If clients dial a
-raw IP, they are pinned to that box.
+raw IP, they are pinned to that box. The one thing "zero config reissue" does not
+cover is the `split-ws` flavors: their path prefix lives in
+`/etc/naaf/wstunnel.env` on the box, not in the database — see step 5 below.
 
 This is the one procedure that does **not** use a plain `./deploy.sh`: a full
 deploy would run `50-bringup` and generate a fresh server identity, which is
@@ -299,7 +301,8 @@ database in place, and only then bring up.
 ```sh
 IP=<new box>
 
-# 1. provision, but stop before bring-up
+# 1. provision, but stop before bring-up. Note where this list stops: 60-certs
+#    and 65-wstunnel come later, in step 5, for the reason spelled out there.
 ./deploy.sh --sync "$IP"
 for s in 05-swap 10-packages 20-system 30-ruby 40-app 45-litestream; do
   ./deploy.sh --step $s "$IP"
@@ -326,12 +329,23 @@ done
   PATH=/opt/rubies/ruby-4.0.6/bin:/usr/bin:/bin \
   bundle exec ruby bin/bootstrap.rb --refresh-network'
 ./deploy.sh --ssh "$IP" -- 'systemctl restart naaf'
+
+# 5. certificates, then the transport that consumes them. Only now: both name
+#    themselves after endpoint_host || endpoint_v4 from the settings table, and
+#    endpoint_v4 travelled with the database — so before step 4 they would mint
+#    a certificate for the OLD box's address and serve it. ACME is DNS-01, so
+#    issuance does not need anything to resolve to this box yet; the certificate
+#    is ready before the cutover rather than after it.
+for s in 60-certs 65-wstunnel; do
+  ./deploy.sh --step $s "$IP"
+done
+
 ./deploy.sh --verify "$IP"
 
-# 5. repoint DNS. Clients dial endpoint_host, so this is the cutover.
+# 6. repoint DNS. Clients dial endpoint_host, so this is the cutover.
 ```
 
-Two things that will bite you if skipped:
+Three things that will bite you if skipped:
 
 - **Step 2 must precede step 3.** Run bring-up first and bootstrap generates a
   fresh keypair, at which point the restore was pointless and every client is
@@ -339,3 +353,13 @@ Two things that will bite you if skipped:
 - **`endpoint_v4`, `endpoint_v6` and `wan_interface` travel with the database and
   are wrong on the new box.** Step 4 refreshes exactly those three and touches
   neither keys nor the admin password.
+- **Step 5 must follow step 4, not ride along with step 1.** `60-certs` derives
+  the certificate name from `endpoint_host || endpoint_v4`, so on a deployment
+  that dials a bare IP it would otherwise issue for the machine you are leaving,
+  and `65-wstunnel` would serve that certificate to every `split-ws` client. With
+  `NAAF_ENDPOINT_HOST` set — the configuration this whole procedure is for — the
+  name is right either way, and running it late costs nothing. The path prefix in
+  `/etc/naaf/wstunnel.env` is *not* in the database and does not travel: a
+  restored box generates a fresh one, which invalidates every `split-ws` config
+  ever issued. Copy the file across before step 5 to keep them working
+  (0640 root:naaf), or reissue those configs after the cutover.

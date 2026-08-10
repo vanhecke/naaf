@@ -2,7 +2,7 @@
 PrivateKey = <%= pk %>
 Address = <%= client[:wg_ip] %>/32
 DNS = <%= s[:server_ip] %>
-MTU = <%= s[:mtu] %>
+MTU = <%= mtu %>
 
 [Peer]
 PublicKey = <%= s[:server_pubkey] %>

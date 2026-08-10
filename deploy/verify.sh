@@ -10,8 +10,9 @@
 # that are easy to break and expensive to discover late: the admin UI never
 # reaching a public interface, ufw not having crept back onto the netfilter
 # hooks, the firewall and the daemon agreeing on the WireGuard port, backups
-# actually being written and readable only by the service, and no client private
-# key existing anywhere.
+# actually being written and readable only by the service, the TLS store's key
+# material being unreadable by every uid but root, and no client private key
+# existing anywhere.
 #
 # Exits non-zero if any check fails, so it works in a pipeline.
 set -uo pipefail
@@ -28,6 +29,16 @@ NAAF_CONF="${NAAF_CONF:-/etc/naaf/naaf.conf}"
 : "${NAAF_BACKUP_DIR:=/var/lib/naaf/backups}"
 : "${NAAF_LITESTREAM_ENABLED:=0}"
 : "${NAAF_LITESTREAM_REPLICA_TYPE:=file}"
+# Every name this script reads has to be defaulted HERE. This runs `set -u` and
+# sources naaf.conf directly — it does not source deploy/provision/00-lib.sh, so
+# that file's defaults never reach it. A box whose /etc/naaf/naaf.conf predates
+# the key below would otherwise abort the ENTIRE verification on an unbound
+# variable, and deploy.sh runs this without `|| true`: every upgrade deploy
+# would fail, including the ones that never enable any of this.
+: "${NAAF_WSTUNNEL_ENABLED:=0}"
+: "${NAAF_WSTUNNEL_PORT:=443}"
+: "${NAAF_CERT_DIR:=/etc/naaf/certs}"
+: "${NAAF_ACME_ENABLED:=0}"
 
 pass=0; fail=0; warn=0
 # Count files matching a glob. A glob that matches nothing stays literal, so the
@@ -163,7 +174,206 @@ else
 fi
 
 echo
-echo "── 8. key custody ──"
+echo "── 8. wstunnel ──"
+# The firewall assertions for tcp/$NAAF_WSTUNNEL_PORT live HERE and not in
+# section 3, so the whole feature — port, unit, certificate wiring — is gated on
+# one flag in one place and the default box is never told it is missing
+# something it deliberately does not have.
+if [ "$NAAF_WSTUNNEL_ENABLED" = "1" ]; then
+  # `systemctl cat` prints the unit file verbatim, comments included — and this
+  # unit's comments name the very flags they explain, so both
+  # `--restrict-http-upgrade-path-prefix` and `--restrict-to` appear in prose
+  # ABOVE the ExecStart. Strip comments first or the extractions below read the
+  # documentation and report on it instead of on the command line.
+  unit=$(systemctl cat naaf-wstunnel 2>/dev/null | grep -v '^[[:space:]]*#')
+  ck "naaf-wstunnel" "active" "$(systemctl is-active naaf-wstunnel 2>/dev/null)"
+  ck "listening on tcp/$NAAF_WSTUNNEL_PORT" "yes" \
+     "$([ "$(ss -ltnH "( sport = :$NAAF_WSTUNNEL_PORT )" | grep -c .)" -ge 1 ] && echo yes || echo no)"
+  has "base firewall allows tcp/$NAAF_WSTUNNEL_PORT" \
+      "tcp dport $NAAF_WSTUNNEL_PORT" "$(nft list table inet filter)"
+  # THE assertion of this section, and the reason it is `ck` and not `has`:
+  # `has` is a substring grep, so a unit forwarding to 5182 would PASS against a
+  # database that says 51820 — the exact drift this exists to catch. naaf.conf is
+  # the only source for what wstunnel forwards to and the database is the only
+  # source for where WireGuard actually listens. Section 1 deliberately downgrades
+  # that disagreement to a WARN; here it is a silent total outage for every ws
+  # client, with a healthy-looking unit and an open port.
+  ck "forwards to the LIVE WireGuard port" "127.0.0.1:$PORT" \
+     "$(printf '%s' "$unit" | sed -n 's/.*--restrict-to \([^ ]*\).*/\1/p' | head -1)"
+  # wstunnel's embedded certificate is compiled into the binary and therefore
+  # byte-identical on every deployment in the world — a perfect fingerprint. The
+  # flag being present is what proves this box serves its own.
+  has "serves its own certificate, not the embedded one" "--tls-certificate" "$unit"
+  # LoadCredential= is what lets key.pem stay 0600 root:root while a transient
+  # uid reads it, and pointing at the store is what makes renewals land here.
+  has "tls-cert credential comes from the store" \
+      "LoadCredential=tls-cert:$NAAF_CERT_DIR/" "$unit"
+  has "tls-key credential comes from the store" \
+      "LoadCredential=tls-key:$NAAF_CERT_DIR/" "$unit"
+  # ProtectSystem=strict with no exception at all: the only publicly-exposed
+  # daemon here has nothing to write, and an added ReadWritePaths would be the
+  # first step back towards it being able to touch the store it reads from.
+  ck "no ReadWritePaths (it has nothing to write)" "0" \
+     "$(printf '%s' "$unit" | grep -c '^ReadWritePaths=')"
+  # DynamicUser=yes: assert the PROPERTY, never the name. procps truncates USER
+  # to 8 characters with a trailing `+` and the transient user is
+  # `naaf-wstunnel`, 13 — so an equality test would fail on a correct box.
+  ck "not running as root" "0" "$(ps -o user= -C wstunnel 2>/dev/null | grep -c '^root')"
+  # The upgrade path prefix is a shared secret: every issued split-ws config
+  # carries it, and this output is teed to deploy/logs/ back on the workstation.
+  # So the check reports a verdict and never the value. `v1` is wstunnel's own
+  # default prefix, which is to say no secret at all.
+  prefix=$(printf '%s' "$unit" |
+    sed -n 's/.*--restrict-http-upgrade-path-prefix \([^ ]*\).*/\1/p' | head -1)
+  case "$prefix" in
+    "") verdict=missing ;;
+    v1) verdict="wstunnel's default" ;;
+    *) verdict=generated ;;
+  esac
+  ck "upgrade path prefix generated (value never printed)" "generated" "$verdict"
+else
+  note "wstunnel disabled" "NAAF_WSTUNNEL_ENABLED=$NAAF_WSTUNNEL_ENABLED"
+  # Off means off, and the port matters more than the unit: an open tcp/443 with
+  # nothing behind it is an advertisement, which is the entire reason the base
+  # firewall rule is conditional instead of always present.
+  ck "wstunnel is not running" "no" \
+     "$(case "$(systemctl is-active naaf-wstunnel 2>/dev/null)" in active) echo yes ;; *) echo no ;; esac)"
+  ck "nothing listening on tcp/$NAAF_WSTUNNEL_PORT" "0" \
+     "$(ss -ltnH "( sport = :$NAAF_WSTUNNEL_PORT )" | grep -c .)"
+  ck "base firewall does not open tcp/$NAAF_WSTUNNEL_PORT" "0" \
+     "$(nft list table inet filter | grep -c "tcp dport $NAAF_WSTUNNEL_PORT ")"
+fi
+# In BOTH branches, and forever: certificates come from ACME DNS-01, which proves
+# control with a TXT record and needs no inbound port. A tcp/80 rule here means
+# someone reached for HTTP-01 — the trailing space keeps 8080 out of the match.
+ck "tcp/80 is never open (ACME is DNS-01)" "0" \
+   "$(nft list table inet filter | grep -c 'tcp dport 80 ')"
+
+echo
+echo "── 9. certificates ──"
+# Unconditional, and it iterates whatever is in the store rather than checking
+# one known name: the store is general-purpose and outlives wstunnel. It has
+# exactly one owner (60-certs.sh) and any number of consumers, so this keeps
+# working as the next one registers itself.
+CERT_RELOAD=/usr/local/sbin/naaf-cert-reload
+if [ -d "$NAAF_CERT_DIR" ]; then
+  # The modes ARE the privilege boundary, not decoration. /etc/naaf is 0750
+  # root:naaf so the service group can traverse into this store, and a writable
+  # directory anywhere on the path makes a 0600 key.pem irrelevant — whoever can
+  # write the directory replaces the file.
+  ck "store directory mode" "755" "$(stat -c %a "$NAAF_CERT_DIR" 2>/dev/null)"
+  ck "store directory owner" "root:root" "$(stat -c '%U:%G' "$NAAF_CERT_DIR" 2>/dev/null)"
+  # The one root-executed entry point into the store: acme.sh runs it unattended
+  # from cron as --reloadcmd, with an argument that came out of a config file.
+  ck "naaf-cert-reload mode" "755" "$(stat -c %a "$CERT_RELOAD" 2>/dev/null)"
+  ck "naaf-cert-reload owner" "root:root" "$(stat -c '%U:%G' "$CERT_RELOAD" 2>/dev/null)"
+
+  ncerts=0
+  for d in "$NAAF_CERT_DIR"/*/; do
+    [ -d "$d" ] || continue
+    ncerts=$((ncerts+1))
+    slug=${d%/}; slug=${slug##*/}
+    ck "$slug: directory mode" "755" "$(stat -c %a "$d" 2>/dev/null)"
+    ck "$slug: consumers.d mode" "755" "$(stat -c %a "$d/consumers.d" 2>/dev/null)"
+    ck "$slug: key.pem mode" "600" "$(stat -c %a "$d/key.pem" 2>/dev/null)"
+    ck "$slug: key.pem owner" "root:root" "$(stat -c '%U:%G' "$d/key.pem" 2>/dev/null)"
+    if [ -s "$d/cert.pem" ]; then
+      # A week of slack. acme.sh renews at 60 days of a 90-day life and a
+      # self-signed one lives 3650 days, so anything inside 7 days means renewal
+      # has been failing silently for about a month.
+      ck "$slug: valid for at least another week" "yes" \
+         "$(openssl x509 -in "$d/cert.pem" -noout -checkend 604800 >/dev/null 2>&1 && echo yes || echo no)"
+      if [ "$NAAF_ACME_ENABLED" = "1" ]; then
+        # …but only for a name a CA could ever issue. A bare-IP box has its own
+        # address as the endpoint (endpoint_v4, no NAAF_ENDPOINT_HOST — the
+        # documented default), 60-certs.sh adds that slug to the store and
+        # correctly leaves it self-signed, and no public CA issues over DNS-01
+        # for an address. Asserting CA-issued there is a FAIL that can never be
+        # cleared, and deploy.sh runs this without `|| true`: every deploy on
+        # that box would fail forever. Same `*[!0-9.:]*` shape test lib-certs.sh
+        # uses to pick an IP: SAN over a DNS: one.
+        case "$slug" in
+          *[!0-9.:]*)
+            # Assert the property that actually matters — does this certificate
+            # chain to a publicly trusted root? — rather than issuer != subject.
+            # That older test passed on a Let's Encrypt STAGING certificate,
+            # because staging is a CA and its issuer differs from the subject
+            # just fine. Observed on a live box: the operator follows the
+            # documented "prove it on letsencrypt_test, then flip to
+            # letsencrypt" path, acme.sh skips the re-issue as not-yet-due, and
+            # the box keeps serving a `(STAGING)` certificate that no client can
+            # validate — with this check reporting green the whole time.
+            #
+            # `openssl verify` against the system trust store catches the
+            # self-signed fallback AND a staging certificate in one assertion,
+            # and needs no list of CA name patterns to keep up to date. cert.pem
+            # is a fullchain, so it supplies its own intermediates via -untrusted.
+            ck "$slug: chains to a publicly trusted root" "yes" \
+               "$(openssl verify -untrusted "$d/cert.pem" "$d/cert.pem" >/dev/null 2>&1 && echo yes || echo no)"
+            # The CA marker lib-certs.sh writes next to the certificate. A
+            # mismatch means NAAF_ACME_SERVER was changed and the re-issue has
+            # not happened yet — which is a deploy away, not a broken box.
+            if [ -r "$d/ca" ]; then
+              ck "$slug: issued by the configured CA" "$NAAF_ACME_SERVER" "$(cat "$d/ca" 2>/dev/null)"
+            fi
+            ;;
+          *) note "$slug: self-signed by design" "no CA issues for a bare address" ;;
+        esac
+      fi
+    else
+      no "$slug: cert.pem present and non-empty" "missing or empty"
+    fi
+    # A marker naming a unit that is not installed means a consumer was removed
+    # or renamed: the renewal then restarts nothing, and because LoadCredential=
+    # snapshots the pair at start, the old certificate stays loaded until
+    # something else happens to restart it.
+    for m in "$d/consumers.d"/*; do
+      [ -e "$m" ] || continue   # an unmatched glob stays literal
+      u=${m##*/}
+      case "$u" in
+        *.service | *.socket | *.target) ;;
+        # naaf-cert-reload skips anything else by design, and that suffix filter
+        # is the security control: without it one file named `--now` turns a
+        # renewal into a root-chosen systemctl invocation. Nothing but a consumer
+        # ever writes here, so a name that is not a unit is a finding, not noise.
+        *) no "$slug: junk in consumers.d" "$u"; continue ;;
+      esac
+      ck "$slug: consumer $u is installed" "yes" \
+         "$(systemctl cat -- "$u" >/dev/null 2>&1 && echo yes || echo no)"
+    done
+  done
+  # An empty store means 60-certs.sh derived no usable name. Two ways to get
+  # there and they need different fixes, so name both rather than guessing: the
+  # settings row is genuinely empty (50-bringup has not run), or endpoint_host
+  # holds something cert_slug refuses as a directory component — which is
+  # reachable because NAAF_ENDPOINT_HOST reaches the database unvalidated.
+  [ "$ncerts" -ge 1 ] ||
+    note "no certificates in the store" \
+         "60-certs.sh derived no usable name — check: sqlite3 $NAAF_DB 'select endpoint_host, endpoint_v4 from settings'"
+
+  if [ "$NAAF_ACME_ENABLED" = "1" ]; then
+    # acme.sh installs its own daily cron at --install time and naaf adds no
+    # timer of its own, so this entry is the entire renewal mechanism. Match the
+    # command and not the path: acme.sh writes the entry with the home quoted.
+    ck "acme.sh renewal cron entry" "yes" \
+       "$(crontab -l 2>/dev/null | grep -q 'acme.sh --cron' && echo yes || echo no)"
+    # Only when present: acme.sh saves the credential into its own account.conf
+    # after a first success, so a working box can legitimately have no acme.env.
+    if [ -e /etc/naaf/acme.env ]; then
+      # 0600 root:root, deliberately NOT litestream.env's 0640 root:naaf. That
+      # one is read by litestream running as the naaf user; this one can rewrite
+      # DNS and is read only by acme.sh as root, and /etc/naaf is traversable by
+      # the naaf group — so the file mode is the entire barrier.
+      ck "acme.env mode" "600" "$(stat -c %a /etc/naaf/acme.env 2>/dev/null)"
+      ck "acme.env owner" "root:root" "$(stat -c '%U:%G' /etc/naaf/acme.env 2>/dev/null)"
+    fi
+  fi
+else
+  note "no certificate store at $NAAF_CERT_DIR" "has 60-certs.sh run?"
+fi
+
+echo
+echo "── 10. key custody ──"
 ck "clients table has no private-key column" "0" "$(q '.schema clients' | grep -ci 'privkey\|private_key')"
 ck "no client private key in the journal" "0" \
    "$(journalctl -u naaf --no-pager 2>/dev/null | grep -c 'PrivateKey =')"

@@ -89,6 +89,13 @@ NAAF_MTU=1420
 # The FQDN clients dial. Leave blank and clients dial the detected public IPv4,
 # which pins them to this box. Set it to a name you control and you can migrate
 # to a new box by repointing DNS, with no client reconfiguration.
+#
+# It is also the certificate's name (docs/CERTS.md): blank means the endpoint is
+# a bare address, no public CA can certify it, and the box keeps its self-signed
+# certificate even with NAAF_ACME_ENABLED=1. Unlike the Settings UI this value
+# reaches the database unvalidated — a trailing dot is normalised away when the
+# certificate directory is named, anything else that is not a plain hostname
+# leaves the store empty and fails 65-wstunnel.
 NAAF_ENDPOINT_HOST=
 
 # The box's own public addresses. Normally detected at bootstrap; set these only
@@ -138,6 +145,103 @@ NAAF_LITESTREAM_REGION=
 NAAF_LITESTREAM_ENDPOINT=
 NAAF_LITESTREAM_SNAPSHOT_INTERVAL=24h
 NAAF_LITESTREAM_SNAPSHOT_RETENTION=168h
+
+# ────────────────────────────────────────────────────────────────── wstunnel
+# WireGuard datagrams inside a TLS WebSocket, so the outer path is an ordinary
+# outbound TCP connection to :443. That traverses a network which passes only
+# tcp/443, and it works from inside someone else's full tunnel. It adds two
+# client config flavors, split-ws and split-ws-nodns. See docs/WSTUNNEL.md.
+#
+# Off by default, and the switch is all-or-nothing: with 0 the firewall port
+# stays shut, the unit is not installed, and the flavors are not offered. An
+# open 443 with nothing behind it is an advertisement.
+#
+# These are keys here and NOT columns in the settings table on purpose. The port
+# has to match the systemd unit AND /etc/nftables.conf, both rendered from this
+# file at provisioning time, and a database copy would be a second source of
+# truth that drifts. The host clients dial is still NAAF_ENDPOINT_HOST.
+#
+# The shared path prefix is deliberately not a key here. It is generated on the
+# box into /etc/naaf/wstunnel.env by deploy/provision/65-wstunnel.sh, because a
+# key that lives here but is blank in your copy gets regenerated on every
+# deploy — silently invalidating every split-ws config you have issued.
+#
+# Two constraints the ws flavors add, both enforced rather than documented-only:
+#   * An extra route (Routes page) of 0.0.0.0/0, or any CIDR covering the box's
+#     public address, makes a split-ws download fail with a 500 — it would route
+#     wstunnel's own TCP session into the tunnel it carries. Plain split still
+#     renders and only logs a warning. docs/WSTUNNEL.md section 5.
+#   * While this is 1, tcp/NAAF_WSTUNNEL_PORT cannot be used as a port forward:
+#     the DNAT would take the transport's port away from the box.
+# And one that is not: a client machine can run only ONE ws tunnel at a time —
+# the relay's pidfile and local port are constants, and the second `wg-quick up`
+# refuses rather than orphaning the first relay.
+NAAF_WSTUNNEL_ENABLED=0
+NAAF_WSTUNNEL_VERSION=10.6.2
+NAAF_WSTUNNEL_PORT=443
+
+# The name that goes on the wire as SNI. Blank means "the host you dial", which
+# is already the right answer — set this only to show a cover name to a firewall
+# that decides whether to decrypt by reading the SNI. It applies fleet-wide;
+# there is no per-client value, because wstunnel's server never inspects SNI.
+NAAF_WSTUNNEL_SNI=
+
+# auto | on | off. `auto` verifies the server certificate when ACME is on and no
+# SNI override is set — exactly when the dialed name and the served certificate
+# agree. `on` together with NAAF_WSTUNNEL_SNI is the strong form and needs a
+# real certificate for the cover name. `off` never verifies.
+NAAF_WSTUNNEL_TLS_VERIFY=auto
+
+# ────────────────────────────────────────────────────────────── certificates
+# A general-purpose certificate store, owned by deploy/provision/60-certs.sh.
+# wstunnel is its first consumer, not its owner: consumers register themselves
+# in <cert>/consumers.d/ and inherit renewal, rather than each growing its own
+# ACME path. See docs/CERTS.md.
+#
+# Every box gets its own certificate no matter what. wstunnel's embedded one is
+# compiled into the binary and byte-identical on every deployment in the world,
+# which makes it a perfect fingerprint.
+#
+# Self-signed by default, and that is a complete, supported configuration. Turn
+# ACME on for a real Let's Encrypt certificate. Challenge type is DNS-01 only,
+# so nothing inbound is ever opened — tcp/80 stays closed — and it can issue for
+# wildcards and for names that do not resolve to this box.
+#
+# The DNS API token does NOT belong in this file: it is EnvironmentFile= for
+# naaf.service, so every key here lands in the web app's environment, and this
+# credential can rewrite DNS. Pass it once at provisioning time instead —
+#   export NAAF_ACME_DNS_TOKEN=...
+#   ./deploy.sh --sync && ./deploy.sh --step 60-certs
+# — and 60-certs writes it to /etc/naaf/acme.env, 0600 root:root, unreadable by
+# the naaf user. Give the box a token scoped to a SEPARATE provider account
+# holding only the delegation zone: the account boundary is what contains a box
+# compromise, not the CNAME.
+NAAF_CERT_DIR=/etc/naaf/certs
+NAAF_ACME_ENABLED=0
+NAAF_ACME_EMAIL=
+# letsencrypt, letsencrypt_test, or any other CA alias acme.sh knows. Use
+# letsencrypt_test for the first run: production locks you out for a week after
+# five failed validations.
+NAAF_ACME_SERVER=letsencrypt
+NAAF_ACME_DNS_API=dns_dnsimple
+# The zone you delegated _acme-challenge to by CNAME. Leave blank to validate in
+# the endpoint's own zone with a token that can rewrite it.
+NAAF_ACME_CHALLENGE_ALIAS=
+# Extra certificates beyond the endpoint's own: one certificate per
+# space-separated entry, SANs comma-separated within an entry, the whole value
+# single-quoted because it contains a space. A `*` here is literal — no globbing
+# applies to a shell assignment. Leave this EMPTY unless you mean it: a
+# filled-in sample would ask a rate-limited CA for names you do not own. So the
+# worked example stays a comment:
+#   NAAF_ACME_DOMAINS='vpn.example.com,*.vpn.example.com apps.example.com'
+# An entry whose FIRST SAN is the endpoint host names the same certificate the
+# endpoint already has: its extra SANs are MERGED into that one rather than
+# dropped, so the entry above is how the endpoint certificate grows a wildcard.
+NAAF_ACME_DOMAINS=
+# acme.sh is installed from a git clone pinned to the tag AND checked against
+# the commit that tag pointed at, because a tag can be moved. Bump both together.
+NAAF_ACME_SH_VERSION=3.1.4
+NAAF_ACME_SH_COMMIT=3661fd86b6304115e42f43910e6dd452ab9866d6
 
 # ══════════════════════════════ WORKSTATION ONLY ══════════════════════════════
 # Everything below this marker is used by the deploy scripts on your machine and

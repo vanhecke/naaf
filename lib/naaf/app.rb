@@ -66,18 +66,33 @@ module Naaf
     def svg = Renderers::SVG
 
     # The one-shot generated private key is bound to the client it was generated
-    # for. take_/peek_ only yield it when the requested id matches, so client A's
+    # for: this only yields it when the requested id matches, so client A's
     # freshly-generated key can never be rendered into client B's config or QR.
-    def take_oneshot_privkey(id)
-      stash = session["oneshot_privkey"]
-      return nil unless stash.is_a?(Hash) && stash["id"] == id.to_s
-      session.delete("oneshot_privkey")
-      stash["key"]
-    end
-
     def peek_oneshot_privkey(id)
       stash = session["oneshot_privkey"]
       stash["key"] if stash.is_a?(Hash) && stash["id"] == id.to_s
+    end
+
+    # Peek, build, and only THEN consume — the one and only way to spend the
+    # stash. There is deliberately no bare take_: the stash is the one and only
+    # copy of a freshly generated private key (nothing persists it, and the
+    # documented recovery is deleting and re-adding the client), so anything that
+    # can raise between the take and a finished response destroys it for good.
+    # And plenty can: ConfigBuilder#render raises ArgumentError for five wstunnel
+    # misconfigurations no route-level guard can see (missing/malformed path
+    # prefix, malformed SNI, out-of-range port, unrecognised TLS_VERIFY, and the
+    # deliberately refused verify-with-SNI-but-no-ACME cell), all of which
+    # error_handler flattens to a 500 while the session after-hook still writes
+    # the emptied cookie. Consuming only on the success path makes that 500
+    # harmless: the key is still there for the next download.
+    #
+    # `if key` and not an unconditional delete: the stash is bound to one client
+    # id, and a config download for client B must not clear client A's key.
+    def with_oneshot_privkey(id)
+      key = peek_oneshot_privkey(id)
+      result = yield key
+      session.delete("oneshot_privkey") if key
+      result
     end
 
     # Raised by the param_* validators; caught by #submit and turned into a
@@ -118,6 +133,45 @@ module Naaf
       n = Integer(raw.to_s, exception: false)
       raise ValidationError, "Port must be between 1 and 65535." unless n && (1..65535).cover?(n)
       n
+    end
+
+    # What already owns `proto/port` ON THE BOX, or nil if nothing does.
+    #
+    # A port forward becomes a DNAT in `inet naaf` prerouting, and nat hook
+    # prerouting runs BEFORE the routing decision — so a forward on a port the
+    # host answers on rewrites packets addressed to the host itself and hands
+    # them to a client, and the forward chain's `ct status dnat accept` waves
+    # them through. tcp/22 takes SSH away, udp/<listen_port> stops every
+    # WireGuard handshake (and the two together leave only the provider's serial
+    # console), and tcp/<wstunnel port> silently kills the transport every
+    # split-ws client rides while the unit stays active and the port stays open.
+    #
+    # Protocol-aware on purpose: udp/22 and tcp/<listen_port> steal nothing, and
+    # there is no reason to refuse them. NAAF_WEB_PORT is deliberately NOT here —
+    # the admin UI binds only the WireGuard IP and 127.0.0.1, so a DNAT for
+    # traffic arriving on the WAN interface cannot reach it.
+    def reserved_port_owner(proto, port)
+      return "SSH" if proto == "tcp" && port == 22
+      return "WireGuard" if proto == "udp" && port == Naaf.settings[:listen_port].to_i
+      # Integer(exception: false), not Config.int: a malformed NAAF_WSTUNNEL_PORT
+      # means 65-wstunnel.sh never brought a listener up, so there is nothing to
+      # reserve — and a form must not 500 over it.
+      if proto == "tcp" && ConfigBuilder.wstunnel? &&
+          port == Integer(Config["NAAF_WSTUNNEL_PORT"].to_s, 10, exception: false)
+        return "the wstunnel transport"
+      end
+      nil
+    end
+
+    def param_public_port(raw, proto)
+      port = param_port(raw)
+      owner = reserved_port_owner(proto, port)
+      if owner
+        raise ValidationError,
+          "#{proto}/#{port} is what this box uses for #{owner}. " \
+          "Forwarding it would take #{owner} away from the box — pick another public port."
+      end
+      port
     end
 
     # A single port ("22") or an inclusive range ("8000-8100"), returned as
@@ -263,6 +317,28 @@ module Naaf
       s
     end
 
+    # wg-quick(8) derives the interface name from the .conf basename and refuses
+    # anything outside [a-zA-Z0-9_=+.-]{1,15}\.conf — it exits before reading a
+    # line of the file. `<hostname>-<flavor>.conf` blows that on the first long
+    # name, and `laptop-split-nodns` (18) already did. Short suffixes plus a
+    # truncated hostname keep every flavor inside the limit; the suffix is the
+    # part that must survive, since it is what tells two downloads apart.
+    FLAVOR_SUFFIX = {
+      "split" => "split",
+      "split-nodns" => "nodns",
+      "full" => "full",
+      "split-ws" => "ws",
+      "split-ws-nodns" => "wsnd"
+    }.freeze
+    FILENAME_STEM_MAX = 15
+    def config_filename(hostname, flavor)
+      suffix = FLAVOR_SUFFIX.fetch(flavor, flavor)
+      # param_hostname already confines the hostname to [a-z0-9-], every
+      # character of which wg-quick accepts, so truncation is the only work left.
+      host = hostname.to_s[0, FILENAME_STEM_MAX - suffix.length - 1]
+      "#{host}-#{suffix}.conf"
+    end
+
     route do |r|
       r.public # vendored css/js halt here, so they stay cacheable
 
@@ -393,6 +469,15 @@ module Naaf
         r.get true do
           @clients = Naaf.db[:clients].order(:wg_ip).all
           @settings = Naaf.settings
+          # Methods, not constants: Config[] re-reads ENV on every call, so a
+          # `--step 65-wstunnel` that writes /etc/naaf/wstunnel.env and restarts
+          # naaf is picked up without a code change.
+          @flavors = ConfigBuilder.available_flavors
+          # Enabled is the operator's intent; ready is whether 65-wstunnel has
+          # actually run. In the gap the ws buttons are offered but every config
+          # they would produce dials a path the server rejects, so the page says
+          # so rather than leaving the admin to discover it on a client.
+          @wstunnel_unprovisioned = ConfigBuilder.wstunnel? && !ConfigBuilder.wstunnel_ready?
           view("clients")
         end
 
@@ -440,15 +525,33 @@ module Naaf
           end
 
           r.get "config", String do |flavor|
-            conf = ConfigBuilder.new(Naaf.db, client)
-              .render(flavor, private_key: take_oneshot_privkey(id))
-            response["Content-Type"] = "text/plain"
-            response["Content-Disposition"] =
-              "attachment; filename=\"#{client[:hostname]}-#{flavor}.conf\""
-            conf
+            # Turns .../config/bogus from a 500 (render raises ArgumentError,
+            # which error_handler flattens to "Internal error") into the 404 an
+            # unknown path always should have been. It is NOT what protects the
+            # one-shot key — it cannot be, since it says nothing about whether
+            # the wstunnel half of the config is renderable. with_oneshot_privkey
+            # is what protects the key, by consuming it only on success.
+            r.halt(404) unless ConfigBuilder.available?(flavor)
+            with_oneshot_privkey(id) do |pk|
+              # Everything that could raise happens inside the block, headers
+              # included: the stash is spent only once a complete, deliverable
+              # response has been built.
+              conf = ConfigBuilder.new(Naaf.db, client).render(flavor, private_key: pk)
+              response["Content-Type"] = "text/plain"
+              response["Content-Disposition"] =
+                "attachment; filename=\"#{config_filename(client[:hostname], flavor)}\""
+              conf
+            end
           end
 
           r.get "qr", String do |flavor|
+            # No QR for a ws flavor, enabled or not. wireguard-apple's parser
+            # allows only privatekey/listenport/address/dns/mtu in [Interface]
+            # and throws interfaceHasUnrecognizedKey for anything else, as does
+            # wireguard-android; a ws config carries PreUp, so every phone
+            # rejects the scan. wg-quick(8) only.
+            r.halt(404) if ConfigBuilder::WS_FLAVORS.include?(flavor)
+            r.halt(404) unless ConfigBuilder.available?(flavor)
             conf = ConfigBuilder.new(Naaf.db, client)
               .render(flavor, private_key: peek_oneshot_privkey(id))
             response["Content-Type"] = "image/svg+xml"
@@ -496,10 +599,13 @@ module Naaf
 
         r.post true do
           submit("/port-forwards") do
+            # proto first and in a local: the public port's reservation check is
+            # protocol-aware, so it needs the validated protocol in hand.
+            proto = param_proto(r.params["proto"])
             Naaf.db[:port_forwards].insert(
               client_id: param_client_id(r.params["client_id"]),
-              proto: param_proto(r.params["proto"]),
-              public_port: param_port(r.params["public_port"]),
+              proto: proto,
+              public_port: param_public_port(r.params["public_port"], proto),
               target_port: param_port(r.params["target_port"])
             )
           end
@@ -509,6 +615,17 @@ module Naaf
           r.post "toggle" do
             submit("/port-forwards") do
               row = Naaf.db[:port_forwards][id: id] || r.halt(404)
+              # Re-check on the way ON, not just at insert: a row predating this
+              # check (or written straight into SQLite) reaches the kernel the
+              # moment someone enables it. Disabling is always allowed.
+              unless row[:enabled]
+                owner = reserved_port_owner(row[:proto], row[:public_port])
+                if owner
+                  raise ValidationError,
+                    "#{row[:proto]}/#{row[:public_port]} is what this box uses for #{owner}. " \
+                    "Delete this forward rather than enabling it."
+                end
+              end
               Naaf.db[:port_forwards].where(id: id).update(enabled: !row[:enabled])
             end
           end
