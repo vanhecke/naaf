@@ -107,6 +107,243 @@ dig +short @10.8.0.1 <hostname>.vpn          # internal zone
 ```
 If these work but a *client's* DNS doesn't, suspect the firewall (section 0).
 
+### Two things at step 5 that look like ufw and are not
+
+**Table `inet naaf` missing entirely.** Something loaded `/etc/nftables.conf`,
+which opens with `flush ruleset`, without re-applying it. `20-system.sh` pairs
+its reload with `systemctl try-restart naaf` for exactly this reason (`bin/naaf`
+runs `Reconciler#apply!` at startup), so a hand-run `nft -f /etc/nftables.conf`
+or `systemctl reload nftables` is the usual cause. `systemctl restart naaf`, or
+`POST /apply`, puts it back. `Reconciler#poll!` will **not** notice on its own —
+it re-applies on peer-set drift, and a vanished table is not something it looks
+for.
+
+**A port forward sitting on a port the box needs for itself.** A DNAT in
+`inet naaf` prerouting runs *before* the routing decision, so a forward on
+tcp/22, udp/`listen_port` or tcp/`NAAF_WSTUNNEL_PORT` rewrites packets addressed
+to the box and hands them to a client — SSH gone, or every WireGuard handshake
+gone, or every ws client gone while the unit still looks healthy. The form
+refuses those three now, and refuses re-enabling an existing row on one, but a
+row written before that check (or straight into SQLite) is still on disk:
+```bash
+sudo sqlite3 /var/lib/naaf/naaf.db 'select proto, public_port, target_port, enabled from port_forwards;'
+sudo nft list table inet naaf | grep dnat
+```
+Delete the offending row rather than toggling it. If SSH is already gone, the
+provider's serial console is the way back in.
+
+---
+
+## 1a. Playbook: a `split-ws` client will not connect
+
+Only for the two `ws` flavors — WireGuard carried inside a TLS WebSocket
+([`WSTUNNEL.md`](WSTUNNEL.md)). This covers the transport *in front of* the
+kernel's WireGuard listener; once datagrams reach that listener, §1 applies
+unchanged and step 5 is where to rejoin it.
+
+**Before anything else: the first handshake can take up to 5 seconds.** wg-quick
+starts the relay and brings the interface up together, so the first
+keepalive-triggered handshake can hit a socket the relay has not bound yet.
+WireGuard ignores the ICMP error and retries every 5 s. That is expected and it
+is not a fault. Zero handshakes after ~15 seconds is.
+
+### Server side — is the transport up and reachable?
+
+```bash
+systemctl status naaf-wstunnel --no-pager -l
+ss -ltnp '( sport = :443 )'                        # want exactly one listener on [::]:443
+sudo nft list table inet filter | grep 'tcp dport 443'
+journalctl -u naaf-wstunnel -n 100 --no-pager
+```
+
+- **Unit inactive, or no listener** → `NAAF_WSTUNNEL_ENABLED` is not 1, or
+  `65-wstunnel` has not run. `./deploy.sh --step 65-wstunnel`.
+- **Listener but no firewall rule** → the base firewall is rendered by
+  `20-system`, not by 65, so `--step 65-wstunnel` alone never opens the port. A
+  plain `./deploy.sh` does both — it renders the file *and* reloads it into the
+  kernel, which `enable --now` on its own never did (§3).
+- **Both fine and still unreachable from outside** → a provider-level firewall.
+  `deploy/providers/vultr/ensure-firewall.sh` *reuses* an existing group without
+  reconciling it, so flipping the flag on an existing box leaves Vultr dropping
+  tcp/443 while the host happily accepts it.
+
+Then prove TLS answers, from a machine that is not the box:
+
+```bash
+openssl s_client -connect vpn.example.com:443 -servername vpn.example.com </dev/null 2>/dev/null |
+  openssl x509 -noout -subject -issuer -dates
+```
+
+Four symptoms are distinctive enough to name.
+
+**A · Path-prefix mismatch.** TCP connects, TLS completes, the WebSocket upgrade
+is refused, WireGuard never handshakes. The prefix is a shared secret the server
+requires on every upgrade, and it is per-*server*, not per-client — so this hits
+every config issued before it was regenerated, and none issued after.
+
+```bash
+# strip comments first — this unit's comments name the very flags they explain,
+# so an unfiltered sed reads the documentation and reports on that instead
+systemctl cat naaf-wstunnel | grep -v '^[[:space:]]*#' |
+  sed -n 's/.*--restrict-http-upgrade-path-prefix \([^ ]*\).*/\1/p'
+grep NAAF_WSTUNNEL_PATH_PREFIX /etc/naaf/wstunnel.env
+```
+
+Those two and the `-P` value in a freshly downloaded config must all be the same
+string. If the fresh config differs from the unit, the running app is holding a
+stale environment — `systemctl restart naaf`, which is what reads
+`EnvironmentFile=-/etc/naaf/wstunnel.env`, and it only does so at start. If the
+client's config differs, re-download it; there is no way to fix one client from
+the server. Do not paste any of these values into a ticket: `./deploy.sh
+--verify` deliberately reports `generated` / `wstunnel's default` / `missing`
+instead of the value, and so should you.
+
+**B · `--restrict-to` port drift.** The one that wastes a whole afternoon,
+because nothing looks wrong: unit active, port open, TLS clean, and not a single
+client works. The server's unit takes its forward target from `NAAF_LISTEN_PORT`
+in `naaf.conf`; the client's `-L` takes it from `settings.listen_port` in the
+database; WireGuard listens on the database's value. Disagree and wstunnel
+refuses the destination every client asks for.
+
+```bash
+sqlite3 /var/lib/naaf/naaf.db 'select listen_port from settings'
+grep ^NAAF_LISTEN_PORT /etc/naaf/naaf.conf
+systemctl cat naaf-wstunnel | grep -v '^[[:space:]]*#' | sed -n 's/.*--restrict-to \([^ ]*\).*/\1/p'
+```
+
+`deploy/verify.sh` section 8 asserts that pair with an equality test rather than
+a substring grep — `5182` would pass a grep against `51820`, which is exactly the
+drift it exists to catch. Section 1 already reports the naaf.conf/DB
+disagreement, as a WARN; that WARN is the early hint. Fix by making `naaf.conf`
+match the database (the database is authoritative everywhere else too), then
+`./deploy.sh --sync && ./deploy.sh --step 65-wstunnel`.
+
+**C · An extra route that covers the server's public IP.** A hard hang: no
+handshake, no error, no log line on either end. The relay's own TCP session to
+`<endpoint>:443` gets routed into the tunnel the relay is carrying.
+
+**For the ws flavors this is now refused at render time**, so the symptom you
+actually get is a **500 on the config download** and a message in the journal
+naming the route:
+
+```bash
+journalctl -u naaf | grep AllowedIPs
+#   AllowedIPs route 203.0.113.0/24 contains the endpoint address, …
+#   AllowedIPs route 0.0.0.0/0 is a default route, …
+```
+
+Only a config downloaded *before* the route was added can still hang this way —
+re-download it after fixing the route and the file will be correct or the
+download will refuse.
+
+**Plain `split` is still exposed, deliberately** — there it is WireGuard's own UDP
+to the endpoint that gets captured, the hazard predates the ws flavors, and it is
+a false alarm whenever `endpoint_host` resolves somewhere other than
+`endpoint_v4`, so the server logs a warning and renders anyway:
+
+```bash
+journalctl -u naaf | grep 'contains the endpoint address'
+```
+
+A `/0` is a different matter for plain `split`: wg-quick's `not fwmark <table>`
+exemption covers the kernel WireGuard socket, so `split` plus a `/0` route is a
+working full tunnel and is not refused. It is only userspace wstunnel that the
+exemption misses.
+
+```bash
+# on the client
+ip route get <server public ip>            # must NOT come back dev <wg interface>
+# on the server — what is being folded into every split AllowedIPs
+sudo sqlite3 /var/lib/naaf/naaf.db 'select client_id, cidr from extra_routes;'
+```
+
+`0.0.0.0/0`, a `/1`, or the hosting provider's own block are the usual culprits.
+Remove it on the **Routes** page, or add a more specific route for the endpoint
+out the physical interface on the client.
+
+**D · TLS verify / SNI mismatch.** The client log names it and the server
+journal shows *nothing at all* — the handshake fails before any upgrade request
+exists. That asymmetry is itself the tell.
+
+```bash
+sudo grep -i -e tls -e cert -e sni /var/log/naaf-wstunnel.log      # on the client
+```
+
+Three shapes:
+
+- `--tls-verify-certificate` against the **self-signed** default. It can never
+  pass. Either `NAAF_WSTUNNEL_TLS_VERIFY=on` was set by hand, or `auto` saw
+  `NAAF_ACME_ENABLED=1` and the CA never actually issued — `auto` reads the
+  *intent* flag, not the installed issuer. The usual case is a bare-IP endpoint
+  (no public CA issues for an address), then a missing DNS token or CNAME.
+  `./deploy.sh --verify` section 9 fails in the same run for that reason; read
+  the issuer with `openssl x509 -in /etc/naaf/certs/<slug>/cert.pem -noout
+  -issuer`. Fix the certificate, or pin `NAAF_WSTUNNEL_TLS_VERIFY=off`.
+- `--tls-sni-override <name>` *plus* verification, where the box holds no
+  certificate for `<name>` — the override also picks the name that gets verified.
+  Add the cover name to `NAAF_ACME_DOMAINS` and re-run `60-certs`, or drop the
+  verification.
+- ACME on, but the **staging** CA issued the certificate. Clients that verify
+  reject it and `verify.sh`'s CA-issued check passes happily, because the issuer
+  does differ from the subject. Read it yourself —
+  `openssl x509 -in /etc/naaf/certs/<slug>/cert.pem -noout -issuer`; `(STAGING)`
+  is the answer. [`CERTS.md` §6](CERTS.md).
+
+Related, and easy to misread: **downloading a ws config that returns
+`Internal error` (500)** is one of six refusals — a refused TLS combination
+(verify on + SNI override + ACME off); a malformed `NAAF_WSTUNNEL_SNI`,
+`NAAF_WSTUNNEL_PORT` or `NAAF_WSTUNNEL_TLS_VERIFY`; a missing or malformed path
+prefix (`65-wstunnel` has not run — `/clients` shows a banner for this);
+an `extra_routes` row that would capture the transport (**C** above); or a box
+with neither `endpoint_host` nor `endpoint_v4`, since the ws path dials the v4
+family. The real message is always in `journalctl -u naaf`, and the full list is
+[`WSTUNNEL.md` §7](WSTUNNEL.md).
+
+A 500 there **does not burn the one-shot private key**: the download route peeks
+at the stash, renders, and only spends it once a complete response exists. Fix
+the cause and download again — the key is still on offer. A **404** on the same
+URL means something else entirely: the flavor is not enabled (or you asked for a
+QR, which the ws flavors deliberately do not have).
+
+### Client side — the logfile and the pidfile
+
+```bash
+sudo tail -n 50 /var/log/naaf-wstunnel.log          # 0600 root:root, TRUNCATED on every `up`
+cat /var/run/naaf-wstunnel-51820.pid
+ps -p "$(cat /var/run/naaf-wstunnel-51820.pid)" -o comm=
+ss -lunp '( sport = :51820 )'                       # macOS: netstat -an -p udp | grep 51820
+sudo wg show
+```
+
+- **No log, no pidfile** → the relay never started. Nearly always `wstunnel`
+  missing from **root's** `PATH`: check `sudo wstunnel --version`, not
+  `wstunnel --version`. The first `PreUp` guard is meant to say so and tear the
+  interface back down, so an interface that came up *and* has no log means the
+  guard passed and the relay itself failed.
+- **Pidfile present, `ps` prints nothing** → the relay started and died; the log
+  says why. It is truncated on every `up`, so copy it before retrying.
+- **Nothing bound on `127.0.0.1:51820` while the relay is alive** → it is stuck
+  retrying the connection to the server. Back to the server-side checks.
+- **Bound on `0.0.0.0:51820`** → the config was hand-edited to the short
+  `-L udp://51820:…` form. Put the bind address back: that machine is an open UDP
+  relay from its LAN into the hub's WireGuard port, on exactly the untrusted
+  networks this flavor exists for.
+- **`wg-quick up` printed "a naaf wstunnel relay is already running (pid N)"** →
+  a second ws config is up (every client is offered both `-ws.conf` and
+  `-wsnd.conf`, so this is easy to do). They share both the pidfile and
+  `127.0.0.1:51820`; take the first one down. The refusal happens in the first
+  `PreUp`, before anything is started, and the interface is torn back down —
+  which is what keeps the *first* relay's pidfile pairing intact. A stale pidfile
+  with no live process is not a collision and does not refuse.
+- **`wg show` shows a handshake but no useful traffic** → the transport is fine
+  and the problem is inside the tunnel. Rejoin §1 at step 5.
+
+After `wg-quick down`, `pgrep -a wstunnel` must come back empty. If it does not,
+the pidfile went missing before `PostDown` ran and the relay outlived the
+interface; kill it by hand. An orphan holding `127.0.0.1:51820` breaks every
+later `up` on that machine, which is why the guard refuses a second `up` rather
+than letting the two configs overwrite each other's pidfile.
+
 ---
 
 ## 2. In-box reproduction: a real client without touching the server firewall
@@ -165,6 +402,10 @@ These were found bringing the first box up live; the scripts already handle them
 | app dies on first boot (wg0 not up yet) | `bin/naaf`, sysctl, `50-bringup.sh` | rescue boot `apply!`; `net.ipv4.ip_nonlocal_bind=1`; restart naaf after wg-quick |
 | Ruby 4.0 compile OOMs on 1 GB | `05-swap.sh` | historical: Ruby is prebuilt now, swap is just headroom |
 | bootstrap re-keys on re-run (destructive) | `50-bringup.sh` | skip bootstrap when `server_pubkey` already set |
+| a re-rendered `/etc/nftables.conf` is never loaded | `20-system.sh` | the packaged unit is `Type=oneshot` + `RemainAfterExit=yes`, so `enable --now` short-circuits forever; `reload-or-restart` runs its `ExecReload` (the same `nft -f`), and only when `cmp` says the file changed |
+| that reload flushes table `inet naaf` | `20-system.sh` | `/etc/nftables.conf` starts with `flush ruleset`, so the reload is followed by `systemctl try-restart naaf` to re-apply |
+| acme.sh renewal cron missing, "re-run the step" is a no-op | `60-certs.sh` | the installer short-circuits on the binary; repair with `acme.sh --install-cronjob` instead. `cron` is not in the apt list |
+| `NAAF_ENDPOINT_HOST=vpn.example.com.` empties the certificate store | `lib-certs.sh` | one trailing dot is stripped in `cert_slug` and per-SAN, so 60 and 65 derive the same slug |
 
 **Boot ordering:** `naaf.service` is `After=wg-quick@wg0.service` (not `Requires`), so
 on normal reboots systemd raises `wg0` before the app. Only the *first* bring-up starts

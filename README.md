@@ -43,7 +43,7 @@ change something.
 | Page | What it does |
 |---|---|
 | **Dashboard** (`/`) | Live single pane of glass: tunnel throughput, peers up, DNS rate and top names, CPU/memory/conntrack, per-interface counters, and a packet-pipeline strip that makes the "a second firewall is eating WireGuard" failure visible at a glance. Pushed over one SSE stream. |
-| **Clients** (`/clients`) | Add a client (server generates keys, or paste your own pubkey), enable/disable, delete, and download the config in three flavors (`split`, `split·nodns`, `full`) or as a QR. IPAM assigns the next free VPN IP. |
+| **Clients** (`/clients`) | Add a client (server generates keys, or paste your own pubkey), enable/disable, delete, and download the config in up to five flavors, or as a QR (the three plain flavors only). IPAM assigns the next free VPN IP. |
 | **Exposed ports** | Which ports a spoke may accept **from other spokes** — a single port or a range like `8000-8100` (default-deny spoke-to-spoke, allow-list via an nftables interval set). |
 | **Port forwards** | Inbound DNAT from the public interface to a client's port, with an enable toggle. |
 | **Routes** | Extra split-tunnel subnets folded into a client's `AllowedIPs` (global, or per-client). |
@@ -52,14 +52,31 @@ change something.
 
 ## Config flavors
 
-Every client can download three configs (`GET /clients/:id/config/:flavor`):
+Every client can download up to five configs (`GET /clients/:id/config/:flavor`):
 
 - **`split`** — routes only the VPN subnet (+ any extra routes), sets `DNS = 10.8.0.1`.
 - **`split·nodns`** — same routing, but no `DNS =` line (uses your system DNS).
 - **`full`** — routes `0.0.0.0/0` (all traffic through the hub), sets `DNS = 10.8.0.1`.
+- **`split·ws`** — `split`'s routing, but the WireGuard datagrams travel inside a
+  TLS WebSocket to tcp/443 instead of over raw UDP. For networks that pass only
+  outbound TCP, and for sitting *alongside* another VPN's full tunnel.
+- **`split·ws·nodns`** — `split·ws` minus the `DNS =` line.
 
 The `Endpoint` is `settings.endpoint_host:listen_port` when an endpoint host is set
 (so migrating boxes is just a DNS repoint), otherwise the raw `endpoint_v4`.
+
+The two `ws` flavors are offered only when the server has the transport enabled
+(`NAAF_WSTUNNEL_ENABLED=1`, off by default — an open tcp/443 with nothing behind
+it is an advertisement). They need the [`wstunnel`](https://github.com/erebe/wstunnel)
+binary on the client's `PATH`, which the config checks for and refuses to come up
+without. Their `Endpoint` is `127.0.0.1:51820` — the local relay a `PreUp` hook
+starts — and `MTU = 1280`, to fit the WebSocket/TLS/TCP overhead inside an
+ordinary path. They are **`wg-quick(8)` only and have no QR**: the hooks they
+carry make the iOS and Android apps reject the file outright, so the QR route
+refuses them. There is deliberately no full-tunnel-over-wstunnel flavor —
+`AllowedIPs = 0.0.0.0/0` would capture wstunnel's own TCP session and hang.
+Every box serves its own TLS certificate, self-signed by default or a real
+Let's Encrypt one over DNS-01. See **`docs/WSTUNNEL.md`** and **`docs/CERTS.md`**.
 
 ## Layout
 
@@ -83,12 +100,14 @@ test/                   sus tests (renderers, ipam, reconciler, zone, app, confi
                         backup, bootstrap)
 deploy.sh               the one deploy command (create, provision, update, verify)
 deploy/                 host artifacts (systemd, nftables template, sysctl, tmpfiles)
-deploy/provision/       idempotent provisioning steps (05-swap … 50-bringup)
+deploy/provision/       idempotent provisioning steps (05-swap … 65-wstunnel)
 deploy/verify.sh        post-deploy assertions, run on the box
 deploy/providers/       optional per-provider box creation and DNS (vultr, dnsimple)
 deploy/DEPLOY.md        the deploy runbook
 docs/BACKUP.md          snapshots, Litestream, restore, box migration
 docs/TROUBLESHOOTING.md operations, the WireGuard-not-connecting playbook, gotchas
+docs/WSTUNNEL.md        the TLS-WebSocket transport: enabling it, the client side, SNI
+docs/CERTS.md           the certificate store, its consumers, and ACME over DNS-01
 ```
 
 ## Development (macOS or Linux dev box)
@@ -125,13 +144,20 @@ column (subnet, ports, DNS, MTU, endpoint host) **seed the database on first boo
 only** — after that the database is authoritative and the admin UI edits it, and
 Naaf logs a warning at boot if the two have drifted apart.
 
-Two things deliberately never go in the file: the admin password, which is read
-once at bootstrap and bcrypt-hashed into the database, and object-store
-credentials for Litestream, which would otherwise land in the web application's
-environment (see `docs/BACKUP.md`).
+Three things deliberately never go in the file: the admin password, which is read
+once at bootstrap and bcrypt-hashed into the database; object-store credentials
+for Litestream, which would otherwise land in the web application's environment
+(see `docs/BACKUP.md`); and the ACME DNS token, same reason with a tighter mode —
+`/etc/naaf/acme.env`, 0600 root:root, because acme.sh runs as root (see
+`docs/CERTS.md`). The last two reach the box through `deploy.sh`'s secret
+channel, never through a config key.
 
-The renderers, IPAM, Zone, ConfigBuilder, and bootstrap helpers are pure/DB-only and
-are tested directly without root or a live kernel. Running the full server (`bin/naaf`)
+The wstunnel and certificate keys (`NAAF_WSTUNNEL_*`, `NAAF_CERT_*`,
+`NAAF_ACME_*`) are the one group that does **not** seed the database: the port
+and the certificate paths have to match the systemd unit *and* the base
+firewall, both rendered from this file at provisioning time, so a `settings` copy
+would be a second source of truth that drifts.
+
 ## Deploying
 
 Deploys to **any Debian 13 (trixie) host you can reach as root over SSH** — there is

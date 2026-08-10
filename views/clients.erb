@@ -7,6 +7,18 @@
   </div>
 <% end %>
 
+<% if @wstunnel_unprovisioned %>
+  <%# Deliberately not is-warning: the one-shot-key banner above already is, and %>
+  <%# two identical yellow banners stack into one indistinguishable block. %>
+  <div class="notification is-danger is-light">
+    <strong>wstunnel is enabled but not provisioned.</strong>
+    No path prefix has reached this process, so every <code>split·ws</code> config
+    it could hand out would dial a path the server rejects. Run
+    <code>./deploy.sh --step 65-wstunnel</code> — it writes the prefix to
+    <code>/etc/naaf/wstunnel.env</code> and restarts naaf.
+  </div>
+<% end %>
+
 <div class="level">
   <div class="level-left">
     <h1 class="title level-item">Clients</h1>
@@ -17,6 +29,16 @@
     </span>
   </div>
 </div>
+
+<%# A literal hash rather than a constant: Roda compiles this template into a %>
+<%# method on the app, where a Naaf::-nested constant does not resolve %>
+<%# unqualified (hence Naaf::Format.ago below), and spelling out a full path for %>
+<%# three display strings buys nothing. The separator is U+00B7 MIDDLE DOT. %>
+<% flavor_labels = {
+     "split-nodns" => "split·nodns",
+     "split-ws" => "split·ws",
+     "split-ws-nodns" => "split·ws·nodns"
+   } %>
 
 <% if @clients.empty? %>
   <div class="notification">No clients yet. Add your first one below.</div>
@@ -51,9 +73,13 @@
           <td><code title="<%= h(c[:pubkey]) %>"><%= h(c[:pubkey][0, 12]) %>…</code></td>
           <td>
             <div class="buttons are-small has-addons">
-              <a class="button" href="/clients/<%= c[:id] %>/config/split">split</a>
-              <a class="button" href="/clients/<%= c[:id] %>/config/split-nodns">split·nodns</a>
-              <a class="button" href="/clients/<%= c[:id] %>/config/full">full</a>
+              <% @flavors.each do |f| %>
+                <a class="button" href="/clients/<%= c[:id] %>/config/<%= f %>"><%= h(flavor_labels.fetch(f, f)) %></a>
+              <% end %>
+              <%# Outside the loop on purpose: there is exactly one QR and it is %>
+              <%# always for `split`. The ws flavors have none — their [Interface] %>
+              <%# hooks make wireguard-apple/-android throw %>
+              <%# interfaceHasUnrecognizedKey — and /qr refuses them. %>
               <a class="button is-link is-light" href="/clients/<%= c[:id] %>/qr/split" target="_blank" rel="noopener">QR</a>
             </div>
           </td>

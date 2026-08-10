@@ -1,0 +1,29 @@
+# naaf split-ws-nodns — split-ws without the DNS line, for a client that keeps
+# its own resolver. WireGuard carried inside a TLS WebSocket, for networks that
+# pass only tcp/443 and for sitting alongside another VPN's full tunnel.
+#
+# wg-quick(8) ONLY. The PreUp/PostDown lines below are why: wireguard-apple and
+# wireguard-android reject any [Interface] key outside
+# privatekey/listenport/address/dns/mtu, so this config cannot be imported by
+# QR or by the phone apps at all. `wstunnel` must be on root's PATH.
+#
+# Endpoint below is the local relay this file starts on your own machine; the
+# real server is <%= ws_endpoint %>.
+# wg-quick brings the interface up and starts the relay together, so the first
+# handshake can take up to 5 seconds while WireGuard retries. That is expected.
+#
+<%= ws_sni_note %>
+[Interface]
+PrivateKey = <%= pk %>
+Address = <%= client[:wg_ip] %>/32
+MTU = <%= mtu %>
+PreUp = <%= ws_guard %>
+PreUp = <%= ws_preup %>
+PostDown = <%= ws_postdown %>
+
+[Peer]
+PublicKey = <%= s[:server_pubkey] %>
+PresharedKey = <%= client[:psk] %>
+Endpoint = <%= ep %>
+AllowedIPs = <%= allowed %>
+PersistentKeepalive = 25

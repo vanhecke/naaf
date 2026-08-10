@@ -1,7 +1,7 @@
 [Interface]
 PrivateKey = <%= pk %>
 Address = <%= client[:wg_ip] %>/32
-MTU = <%= s[:mtu] %>
+MTU = <%= mtu %>
 
 [Peer]
 PublicKey = <%= s[:server_pubkey] %>

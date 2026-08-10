@@ -8,6 +8,10 @@ require "naaf/app"
 # Stubs so routes run without a live helper/kernel. genkeys returns a distinct,
 # predictable key per call so we can trace which client's key ends up where.
 class StubHelper
+  # How many keypairs have been handed out, so a test can name the key it
+  # expects ("PRIV#{n}") without assuming which client id it landed on.
+  attr_reader :n
+
   def initialize
     @n = 0
   end
@@ -548,6 +552,185 @@ describe "Naaf::App integration" do
     expect(second).to be(:include?, "REPLACE_WITH_YOUR_PRIVATE_KEY")
   end
 
+  # The QR is a peek, not a take: scanning it does not spend the key, so the
+  # admin can still download the .conf for the same client afterwards.
+  it "does not consume the one-shot key when rendering the QR" do
+    login!
+    quinn = add_client("quinn") # -> PRIV1
+    expect(get("/clients/#{quinn}/qr/split").status).to be == 200
+    expect(get("/clients/#{quinn}/config/split").body).to be(:include?, "PrivateKey = PRIV1")
+  end
+
+  # A successful ws download spends the key exactly like a plain one.
+  it "consumes the one-shot key on a successful ws download" do
+    login!
+    rex = add_client("rex") # -> PRIV1
+    with_wstunnel do
+      expect(get("/clients/#{rex}/config/split-ws").body).to be(:include?, "PrivateKey = PRIV1")
+      expect(get("/clients/#{rex}/config/split-ws").body)
+        .to be(:include?, "REPLACE_WITH_YOUR_PRIVATE_KEY")
+    end
+  end
+
+  # The availability guard is NOT a sufficient precondition for render():
+  # ConfigBuilder raises ArgumentError for every one of these wstunnel
+  # misconfigurations well after the flavor has been judged available, and each
+  # one used to be reached with the session stash already deleted — permanently
+  # destroying the only copy of a freshly generated private key whose sole
+  # recovery is deleting and re-adding the client. The key must survive a 500.
+  it "keeps the one-shot key when a ws render fails" do
+    login!
+    cells = {
+      "unprovisioned path prefix" => {"NAAF_WSTUNNEL_PATH_PREFIX" => nil},
+      "malformed path prefix" => {"NAAF_WSTUNNEL_PATH_PREFIX" => "not a prefix!"},
+      "malformed SNI" => {"NAAF_WSTUNNEL_SNI" => "a b"},
+      "out-of-range port" => {"NAAF_WSTUNNEL_PORT" => "99999"},
+      "unrecognised TLS_VERIFY" => {"NAAF_WSTUNNEL_TLS_VERIFY" => "yes"},
+      "verify + SNI without ACME" => {
+        "NAAF_WSTUNNEL_TLS_VERIFY" => "on",
+        "NAAF_WSTUNNEL_SNI" => "www.example.com",
+        "NAAF_ACME_ENABLED" => "0"
+      }
+    }
+    cells.each_with_index do |(label, env), i|
+      who = add_client("burn#{i}") # -> a fresh PRIV stashed against this id
+      key = "PrivateKey = PRIV#{Naaf::App.reconciler.helper.n}"
+      with_wstunnel(env) do
+        expect(get("/clients/#{who}/config/split-ws").status).to be == 500
+      end
+      conf = get("/clients/#{who}/config/split").body
+      # The label rides along so a failure names the cell that burned the key.
+      expect([label, conf.include?(key)]).to be == [label, true]
+    end
+  end
+
+  # --- the wstunnel flavors, which exist only when the server half is on ---
+
+  it "refuses a ws config while wstunnel is disabled, and serves one when it is on" do
+    login!
+    hank = add_client("hank")
+
+    expect(get("/clients/#{hank}/config/split-ws").status).to be == 404
+    expect(get("/clients/#{hank}/config/split-ws-nodns").status).to be == 404
+
+    with_wstunnel do
+      res = get("/clients/#{hank}/config/split-ws")
+      expect(res.status).to be == 200
+      expect(res.headers["content-type"]).to be == "text/plain"
+      expect(res.headers["cache-control"]).to be == "no-store"
+      # WireGuard dials the local relay; the real endpoint only appears in the
+      # wss:// URL the PreUp hook hands to wstunnel.
+      expect(res.body).to be(:include?, "Endpoint = 127.0.0.1:51820")
+      expect(res.body).to be(:include?, "wss://203.0.113.5:443")
+    end
+  end
+
+  # ConfigBuilder#render raises ArgumentError for an unknown flavor, and
+  # error_handler flattens that into a 500 "Internal error". A path nobody
+  # routes is a 404.
+  it "answers an unknown config flavor with 404 rather than a server error" do
+    login!
+    ivy = add_client("ivy")
+    expect(get("/clients/#{ivy}/config/bogus").status).to be == 404
+    expect(get("/clients/#{ivy}/config/..%2Fsettings").status).to be == 404
+  end
+
+  # A halt(404) from inside the with_oneshot_privkey block would throw past the
+  # delete, so this direction is safe by construction — but it is also the
+  # direction a "just take it up front again" refactor breaks first, so pin it.
+  it "does not consume the one-shot key on a request for an unavailable flavor" do
+    login!
+    grace = add_client("grace") # -> PRIV1, stashed against this client id
+
+    expect(get("/clients/#{grace}/config/split-ws").status).to be == 404
+    expect(get("/clients/#{grace}/config/bogus").status).to be == 404
+
+    expect(get("/clients/#{grace}/config/split").body).to be(:include?, "PrivateKey = PRIV1")
+  end
+
+  # wireguard-apple's parser allows only privatekey/listenport/address/dns/mtu
+  # in [Interface] and throws interfaceHasUnrecognizedKey otherwise, as does
+  # wireguard-android. A ws config carries PreUp, so the scan could only ever
+  # produce an import error — the refusal is not conditional on the server flag.
+  it "offers no QR for a ws flavor even while wstunnel is enabled" do
+    login!
+    iris = add_client("iris")
+
+    expect(get("/clients/#{iris}/qr/split-ws").status).to be == 404
+    expect(get("/clients/#{iris}/qr/nope").status).to be == 404
+
+    with_wstunnel do
+      expect(get("/clients/#{iris}/qr/split-ws").status).to be == 404
+      expect(get("/clients/#{iris}/qr/split-ws-nodns").status).to be == 404
+      expect(get("/clients/#{iris}/qr/split").status).to be == 200
+    end
+  end
+
+  # An assertion against get("/") would pass vacuously in both directions — the
+  # flavour buttons live on /clients and nowhere else.
+  it "shows the ws buttons on /clients only while wstunnel is enabled" do
+    login!
+    add_client("jade")
+
+    body = get("/clients").body
+    expect(body).to be(:include?, "/config/split")
+    expect(body.include?("/config/split-ws")).to be == false
+
+    with_wstunnel do
+      body = get("/clients").body
+      expect(body).to be(:include?, "/config/split-ws")
+      expect(body).to be(:include?, "/config/split-ws-nodns")
+      expect(body).to be(:include?, "split·ws·nodns") # U+00B7, as for split·nodns
+      # are-small sizes every button in the group; losing it changes the row
+      # height of the whole table.
+      expect(body).to be(:include?, "buttons are-small has-addons")
+      # Exactly one QR link per row, and it stays outside the flavour loop.
+      expect(body.scan("/qr/split").length).to be == 1
+      expect(body).to be(:match?, /class="button is-link is-light"[^>]*rel="noopener"/)
+    end
+  end
+
+  # Enabled but not yet provisioned: 65-wstunnel has not written the path prefix,
+  # so every ws config the page offers would dial a path the server rejects.
+  it "flags a half-provisioned wstunnel on the client list" do
+    login!
+    add_client("kim")
+
+    with_wstunnel("NAAF_WSTUNNEL_PATH_PREFIX" => nil) do
+      body = get("/clients").body
+      expect(body).to be(:include?, "65-wstunnel")
+      # The one-shot-key banner is already is-warning; a second yellow banner
+      # would stack into one indistinguishable block.
+      expect(body).to be(:include?, "is-warning")
+      expect(body.scan("is-warning").length).to be == 1
+    end
+
+    with_wstunnel do
+      expect(get("/clients").body.include?("65-wstunnel")).to be == false
+    end
+  end
+
+  # wg-quick(8) derives the interface name from the .conf basename and refuses
+  # anything outside [a-zA-Z0-9_=+.-]{1,15}\.conf — it exits before reading a
+  # line. `<hostname>-<flavor>.conf` broke that for split-nodns on any hostname
+  # at all, and would have broken split-ws-nodns worse.
+  it "names every downloaded config something wg-quick will accept" do
+    login!
+    long = add_client("averyverylonghostname")
+
+    with_wstunnel do
+      names = Naaf::ConfigBuilder::FLAVORS.map do |flavor|
+        res = get("/clients/#{long}/config/#{flavor}")
+        expect(res.status).to be == 200
+        name = res.headers["content-disposition"][/filename="([^"]+)"/, 1]
+        expect(name).to be(:match?, /\A[a-zA-Z0-9_=+.-]{1,15}\.conf\z/)
+        name
+      end
+      # Truncation must not collapse two flavors onto one filename.
+      expect(names.uniq.length).to be == Naaf::ConfigBuilder::FLAVORS.length
+    end
+  end
+
   it "accepts the re-apply action from the navbar form" do
     login!
     body = get("/clients").body
@@ -686,6 +869,73 @@ describe "Naaf::App integration" do
 
     post_form("/port-forwards", "/port-forwards/#{fwd[:id]}/delete", {})
     expect(Naaf.db[:port_forwards][id: fwd[:id]]).to be_nil
+  end
+
+  # A forward becomes a DNAT in `inet naaf` prerouting, which runs before the
+  # routing decision — so a forward on a port the box answers on rewrites
+  # packets addressed to the host and hands them to a client. tcp/22 takes SSH
+  # away and udp/51820 stops every WireGuard handshake; together that is a
+  # lockout only the provider's console recovers.
+  it "refuses a port forward that would steal SSH or WireGuard from the box" do
+    login!
+    nas = add_client("nas")
+
+    res = post_form("/port-forwards", "/port-forwards",
+      "client_id" => nas, "proto" => "tcp", "public_port" => "22", "target_port" => "22")
+    expect(Naaf.db[:port_forwards].where(public_port: 22).count).to be == 0
+    expect(res.status).to be == 302
+    expect(get("/port-forwards").body).to be(:include?, "SSH")
+
+    post_form("/port-forwards", "/port-forwards",
+      "client_id" => nas, "proto" => "udp", "public_port" => "51820", "target_port" => "51820")
+    expect(Naaf.db[:port_forwards].where(public_port: 51820).count).to be == 0
+    expect(get("/port-forwards").body).to be(:include?, "WireGuard")
+
+    # Protocol-aware: neither of those ports is taken on the other protocol, and
+    # refusing them would be a restriction with nothing behind it.
+    post_form("/port-forwards", "/port-forwards",
+      "client_id" => nas, "proto" => "udp", "public_port" => "22", "target_port" => "22")
+    post_form("/port-forwards", "/port-forwards",
+      "client_id" => nas, "proto" => "tcp", "public_port" => "51820", "target_port" => "51820")
+    expect(Naaf.db[:port_forwards].count).to be == 2
+  end
+
+  # tcp/443 is only the box's while the transport is on: with wstunnel disabled
+  # nothing listens there and the forward is an ordinary one.
+  it "reserves the wstunnel port only while wstunnel is enabled" do
+    login!
+    nas = add_client("nas")
+
+    post_form("/port-forwards", "/port-forwards",
+      "client_id" => nas, "proto" => "tcp", "public_port" => "443", "target_port" => "443")
+    expect(Naaf.db[:port_forwards].where(public_port: 443).count).to be == 1
+    Naaf.db[:port_forwards].delete
+
+    with_wstunnel do
+      post_form("/port-forwards", "/port-forwards",
+        "client_id" => nas, "proto" => "tcp", "public_port" => "443", "target_port" => "443")
+      expect(Naaf.db[:port_forwards].where(public_port: 443).count).to be == 0
+      expect(get("/port-forwards").body).to be(:include?, "wstunnel")
+    end
+  end
+
+  # A row that predates the check — or one written straight into SQLite — must
+  # not reach the kernel just because someone flipped it on.
+  it "refuses to enable a disabled forward that sits on a reserved port" do
+    login!
+    nas = add_client("nas")
+    id = Naaf.db[:port_forwards].insert(
+      client_id: nas, proto: "tcp", public_port: 22, target_port: 22, enabled: false
+    )
+
+    post_form("/port-forwards", "/port-forwards/#{id}/toggle", {})
+    expect(Naaf.db[:port_forwards][id: id][:enabled]).to be == false
+    expect(get("/port-forwards").body).to be(:include?, "SSH")
+
+    # Turning one OFF is always allowed, whatever port it names.
+    Naaf.db[:port_forwards].where(id: id).update(enabled: true)
+    post_form("/port-forwards", "/port-forwards/#{id}/toggle", {})
+    expect(Naaf.db[:port_forwards][id: id][:enabled]).to be == false
   end
 
   it "rejects a duplicate public_port/proto forward" do

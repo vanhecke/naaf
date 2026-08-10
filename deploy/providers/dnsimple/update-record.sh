@@ -9,6 +9,25 @@
 #      record name within the zone, e.g. vpn), NAAF_DNS_TTL (default 300).
 # Zone and name have no defaults on purpose — a wrong guess would rewrite a live
 # record in whichever zone the default named.
+#
+# "Never handles tokens directly" still holds, and it is worth being precise
+# about why, now that there is a second DNSimple credential in the system. This
+# script runs on your workstation against your own `dnsimple` CLI context; the
+# deploy path carries no DNSimple credential at all.
+#
+# The ACME DNS-01 token (`docs/CERTS.md`) is a different credential with a
+# different lifetime and a different home: it reaches the box once through
+# `deploy.sh`'s secret channel as NAAF_ACME_DNS_TOKEN and lands in
+# /etc/naaf/acme.env, 0600 root:root, where only acme.sh reads it. It is never a
+# naaf.conf key — that file is `EnvironmentFile=` for the web app.
+#
+# It should also belong to a SEPARATE DNSimple account holding nothing but the
+# delegation zone. DNSimple v2 issues User tokens (every account you belong to)
+# or Account tokens (one whole account) and has no per-zone or per-record scope,
+# so an Account token for the account that holds THIS zone would let a box
+# compromise rewrite the endpoint record this script maintains. The account
+# boundary is the containment — not the _acme-challenge CNAME, which only
+# redirects the challenge.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"

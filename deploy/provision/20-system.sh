@@ -64,11 +64,84 @@ log "static base firewall (table inet filter — the app never touches this)"
 # file is what keeps SSH alive.
 tmp_nft="$(mktemp)"
 trap 'rm -f "$tmp_nft"' EXIT
+
+# The wstunnel port is opened only when the transport is enabled — an open
+# tcp/443 with nothing behind it is an advertisement. The disabled branch renders
+# a comment, which is a legal empty statement inside a chain block, so the
+# placeholder guard below still proves every __NAAF_ token was consumed.
+if [ "$NAAF_WSTUNNEL_ENABLED" = "1" ]; then
+  # The port lands unquoted in an nft rule, so it has to be digits and nothing
+  # else. Anything else is a syntax error in the file that keeps SSH alive.
+  case "$NAAF_WSTUNNEL_PORT" in
+    "" | *[!0-9]*) die "NAAF_WSTUNNEL_PORT must be numeric, got '$NAAF_WSTUNNEL_PORT'" ;;
+  esac
+  # %-46s puts the comment in the template's own column 51 (4 spaces of indent
+  # are already in the template line).
+  wstunnel_rule="$(printf '%-46s# wstunnel (WireGuard inside TLS/WebSocket)' \
+    "tcp dport $NAAF_WSTUNNEL_PORT accept")"
+  wstunnel_note="wstunnel tcp/$NAAF_WSTUNNEL_PORT"
+else
+  wstunnel_rule="# wstunnel disabled (NAAF_WSTUNNEL_ENABLED=0)"
+  wstunnel_note="wstunnel off"
+fi
+
+# `|` is the delimiter for the wstunnel expression while the other two keep `#`,
+# and that is not a matter of taste. Both replacement texts contain a `#`, so
+# `s#__NAAF_WSTUNNEL_RULE__## wstunnel disabled (…)#g` parses as an empty
+# replacement followed by a `w` (write-file) flag: sed exits 0, drops a junk file
+# named after the tail of the line in the CWD, and the rendered output still
+# passes both the placeholder guard and `nft -c -f`. The enabled branch would
+# install a base firewall with the rule silently missing and every check green.
 sed -e "s#__NAAF_LISTEN_PORT__#$NAAF_LISTEN_PORT#g" \
     -e "s#__NAAF_WG_INTERFACE__#$NAAF_WG_INTERFACE#g" \
+    -e "s|__NAAF_WSTUNNEL_RULE__|$wstunnel_rule|g" \
     "$REPO_ROOT/deploy/nftables.conf.template" >"$tmp_nft"
 grep -q '__NAAF_' "$tmp_nft" && die "unsubstituted placeholder left in the rendered nftables.conf"
 nft -c -f "$tmp_nft" || die "rendered nftables.conf failed the syntax check — not installing it"
+# `enable --now` is NOT enough on a re-run, and that is the whole reason these
+# lines are shaped like this rather than being one systemctl call. Debian's
+# packaged nftables.service is `Type=oneshot` with `RemainAfterExit=yes`, so once
+# it has run it stays `active (exited)` forever and `systemctl start` — which is
+# all `--now` does — short-circuits: `ExecStart=/usr/sbin/nft -f
+# /etc/nftables.conf` never runs a second time. Flipping NAAF_WSTUNNEL_ENABLED on
+# an already-provisioned box would then install a file the kernel never loads —
+# a wstunnel listener nothing outside can reach, or tcp/443 left accepted with
+# nothing behind it — while every guard above stays green and only verify.sh
+# section 8, which reads the LIVE ruleset, notices. That same unit ships
+# `ExecReload=/usr/sbin/nft -f /etc/nftables.conf`, the identical command, which
+# is what makes a reload the real re-apply.
+#
+# Only when the rendered file actually differs, because the reload is not free:
+# this file opens with `flush ruleset`, which takes table `inet naaf` (the
+# spoke<->spoke default-deny, the egress masquerade and every DNAT) down with it,
+# and Reconciler#poll! re-applies only when the PEER SET has drifted — a missing
+# table is something it never looks for.
+if cmp -s "$tmp_nft" /etc/nftables.conf; then
+  reload_needed=0
+else
+  reload_needed=1
+fi
 install -m 0644 "$tmp_nft" /etc/nftables.conf
-systemctl enable --now nftables
-log "base firewall loaded (wg $NAAF_WG_INTERFACE, udp/$NAAF_LISTEN_PORT)"
+systemctl enable nftables
+if [ "$reload_needed" -eq 1 ]; then
+  # reload-or-restart and not plain reload: on a FIRST provision the unit is
+  # inactive and has nothing to reload (`systemctl reload` fails outright), so
+  # this starts it instead. `cmp` against a nonexistent file is non-zero too,
+  # which is what routes the fresh-box case here.
+  log "base firewall changed — reloading it into the kernel"
+  systemctl reload-or-restart nftables
+  # The reload flushed table `inet naaf` along with everything else, so put it
+  # back now instead of leaving the tunnel without its isolation and NAT until
+  # the next UI mutation. bin/naaf runs Reconciler#apply! at startup, so a
+  # restart is the re-apply. try-restart is a no-op when naaf is not running, and
+  # on a first provision naaf is not even installed yet (40-app.sh) — hence the
+  # `2>/dev/null || true`, the same shape 45-litestream.sh and 65-wstunnel.sh use
+  # for a unit that may not exist.
+  log "re-applying table inet naaf (the reload flushed it)"
+  systemctl try-restart naaf 2>/dev/null || true
+else
+  # Unchanged — but a box that has never loaded it still needs it once. `start`
+  # is a no-op on an already-active unit, which is exactly what `--now` did.
+  systemctl start nftables
+fi
+log "base firewall loaded (wg $NAAF_WG_INTERFACE, udp/$NAAF_LISTEN_PORT, $wstunnel_note)"

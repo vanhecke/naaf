@@ -49,3 +49,25 @@ def make_client(db, name:, wg_ip:, hostname: name, pubkey: "PUB-#{name}", psk: "
     pubkey: pubkey, psk: psk, enabled: enabled, created_at: Time.now, **extra
   )
 end
+
+# Run the block with wstunnel switched on. Naaf::Config re-reads ENV on every
+# call and NAAF_CONF already points at File::NULL, so assigning ENV is the whole
+# seam — there is nothing memoized to reset. That is also precisely why
+# ConfigBuilder.wstunnel?/available_flavors are methods and never constants
+# frozen at load time.
+#
+# Any key may be overridden, not just the wstunnel ones (the TLS matrix needs
+# NAAF_ACME_ENABLED too); a nil value unsets the variable for the duration.
+# NAAF_WSTUNNEL_PATH_PREFIX has no DEFAULTS entry by design and is read straight
+# from ENV, so it must be supplied here rather than through a naaf.conf.
+def with_wstunnel(overrides = {})
+  vars = {
+    "NAAF_WSTUNNEL_ENABLED" => "1",
+    "NAAF_WSTUNNEL_PATH_PREFIX" => "t35tpr3f1x"
+  }.merge(overrides)
+  saved = vars.keys.to_h { |k| [k, ENV[k]] }
+  vars.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+  yield
+ensure
+  saved&.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+end

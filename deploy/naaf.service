@@ -11,6 +11,13 @@ User=__NAAF_USER__
 Group=__NAAF_GROUP__
 WorkingDirectory=__NAAF_APP_DIR__
 EnvironmentFile=/etc/naaf/naaf.conf
+# The wstunnel path prefix, and only that. It is NOT a naaf.conf key on purpose:
+# deploy/install-config.sh iterates the incoming file only, so a key that exists
+# on the box but not in the operator's local naaf.conf is dropped and then
+# regenerated — which would silently invalidate every split-ws config ever
+# issued. Its own file, written by 65-wstunnel.sh, keeps it out of that path.
+# The leading `-` means a box without the transport is not an error.
+EnvironmentFile=-/etc/naaf/wstunnel.env
 Environment=BUNDLE_GEMFILE=__NAAF_APP_DIR__/Gemfile
 Environment=RUBY_YJIT_ENABLE=1
 ExecStart=__NAAF_RUBY_BIN__ __NAAF_APP_DIR__/bin/naaf

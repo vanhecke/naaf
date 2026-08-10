@@ -41,7 +41,7 @@ Debian 12 is untested; rv's prebuilt Ruby needs glibc 2.35+, which trixie has.
 | `--create` only | run `deploy/providers/$NAAF_PROVIDER/create-box.sh`, wait for SSH, upsert DNS |
 | first deploy only | ask for the admin password, ship it to a root-only file the box deletes as it reads it |
 | always | `rsync` the repo to `/opt/naaf`, install `naaf.conf` to `/etc/naaf/naaf.conf` (0640 root:naaf, workstation-only section stripped) |
-| always | run `deploy/provision/provision.sh` — the seven steps below |
+| always | run `deploy/provision/provision.sh` — the nine steps below |
 | always | run `deploy/verify.sh` and print how to reach the admin UI |
 
 The provisioning steps, in the one order that works:
@@ -49,12 +49,14 @@ The provisioning steps, in the one order that works:
 | step | does |
 |---|---|
 | `05-swap` | 2 GB swapfile (headroom on a 1–2 GB box) |
-| `10-packages` | apt: WireGuard/nftables + a compiler for native gem extensions |
+| `10-packages` | apt: WireGuard/nftables, a compiler for native gem extensions, and the CLI tools later steps need (`sqlite3`, `openssl`, `dig`) |
 | `20-system` | `naaf` user, dirs, IP-forward sysctl, tmpfiles, SSH hardening, `/etc/nftables.conf` from the template |
 | `30-ruby` | `rv` + Ruby with YJIT, prebuilt and checksum-verified (seconds) |
 | `40-app` | `/etc/naaf/naaf.conf` with a generated session secret, `bundle install`, both systemd units |
 | `45-litestream` | optional off-box replication; a no-op unless `NAAF_LITESTREAM_ENABLED=1` |
 | `50-bringup` | helper → `bootstrap.rb` (keys/admin-pw/endpoint host) → app → `wg-quick@wg0` |
+| `60-certs` | the TLS certificate store in `/etc/naaf/certs`: self-signed always, Let's Encrypt over DNS-01 when `NAAF_ACME_ENABLED=1` |
+| `65-wstunnel` | optional TLS-WebSocket transport in front of the WireGuard listener; a no-op unless `NAAF_WSTUNNEL_ENABLED=1` |
 
 Every step is idempotent and logs to `/var/log/naaf-provision/<step>.log` on the
 box; the whole run is also tee'd to `deploy/logs/` locally (gitignored).
@@ -63,6 +65,32 @@ box; the whole run is also tee'd to `deploy/logs/` locally (gitignored).
 `settings.server_pubkey` being set. That guard is why re-deploying is safe, why a
 re-deploy needs no admin password, and why [restoring a database onto a fresh
 box](../docs/BACKUP.md) keeps the original server identity.
+
+The last two steps run **after** bring-up on purpose: a certificate has to be
+named for `endpoint_host || endpoint_v4` as they sit in the settings table, and
+`bootstrap.rb` only fills `endpoint_v4` in at step 50. Running them earlier meant
+no name at all on a default bare-IP deploy — and a step that fails there takes
+`50-bringup` with it, leaving the box with no WireGuard interface. `60-certs` is
+also the one step that never fails the deploy: a CA outage or a missing DNS
+record downgrades to a warning and the self-signed certificate beside it, because
+a certificate problem must not cost you the VPN. `20-system` still opens the
+firewall early — the gap where tcp/443 is open with nothing listening is a
+`connection refused`, whereas the reverse order gives you a live listener the
+firewall silently drops.
+
+The ACME DNS token never goes in `naaf.conf` (that file is `EnvironmentFile=` for
+the web app). Export it for one deploy and `deploy.sh` ships it to
+`/etc/naaf/acme.env`, 0600 root:root:
+
+```bash
+export NAAF_ACME_DNS_TOKEN=...
+./deploy.sh --sync && ./deploy.sh --step 60-certs
+```
+
+`--step` alone neither syncs the repo nor reinstalls `naaf.conf`, so a `--sync`
+first is what makes an edited config actually reach the box. Full detail in
+[`../docs/CERTS.md`](../docs/CERTS.md) and
+[`../docs/WSTUNNEL.md`](../docs/WSTUNNEL.md).
 
 ## First login
 
@@ -115,7 +143,10 @@ service — see [`docs/BACKUP.md`](../docs/BACKUP.md).
 ## Provider examples
 
 `deploy/providers/vultr/create-box.sh` creates an instance and prints its IP,
-attaching a firewall group that allows only 22/tcp and the WireGuard port.
+attaching a firewall group that allows 22/tcp, the WireGuard port, and — only
+when `NAAF_WSTUNNEL_ENABLED=1` — the wstunnel port. That group is created once
+and reused by description afterwards, so enabling wstunnel on an existing box
+means adding the rule by hand or deleting the group.
 `deploy/providers/dnsimple/update-record.sh` upserts an A (and optional AAAA)
 record. Each needs its own authenticated CLI and takes account-specific values
 from `naaf.conf` with no defaults — read the header comment of each script.

@@ -26,8 +26,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOGDIR="$HERE/deploy/logs"
 
 # Every provisioning step, in the one order that works. 45-litestream runs before
-# 50-bringup so replication is already up when the database gets its server key.
-STEPS=(05-swap 10-packages 20-system 30-ruby 40-app 45-litestream 50-bringup)
+# 50-bringup so replication is already up when the database gets its server key;
+# 60-certs and 65-wstunnel run after it because the name a certificate must match
+# comes from the settings table, which bootstrap only fills in at step 50.
+# Duplicated from deploy/provision/provision.sh — this copy is what --step
+# validates against, so the two must stay in lock-step.
+STEPS=(05-swap 10-packages 20-system 30-ruby 40-app 45-litestream 50-bringup 60-certs 65-wstunnel)
 
 usage() {
   cat <<'EOF'
@@ -229,8 +233,12 @@ sync_code() {
 # These are deliberately NOT in naaf.conf: that file is EnvironmentFile= for
 # naaf.service, so anything in it becomes an environment variable of the
 # tunnel-facing web app. The object-store keys go on to /etc/naaf/litestream.env
-# (root:naaf 0640, read only by litestream) via 45-litestream.sh; the admin
-# password is consumed once and only its bcrypt hash survives.
+# (root:naaf 0640, read only by litestream) via 45-litestream.sh; the ACME DNS
+# token goes to /etc/naaf/acme.env (root:root 0600 — acme.sh runs as root and a
+# credential that can rewrite DNS must stay unreadable by the naaf uid) via
+# 60-certs.sh; the admin password is consumed once and only its bcrypt hash
+# survives. Without this channel the only way to get the DNS token to the box
+# would be naaf.conf, which is exactly what the file mode above is preventing.
 run_remote() {
   local remote_cmd="$1" logfile="$2"
   mkdir -p "$LOGDIR"
@@ -239,12 +247,16 @@ run_remote() {
   # it silently failed to travel on an already-bootstrapped box — where there is
   # no admin password. That is exactly the box migration case, the one time you
   # most want to set it.
-  if [ -n "${NAAF_ADMIN_PASSWORD:-}${NAAF_LITESTREAM_ACCESS_KEY_ID:-}${NAAF_ENDPOINT_HOST:-}" ]; then
-    ssh_ "cat >/root/.naaf-deploy.env && chmod 600 /root/.naaf-deploy.env" <<EOF
+  if [ -n "${NAAF_ADMIN_PASSWORD:-}${NAAF_LITESTREAM_ACCESS_KEY_ID:-}${NAAF_ACME_DNS_TOKEN:-}${NAAF_ENDPOINT_HOST:-}" ]; then
+    # umask 077 before the redirect, not just chmod after: `cat >file` creates it
+    # 0644 under root's ambient umask and only then is it narrowed, so there is a
+    # window where every secret in this file is world-readable on the box.
+    ssh_ "umask 077; cat >/root/.naaf-deploy.env && chmod 600 /root/.naaf-deploy.env" <<EOF
 export NAAF_ADMIN_PASSWORD=$(printf '%q' "${NAAF_ADMIN_PASSWORD:-}")
 export NAAF_ENDPOINT_HOST=$(printf '%q' "${NAAF_ENDPOINT_HOST:-}")
 export NAAF_LITESTREAM_ACCESS_KEY_ID=$(printf '%q' "${NAAF_LITESTREAM_ACCESS_KEY_ID:-}")
 export NAAF_LITESTREAM_SECRET_ACCESS_KEY=$(printf '%q' "${NAAF_LITESTREAM_SECRET_ACCESS_KEY:-}")
+export NAAF_ACME_DNS_TOKEN=$(printf '%q' "${NAAF_ACME_DNS_TOKEN:-}")
 EOF
     ssh_ "set -a; . /root/.naaf-deploy.env; rm -f /root/.naaf-deploy.env; $remote_cmd" 2>&1 | tee "$logfile"
   else
