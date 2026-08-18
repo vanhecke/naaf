@@ -415,8 +415,8 @@ the machine joins. That is unsupported and it is not what these flavors are for.
 ### Not offering the flavor is not enough — the routes are audited
 
 `AllowedIPs` is `wg_subnet` plus every row in `extra_routes` that applies to the
-client, so "there is no full-tunnel ws flavor" was a claim a **Routes** entry
-could break from the other side. Two shapes do it, and neither errors anywhere
+client plus every enabled site's networks, so "there is no full-tunnel ws flavor"
+was a claim a **Routes** or **Sites** entry could break from the other side. Two shapes do it, and neither errors anywhere
 else — the guard hook only checks `PATH`, so what you get is a `-ws.conf` that
 comes up clean and silently never handshakes:
 
@@ -607,7 +607,7 @@ server as `/var/root`). The full list of refusals, all of them `ArgumentError` �
   `settings.listen_port`, or a `NAAF_WSTUNNEL_TLS_VERIFY` that is not
   `auto`/`on`/`off`.
 - verify on + SNI override + ACME off, above.
-- an `extra_routes` row that would capture the transport (§5).
+- an `extra_routes` row or a site network that would capture the transport (§5).
 - **a box with no `endpoint_host` and no `endpoint_v4`** — "endpoint address is
   unset or malformed". The ws path asks for the v4 family, so an IPv6-only box
   has no ws flavor at all; give it a name in Settings. A bare IPv4 endpoint is

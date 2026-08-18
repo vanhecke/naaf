@@ -105,6 +105,17 @@ describe Naaf::ConfigBuilder do
     expect(c).to be(:include?, "10.99.0.0/16")
   end
 
+  it "folds enabled site networks into split AllowedIPs and dedups extra_routes" do
+    make_site(@db, name: "unifi", networks: ["192.168.1.0/24", "10.0.0.0/16"])
+    make_site(@db, name: "off", enabled: false, networks: ["172.16.0.0/12"])
+    @db[:extra_routes].insert(client_id: nil, cidr: "192.168.1.0/24")
+    line = build("split")[/^AllowedIPs = .*/]
+    expect(line).to be(:include?, "192.168.1.0/24")
+    expect(line).to be(:include?, "10.0.0.0/16")
+    expect(line.include?("172.16.0.0/12")).to be == false
+    expect(line.scan("192.168.1.0/24").length).to be == 1
+  end
+
   it "rejects unknown flavors" do
     expect { build("bogus") }.to raise_exception(ArgumentError, message: be =~ /unknown flavor/)
   end
@@ -447,6 +458,13 @@ describe Naaf::ConfigBuilder do
       # A route next to the endpoint, not containing it, is fine.
       @db[:extra_routes].update(cidr: "203.0.114.0/24")
       expect(build("split-ws")[/^AllowedIPs = .*/]).to be == "AllowedIPs = 10.8.0.0/24, 203.0.114.0/24"
+    end
+  end
+
+  it "refuses a site CIDR that covers the endpoint address for the ws flavors" do
+    make_site(@db, name: "bad", networks: ["203.0.113.0/24"])
+    with_wstunnel do
+      expect(render_error("split-ws")).to be =~ /contains the endpoint address/
     end
   end
 

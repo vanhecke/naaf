@@ -30,6 +30,8 @@
   goes through an anchored whitelist (a leading `-` is an argv flag, a leading
   `~` tilde-expands, `[` globs) — never escaping, never a bare character class.
   Every resolved `AllowedIPs` route is audited against the endpoint address.
+  Site CIDRs are folded into client AllowedIPs the same way `extra_routes` is,
+  and `audit_transport_capture` still applies.
   A refusal is an `ArgumentError` → 500, never a config that silently cannot work.
 - The helper's command vocabulary is fixed (genkeys/apply/dump/ping). Adding a
   command requires explicit approval — it widens the privilege boundary.

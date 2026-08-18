@@ -24,7 +24,7 @@ require "naaf/db"
 # Returns the shared Naaf.db handle.
 def reset_db!(**settings)
   db = Naaf.db
-  [:extra_routes, :dns_records, :port_forwards, :exposed_ports, :clients, :settings].each do |t|
+  [:site_networks, :sites, :extra_routes, :dns_records, :port_forwards, :exposed_ports, :clients, :settings].each do |t|
     db[t].delete
   end
   # clients.id is AUTOINCREMENT, whose counter survives a plain delete via
@@ -48,6 +48,20 @@ def make_client(db, name:, wg_ip:, hostname: name, pubkey: "PUB-#{name}", psk: "
     name: name, hostname: hostname, wg_ip: wg_ip,
     pubkey: pubkey, psk: psk, enabled: enabled, created_at: Time.now, **extra
   )
+end
+
+# A site is a remote WireGuard server, not an IPAM client. `networks` is the
+# list of CIDRs installed as that peer's AllowedIPs.
+def make_site(db, name:, pubkey: "SITE-#{name}", endpoint: "203.0.113.9:51820",
+  psk: nil, keepalive: 25, address: nil, masquerade: false, enabled: true,
+  networks: [])
+  id = db[:sites].insert(
+    name: name, pubkey: pubkey, psk: psk, endpoint: endpoint,
+    keepalive: keepalive, address: address, masquerade: masquerade,
+    enabled: enabled, created_at: Time.now
+  )
+  networks.each { |cidr| db[:site_networks].insert(site_id: id, cidr: cidr) }
+  id
 end
 
 # Run the block with wstunnel switched on. Naaf::Config re-reads ENV on every

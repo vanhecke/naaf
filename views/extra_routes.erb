@@ -10,6 +10,8 @@
   config already routes everything). A <em>global</em> route applies to every
   client; a route bound to a client applies to that client only. The VPN subnet
   itself is always included, so you only list networks <em>behind</em> the tunnel.
+  Networks of a <a href="/sites">site</a> are folded in automatically — do not
+  add them here as well.
 </p>
 
 <% if @rows.empty? %>

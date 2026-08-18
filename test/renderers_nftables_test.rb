@@ -92,6 +92,74 @@ describe Naaf::Renderers::Nftables do
     expect(@db[:exposed_ports].count).to be == 1
   end
 
+  it "declares site_nets as an interval set and accepts those addrs before the spoke drop" do
+    make_site(@db, name: "unifi", networks: ["192.168.1.0/24"])
+    out = Naaf::Renderers::Nftables.render(@db)
+    set = out[/set site_nets.*?\}/m]
+    expect(set).to be(:include?, "flags interval")
+    expect(set).to be(:include?, "192.168.1.0/24")
+    daddr = %(iifname "wg0" oifname "wg0" ip daddr @site_nets accept)
+    saddr = %(iifname "wg0" oifname "wg0" ip saddr @site_nets accept)
+    drop = %(iifname "wg0" oifname "wg0" counter drop)
+    expect(out).to be(:include?, daddr)
+    expect(out).to be(:include?, saddr)
+    expect(out.index(daddr) < out.index(drop)).to be == true
+    expect(out.index(saddr) < out.index(drop)).to be == true
+    expect(out).to be(:include?, "policy accept;")
+    expect(out.include?("policy drop")).to be == false
+  end
+
+  it "omits site_nets elements when there are no sites" do
+    out = Naaf::Renderers::Nftables.render(@db)
+    set = out[/set site_nets.*?\}/m]
+    expect(set.include?("elements = {")).to be == false
+    expect(out.include?("snat to")).to be == false
+  end
+
+  it "emits snat to the site address only when masquerade is on" do
+    make_site(@db, name: "unifi", address: "192.168.2.2", masquerade: true,
+      networks: ["192.168.1.0/24"])
+    out = Naaf::Renderers::Nftables.render(@db)
+    expect(out).to be(:include?,
+      %(ip saddr 10.8.0.0/24 ip daddr 192.168.1.0/24 oifname "wg0" snat to 192.168.2.2))
+  end
+
+  it "masquerades without snat when masquerade is on and no address is set" do
+    make_site(@db, name: "unifi", masquerade: true, networks: ["192.168.1.0/24"])
+    out = Naaf::Renderers::Nftables.render(@db)
+    expect(out).to be(:include?,
+      %(ip saddr 10.8.0.0/24 ip daddr 192.168.1.0/24 oifname "wg0" masquerade))
+    expect(out.include?("snat to")).to be == false
+  end
+
+  it "does not NAT a site that has masquerade off" do
+    make_site(@db, name: "unifi", address: "192.168.2.2", masquerade: false,
+      networks: ["192.168.1.0/24"])
+    out = Naaf::Renderers::Nftables.render(@db)
+    expect(out.include?("snat to")).to be == false
+    expect(out.scan("masquerade").length).to be == 2 # WAN + hairpin only
+  end
+
+  it "merges overlapping site CIDRs so the interval set cannot reject them" do
+    make_site(@db, name: "a", networks: ["192.168.1.0/24"])
+    # UI refuses this; the renderer must still emit a valid set.
+    @db[:site_networks].insert(site_id: @db[:sites].where(name: "a").get(:id),
+      cidr: "192.168.1.0/25")
+    set = Naaf::Renderers::Nftables.render(@db)[/set site_nets.*?\}/m]
+    expect(set).to be(:include?, "192.168.1.0/24")
+    expect(set.include?("192.168.1.0/25")).to be == false
+  end
+
+  it "merges overlapping masquerade dests so the anonymous set cannot reject them" do
+    make_site(@db, name: "a", masquerade: true, networks: ["192.168.1.0/24"])
+    @db[:site_networks].insert(site_id: @db[:sites].where(name: "a").get(:id),
+      cidr: "192.168.1.0/25")
+    out = Naaf::Renderers::Nftables.render(@db)
+    expect(out).to be(:include?,
+      %(ip saddr 10.8.0.0/24 ip daddr 192.168.1.0/24 oifname "wg0" masquerade))
+    expect(out.include?("192.168.1.0/25")).to be == false
+  end
+
   it "emits DNAT only for enabled forwards, plus the hairpin masquerade" do
     nas = make_client(@db, name: "nas", wg_ip: "10.8.0.3")
     @db[:port_forwards].insert(client_id: nas, public_port: 2222, proto: "tcp", target_port: 22, enabled: true)

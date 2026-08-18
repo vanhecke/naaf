@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../ipam"
+
 module Naaf
   module Renderers
     module Nftables
@@ -11,6 +13,7 @@ module Naaf
 
         enabled = db[:clients].where(enabled: true).to_a
         by_id = enabled.to_h { |c| [c[:id], c] }
+        site_nets, site_nat = site_forwarding(db, wg, net)
 
         tcp_allow = []
         udp_allow = []
@@ -48,6 +51,12 @@ module Naaf
               #{elements(udp_allow)}
             }
 
+            set site_nets {
+              type ipv4_addr
+              flags interval
+              #{elements(site_nets)}
+            }
+
             chain forward {
               type filter hook forward priority filter; policy accept;
 
@@ -56,6 +65,9 @@ module Naaf
               iifname "#{wg}" oifname "#{wg}" icmp type echo-request accept
               iifname "#{wg}" oifname "#{wg}" ip daddr . tcp dport @vpn_tcp_allow accept
               iifname "#{wg}" oifname "#{wg}" ip daddr . udp dport @vpn_udp_allow accept
+              # site LANs ride the same interface; accept them before the drop
+              iifname "#{wg}" oifname "#{wg}" ip daddr @site_nets accept
+              iifname "#{wg}" oifname "#{wg}" ip saddr @site_nets accept
               iifname "#{wg}" oifname "#{wg}" counter drop
 
               # --- inbound DNAT traffic from the public side ---
@@ -77,9 +89,31 @@ module Naaf
               # DNAT hairpin: make the client reply via the hub, not its own
               # default route (critical for split-tunnel clients)
               oifname "#{wg}" ct status dnat masquerade
+          #{site_nat}
             }
           }
         NFT
+      end
+
+      # Enabled sites' CIDRs (merged so the interval set cannot reject them)
+      # and optional SNAT lines for sites that cannot put wg_subnet in the
+      # remote AllowedIPs. One rule per masquerading site.
+      def self.site_forwarding(db, wg, net)
+        cidrs = []
+        nat = []
+        db[:sites].where(enabled: true).order(:name).each do |site|
+          nets = db[:site_networks].where(site_id: site[:id]).order(:cidr).select_map(:cidr)
+          cidrs.concat(nets)
+          next unless site[:masquerade] && nets.any?
+          merged = IPAM.merge_v4_cidrs(nets)
+          dest = (merged.size == 1) ? merged.first : "{ #{merged.join(", ")} }"
+          nat << if site[:address]
+            "    ip saddr #{net} ip daddr #{dest} oifname \"#{wg}\" snat to #{site[:address]}"
+          else
+            "    ip saddr #{net} ip daddr #{dest} oifname \"#{wg}\" masquerade"
+          end
+        end
+        [IPAM.merge_v4_cidrs(cidrs), nat.join("\n")]
       end
 
       # Collapse [ip, first, last] triples into sorted nft set elements, merging

@@ -278,6 +278,111 @@ module Naaf
       raise ValidationError, "Route must be a valid CIDR, e.g. 192.168.0.0/24."
     end
 
+    # WireGuard keys are 32 bytes, base64 with the last digit restricted to
+    # the 2 leftover bits. The same shape as a client pubkey / PSK.
+    WG_KEY = /\A[A-Za-z0-9+\/]{42}[AEIMQUYcgkosw048]=\z/
+    def param_wg_key(raw, label: "Public key")
+      s = raw.to_s.strip
+      raise ValidationError, "#{label} is required." if s.empty?
+      unless WG_KEY.match?(s)
+        raise ValidationError, "#{label} must be a WireGuard key (44-character base64)."
+      end
+      s
+    end
+
+    def optional_wg_key(raw, label: "Preshared key")
+      s = raw.to_s.strip
+      return nil if s.empty?
+      param_wg_key(s, label: label)
+    end
+
+    def param_keepalive(raw)
+      return 25 if raw.to_s.strip.empty?
+      n = Integer(raw.to_s, exception: false)
+      unless n && (1..65535).cover?(n)
+        raise ValidationError, "Keepalive must be between 1 and 65535 seconds."
+      end
+      n
+    end
+
+    def param_bool(raw)
+      %w[1 true on yes].include?(raw.to_s.strip.downcase)
+    end
+
+    # Hostname or IPv4 plus a port. IPv6 is refused: site AllowedIPs and the
+    # nftables path are IPv4 in v1, and a v6 literal's colons fight host:port.
+    def param_site_endpoint(host_raw, port_raw)
+      host = host_raw.to_s.strip
+      raise ValidationError, "Endpoint host is required." if host.empty?
+      if host.include?(":")
+        raise ValidationError, "Endpoint host must be a hostname or IPv4 address."
+      end
+      begin
+        ip = IPAddr.new(host)
+        raise ValidationError, "Endpoint host must be an IPv4 address or hostname." unless ip.ipv4?
+        host = ip.to_s
+      rescue IPAddr::InvalidAddressError, IPAddr::AddressFamilyError
+        unless HOSTNAME.match?(host.downcase)
+          raise ValidationError, "Endpoint host must be a valid hostname."
+        end
+        host = host.downcase
+      end
+      "#{host}:#{param_port(port_raw)}"
+    end
+
+    def param_site_address(raw)
+      s = raw.to_s.strip
+      return nil if s.empty?
+      ip = param_ipv4(s)
+      if IPAM.parse_v4(Naaf.settings[:wg_subnet])&.include?(IPAddr.new(ip))
+        raise ValidationError, "Site address must not be inside the VPN subnet."
+      end
+      ip
+    end
+
+    # Site CIDRs are IPv4, never a default route, never overlapping the VPN
+    # subnet or another site, and must not contain the remote endpoint (that
+    # would route the handshake into the tunnel).
+    def param_site_cidr(raw, endpoint:)
+      cidr = param_cidr(raw)
+      ip = IPAM.parse_v4(cidr)
+      raise ValidationError, "Site networks must be IPv4 CIDRs." unless ip
+      if ip.prefix.zero?
+        raise ValidationError, "A default route cannot be a site network — it would steal WAN egress."
+      end
+      if IPAM.overlap?(cidr, Naaf.settings[:wg_subnet])
+        raise ValidationError, "Site network #{cidr} overlaps the VPN subnet."
+      end
+      ep_host = endpoint.to_s.split(":", 2).first
+      ep = IPAM.parse_v4(ep_host)
+      if ep && ip.include?(ep)
+        raise ValidationError,
+          "Site network #{cidr} contains the remote endpoint, so the handshake would route into the tunnel."
+      end
+      # This box's own public address, when we know it. The helper also
+      # refuses a dest that covers the live default gateway or a non-wg
+      # local IP — the form cannot see those.
+      hub = IPAM.parse_v4(Naaf.settings[:endpoint_v4])
+      if hub && ip.include?(hub)
+        raise ValidationError,
+          "Site network #{cidr} contains this box's endpoint address, which would steal WAN reachability."
+      end
+      clash = Naaf.db[:site_networks].all.find { |row| IPAM.overlap?(cidr, row[:cidr]) }
+      if clash
+        raise ValidationError, "Site network #{cidr} overlaps #{clash[:cidr]}, which is already routed to a site."
+      end
+      cidr
+    end
+
+    def assert_unused_pubkey!(key)
+      if Naaf.db[:clients].where(pubkey: key).count > 0
+        raise ValidationError, "That public key already belongs to a client."
+      end
+      if Naaf.db[:sites].where(pubkey: key).count > 0
+        raise ValidationError, "That public key already belongs to a site."
+      end
+    end
+
     # A client selector that may be left blank to mean "global" (client_id NULL).
     def optional_client(raw)
       return nil if raw.to_s.strip.empty?
@@ -662,6 +767,67 @@ module Naaf
         r.on Integer do |id|
           r.post "delete" do
             submit("/dns-records") { Naaf.db[:dns_records].where(id: id).delete }
+          end
+        end
+      end
+
+      r.on "sites" do
+        r.get true do
+          @sites = Naaf.db[:sites].order(:name).all
+          @networks = Naaf.db[:site_networks].order(:cidr).all.group_by { |n| n[:site_id] }
+          @settings = Naaf.settings
+          view("sites")
+        end
+
+        r.post true do
+          submit("/sites") do
+            endpoint = param_site_endpoint(r.params["endpoint_host"], r.params["endpoint_port"])
+            pubkey = param_wg_key(r.params["pubkey"])
+            assert_unused_pubkey!(pubkey)
+            cidr = param_site_cidr(r.params["cidr"], endpoint: endpoint)
+            id = Naaf.db[:sites].insert(
+              name: param_label(r.params["name"]),
+              pubkey: pubkey,
+              psk: optional_wg_key(r.params["psk"]),
+              endpoint: endpoint,
+              keepalive: param_keepalive(r.params["keepalive"]),
+              address: param_site_address(r.params["address"]),
+              masquerade: param_bool(r.params["masquerade"]),
+              notes: presence(r.params["notes"]),
+              created_at: Time.now
+            )
+            Naaf.db[:site_networks].insert(site_id: id, cidr: cidr)
+          end
+        end
+
+        r.on Integer do |id|
+          site = Naaf.db[:sites][id: id] || r.halt(404)
+
+          r.post "toggle" do
+            submit("/sites") { Naaf.db[:sites].where(id: id).update(enabled: !site[:enabled]) }
+          end
+
+          r.post "delete" do
+            submit("/sites") { Naaf.db[:sites].where(id: id).delete }
+          end
+
+          r.post "networks" do
+            submit("/sites") do
+              Naaf.db[:site_networks].insert(
+                site_id: id,
+                cidr: param_site_cidr(r.params["cidr"], endpoint: site[:endpoint])
+              )
+            end
+          end
+
+          r.on "networks" do
+            r.on Integer do |nid|
+              r.post "delete" do
+                submit("/sites") do
+                  Naaf.db[:site_networks].where(id: nid, site_id: id).delete
+                end
+              end
+            end
           end
         end
       end

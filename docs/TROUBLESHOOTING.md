@@ -346,6 +346,76 @@ than letting the two configs overwrite each other's pidfile.
 
 ---
 
+## 1b. Playbook: a site LAN is unreachable
+
+Laptop stays on Naaf; Naaf is supposed to reach a remote WireGuard server
+(UniFi, another hub) and forward `192.168.1.0/24` (or whatever the site lists).
+The laptop must **not** have that remote's client config up — that is what this
+feature replaces.
+
+Work the path in order.
+
+**1. Is the site a live peer?**
+```bash
+sudo wg show wg0                 # remote pubkey, endpoint, handshake, transfer
+sudo sqlite3 /var/lib/naaf/naaf.db \
+  'select name,enabled,endpoint,substr(pubkey,1,12) from sites;'
+```
+No peer → the site is disabled, has no networks, or apply did not run. Peer
+present, no handshake → Naaf cannot reach the remote listen address (WAN
+firewall, wrong endpoint, remote has not added *this* box's
+`settings.server_pubkey` as a client).
+
+**2. Does the kernel send that dest into `wg0`?**
+```bash
+ip -4 route show proto 158       # one line per site CIDR, `dev wg0`
+ip route get 192.168.1.50        # must come back `dev wg0`, not the WAN default
+```
+`wg syncconf` never installs routes. Missing proto-158 lines mean the helper
+on the box is older than the app, or apply refused the dest (a site CIDR that
+covers the default gateway or a non-wg local address would steal SSH — the
+helper raises and leaves the connected route alone). Redeploy so both units
+update together.
+
+**3. Is spoke-to-spoke dropping it?**
+```bash
+sudo nft list table inet naaf
+# set site_nets should contain the LAN
+# `ip daddr @site_nets accept` / `ip saddr @site_nets accept` sit ABOVE
+# `iifname "wg0" oifname "wg0" counter drop`
+```
+A packet laptop → Proxmox is `iif wg0 oif wg0`. Without those accepts it
+hits the spoke drop.
+
+**4. Will the remote accept the source address?**
+On the remote peer for this box, `AllowedIPs` must include `wg_subnet`
+(typically `10.8.0.0/24`). The stock UniFi client AllowedIPs is only the
+assigned `/32`, which drops every packet from a laptop. Either widen it, or
+turn **Masquerade** on for the site (then Proxmox sees Naaf's assigned
+address and cannot initiate back).
+
+**5. Did a site CIDR capture the transport?**
+A site network that contains the remote endpoint (or, on a `split-ws`
+client, a site CIDR that covers Naaf's own public address) routes the
+handshake into the tunnel. The form refuses an IPv4 endpoint inside a site
+CIDR; a hostname cannot be checked. Same journal lines as §1a.C:
+
+```bash
+journalctl -u naaf | grep AllowedIPs
+```
+
+**6. Split-tunnel client `AllowedIPs`**
+Site CIDRs are folded into every split config automatically. Re-download
+the client config after adding the site; an old file will not route the LAN
+to Naaf. Full-tunnel clients already send everything.
+
+```bash
+# on the laptop
+ip route get 192.168.1.50        # must be dev <naaf wg>
+```
+
+---
+
 ## 2. In-box reproduction: a real client without touching the server firewall
 
 The most reliable end-to-end test — a genuine WireGuard client in a netns, which

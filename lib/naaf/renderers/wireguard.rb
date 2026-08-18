@@ -22,6 +22,21 @@ module Naaf
           out << "PresharedKey = #{c[:psk]}\n"
           out << "AllowedIPs = #{c[:wg_ip]}/32\n"
         end
+
+        # A site is a remote WireGuard server we dial. AllowedIPs are the
+        # remote LANs (cryptokey routing), not a /32 on wg_subnet. A peer
+        # with no networks is omitted: WireGuard refuses an empty AllowedIPs.
+        db[:sites].where(enabled: true).order(:name).each do |site|
+          cidrs = db[:site_networks].where(site_id: site[:id]).order(:cidr).select_map(:cidr)
+          next if cidrs.empty?
+          out << "\n[Peer]\n"
+          out << "# #{site[:name]} (site)\n"
+          out << "PublicKey = #{site[:pubkey]}\n"
+          out << "PresharedKey = #{site[:psk]}\n" if site[:psk]
+          out << "AllowedIPs = #{cidrs.join(", ")}\n"
+          out << "Endpoint = #{site[:endpoint]}\n"
+          out << "PersistentKeepalive = #{site[:keepalive]}\n"
+        end
         out
       end
     end

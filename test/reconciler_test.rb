@@ -198,4 +198,53 @@ describe Naaf::Reconciler do
     r.poll!
     expect(helper.applies).to be == 1
   end
+
+  it "poll! treats an enabled site pubkey as expected and does not re-apply" do
+    make_site(@db, name: "unifi", pubkey: "SITEPUB", networks: ["192.168.1.0/24"])
+    helper = FakeHelper.new(dump_for("SITEPUB", handshake: 1_700_000_000, rx: 7, tx: 9))
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.poll!
+    site = @db[:sites][pubkey: "SITEPUB"]
+    expect(site[:rx_bytes]).to be == 7
+    expect(site[:tx_bytes]).to be == 9
+    expect(site[:last_handshake_at].nil?).to be == false
+    expect(site[:observed_endpoint]).to be == "1.2.3.4:51820"
+    expect(site[:endpoint]).to be == "203.0.113.9:51820" # configured dest stays
+    expect(helper.applies).to be == 0
+  end
+
+  it "poll! issues no UPDATE when a site's counters have not moved" do
+    make_site(@db, name: "unifi", pubkey: "SITEPUB", networks: ["192.168.1.0/24"])
+    helper = FakeHelper.new(dump_for("SITEPUB", handshake: 1_700_000_000, rx: 7, tx: 9))
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.poll!
+    expect(sql_during { r.poll! }.grep(/UPDATE/)).to be(:empty?)
+  end
+
+  it "poll! does not treat an enabled site with no networks as a missing peer" do
+    make_site(@db, name: "empty", pubkey: "SITEPUB", networks: [])
+    helper = FakeHelper.new("SRVPRIV\tSRVPUB\t51820\toff\n")
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.poll!
+    expect(helper.applies).to be == 0
+  end
+
+  it "poll! re-applies when a site peer is missing from the kernel" do
+    make_site(@db, name: "unifi", pubkey: "SITEPUB", networks: ["192.168.1.0/24"])
+    helper = FakeHelper.new(dump_for("OTHER", handshake: 0))
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.poll!
+    expect(helper.applies).to be == 1
+  end
+
+  it "poll! publishes site rates alongside client rates" do
+    make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB")
+    make_site(@db, name: "unifi", pubkey: "SITEPUB", networks: ["192.168.1.0/24"])
+    dump = dump_for("PEERPUB", handshake: 1, rx: 10, tx: 10) +
+      dump_for("SITEPUB", handshake: 1, rx: 20, tx: 20).lines.drop(1).join
+    peers = Naaf::Metrics::PeerStats.new
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: FakeHelper.new(dump), peers: peers)
+    r.poll!
+    expect(peers.sample.keys.to_set).to be == %w[PEERPUB SITEPUB].to_set
+  end
 end

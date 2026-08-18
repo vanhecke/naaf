@@ -3,6 +3,7 @@
 require_relative "helper_client"
 require_relative "renderers/wireguard"
 require_relative "renderers/nftables"
+require_relative "renderers/routes"
 require_relative "metrics/peer_stats"
 
 module Naaf
@@ -53,10 +54,14 @@ module Naaf
     def apply!
       wg = Renderers::WireGuard.render(@db)
       nft = Renderers::Nftables.render(@db)
-      @helper.apply(wg_conf: wg, nft_ruleset: nft)
+      extra = Renderers::Routes.desired(@db)
+      @helper.apply(wg_conf: wg, nft_ruleset: nft,
+        routes: extra[:routes], addresses: extra[:addresses])
       @zone.reload!
       @last_apply_at = Time.now
-      Console.info(self, "applied", peers: @db[:clients].where(enabled: true).count)
+      Console.info(self, "applied",
+        peers: @db[:clients].where(enabled: true).count,
+        sites: @db[:sites].where(enabled: true).count)
       true
     end
 
@@ -77,27 +82,19 @@ module Naaf
       # instead of one per client — this runs on the shared reactor, and the
       # sqlite3 driver never releases the GVL, so every commit here freezes the
       # web server and the DNS server along with it.
-      rows = @db[:clients].all
+      # Sites share the dump with clients (same wg0) and must be written in
+      # the same transaction so one poll is one fsync. The configured
+      # `endpoint` on a site is what we dial; the kernel's view lands in
+      # `observed_endpoint` and must not overwrite it.
+      client_rows = @db[:clients].all
+      site_rows = @db[:sites].all
       measured = {}
       @db.transaction do
-        rows.each do |c|
-          peer = live[c[:pubkey]] or next
-          attrs = {
-            last_handshake_at: (peer[:handshake].zero? ? nil : Time.at(peer[:handshake])),
-            endpoint: peer[:endpoint],
-            rx_bytes: peer[:rx],
-            tx_bytes: peer[:tx]
-          }
-          # The stored row still holds the previous counters here, which is what
-          # makes this the one place a per-peer rate can be computed at all.
-          measured[c[:pubkey]] = Metrics::PeerStats.entry(
-            previous_rx: c[:rx_bytes], previous_tx: c[:tx_bytes],
-            rx: peer[:rx], tx: peer[:tx],
-            handshake: peer[:handshake], endpoint: peer[:endpoint],
-            interval: interval
-          )
-          next if unchanged?(c, attrs, peer[:handshake])
-          @db[:clients].where(id: c[:id]).update(attrs)
+        client_rows.each do |c|
+          record_peer!(@db[:clients], c, live, measured, interval, :endpoint)
+        end
+        site_rows.each do |s|
+          record_peer!(@db[:sites], s, live, measured, interval, :observed_endpoint)
         end
       end
 
@@ -106,18 +103,46 @@ module Naaf
       @last_poll_at = now
       @last_error = nil
 
-      expected = @db[:clients].where(enabled: true).select_map(:pubkey).to_set
+      # A site with no networks is not a kernel peer (the renderer omits it —
+      # WireGuard refuses empty AllowedIPs). Counting it here would make
+      # every poll see drift and apply! forever.
+      expected = (
+        @db[:clients].where(enabled: true).select_map(:pubkey) +
+        @db[:sites].where(enabled: true)
+          .where(id: @db[:site_networks].select(:site_id))
+          .select_map(:pubkey)
+      ).to_set
       apply! if expected != live.keys.to_set
     end
 
     private
+
+    def record_peer!(dataset, row, live, measured, interval, endpoint_key)
+      peer = live[row[:pubkey]] or return
+      attrs = {
+        :last_handshake_at => (peer[:handshake].zero? ? nil : Time.at(peer[:handshake])),
+        endpoint_key => peer[:endpoint],
+        :rx_bytes => peer[:rx],
+        :tx_bytes => peer[:tx]
+      }
+      # The stored row still holds the previous counters here, which is what
+      # makes this the one place a per-peer rate can be computed at all.
+      measured[row[:pubkey]] = Metrics::PeerStats.entry(
+        previous_rx: row[:rx_bytes], previous_tx: row[:tx_bytes],
+        rx: peer[:rx], tx: peer[:tx],
+        handshake: peer[:handshake], endpoint: peer[:endpoint],
+        interval: interval
+      )
+      return if unchanged?(row, attrs, peer[:handshake], endpoint_key)
+      dataset.where(id: row[:id]).update(attrs)
+    end
 
     # An idle peer reports the same counters every poll, and rewriting a row to
     # the same values still costs a WAL frame that Litestream then replicates.
     # Compare the handshake as an epoch integer rather than as a Time: the
     # column round-trips through SQLite at second precision, so the objects
     # differ even when the instant does not.
-    def unchanged?(row, attrs, handshake)
+    def unchanged?(row, attrs, handshake, endpoint_key)
       stored = row[:last_handshake_at]
       # `wg` reports 0 for a peer that has never handshaked and we store NULL,
       # so both sides normalize to 0. Written out rather than chained off a safe
@@ -126,7 +151,7 @@ module Naaf
       stored_epoch = stored ? stored.to_time.to_i : 0
       row[:rx_bytes] == attrs[:rx_bytes] &&
         row[:tx_bytes] == attrs[:tx_bytes] &&
-        row[:endpoint] == attrs[:endpoint] &&
+        row[endpoint_key] == attrs[endpoint_key] &&
         stored_epoch == handshake
     end
 
