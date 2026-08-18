@@ -167,6 +167,42 @@ journalctl -u naaf-wstunnel -n 100 --no-pager
   reconciling it, so flipping the flag on an existing box leaves Vultr dropping
   tcp/443 while the host happily accepts it.
 
+**Test from off the VPN, or you will get a false pass.** This has bitten:
+if the machine you test from is connected to this very VPN, its packets reach
+:443 over `wg0` and are accepted by `iifname "wg0" accept` — never touching the
+public path at all. `route get <endpoint-ip>` showing a `utun`/`wg` interface
+means the test proves nothing. Bind the physical interface, and check a
+known-good host first so you know the binding itself works:
+
+```bash
+curl --interface en0 --max-time 8 https://github.com/ -o /dev/null   # control
+nc -z -G 6 -s <your-lan-ip> <endpoint-ip> 443
+```
+
+**The decisive one-line diagnostic** is the drop counter on the host:
+
+```bash
+sudo nft list chain inet filter input | tail -1     # -> counter packets N bytes M drop
+```
+
+If N is **0** while a client is actively retrying, the packets are not arriving —
+the block is upstream of the box, not on it. (A host-level block would show the
+counter climbing; a *reject* would give the client `connection refused` rather
+than a timeout.)
+
+On Vultr, do **not** trust `vultr-cli firewall group list` — its INSTANCE COUNT
+and RULE COUNT columns have been observed reading 0 for a group that is attached
+and has rules. The authoritative field is on the instance:
+
+```bash
+vultr-cli instance get <id> | grep -i firewall     # FIREWALL GROUP ID
+vultr-cli firewall rule list <group-id>            # the rules that actually apply
+vultr-cli firewall rule create <group-id> --ip-type v4 --protocol tcp \
+  --size 0 --subnet 0.0.0.0 --port 443 --notes "wstunnel v4"
+```
+
+The rule takes about 15 seconds to apply at the edge.
+
 Then prove TLS answers, from a machine that is not the box:
 
 ```bash

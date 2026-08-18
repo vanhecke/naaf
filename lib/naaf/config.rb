@@ -108,6 +108,13 @@ module Naaf
       # auto | on | off. auto verifies when ACME is on and no SNI override is
       # set, i.e. exactly when the dialed name and the served certificate agree.
       "NAAF_WSTUNNEL_TLS_VERIFY" => "auto",
+      # Breaks the DNS deadlock: the ws flavors point DNS at the tunnel's own
+      # resolver, but wstunnel must resolve the endpoint BEFORE that tunnel can
+      # exist. Set it to "off" to omit the flag (NOT blank — blank means "unset"
+      # and falls through to this default). It sends udp/53 to a public resolver,
+      # which the networks these flavors target may block; there, use a
+      # split-ws-nodns config, which never repoints DNS at all.
+      "NAAF_WSTUNNEL_DNS_RESOLVER" => "dns://1.1.1.1",
 
       # certificates — a general-purpose store owned by 60-certs.sh. Not
       # namespaced under wstunnel: wstunnel is its first consumer, not its owner,

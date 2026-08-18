@@ -73,6 +73,12 @@ module Naaf
     WS_SAFE_HOST = /\A(?=.{1,253}\z)[a-z0-9](-*[a-z0-9])*(\.[a-z0-9](-*[a-z0-9])*)*\z/i
     WS_SAFE_SNI = /\A(?=.{1,253}\z)[a-z0-9](-*[a-z0-9])*(\.[a-z0-9](-*[a-z0-9])*)*\z/i
     WS_SAFE_PREFIX = /\A[A-Za-z0-9][A-Za-z0-9._~-]{0,127}\z/ # RFC 3986 unreserved
+
+    # wstunnel takes a URL-ish resolver spec (dns://1.1.1.1, dns+https://…).
+    # Deliberately narrow: scheme, host, optional port and path. Same reasoning as
+    # the classes above — this lands in an unquoted argv word inside a command
+    # wg-quick runs as root, so it admits nothing sh would look at twice.
+    WS_SAFE_RESOLVER = %r{\A(dns|dns\+https|dns\+tls)://[A-Za-z0-9._~:\[\]-]{1,253}(/[A-Za-z0-9._~/-]{0,64})?\z}
     WS_PORT_RANGE = (1..65535)
 
     class << self
@@ -321,6 +327,25 @@ module Naaf
       argv = ["nohup", "wstunnel", "client", "-P", prefix]
       argv << "--tls-verify-certificate" if verify
       argv.push("--tls-sni-override", sni) if sni
+      # --dns-resolver breaks a DEADLOCK. Without it these flavors cannot come up
+      # on a machine that has never had the tunnel before.
+      #
+      # The .conf sets `DNS = <server_ip>`, the resolver INSIDE the tunnel.
+      # wg-quick runs this hook before set_dns, so wstunnel starts while the old
+      # resolver is still in place — but it connects LAZILY, on the first datagram
+      # WireGuard sends, and by then set_dns has repointed DNS into a tunnel that
+      # cannot come up until wstunnel resolves the endpoint. The transport waits
+      # on DNS, DNS waits on the transport. Seen in production: the client sits in
+      # `Opening TCP connection to <host>:443` on an exponential backoff and never
+      # reaches the TLS handshake.
+      #
+      # Pinning a resolver reachable WITHOUT the tunnel is what cuts the loop.
+      # Blank NAAF_WSTUNNEL_DNS_RESOLVER to omit the flag: it sends udp/53 to a
+      # public resolver, and the restrictive networks these flavors exist for are
+      # exactly the ones that may block that. There, use split-ws-nodns — it never
+      # repoints DNS, so the deadlock cannot form in the first place.
+      resolver = ws_dns_resolver
+      argv.push("--dns-resolver", resolver) if resolver
       # The local bind address is PINNED. Never the short `udp://51820:...` form:
       # wstunnel's default bind for it was never established, and if it is
       # 0.0.0.0 then every laptop running this flavor becomes an open UDP relay
@@ -437,6 +462,25 @@ module Naaf
       when "auto" then Config.bool("NAAF_ACME_ENABLED") && sni.nil?
       else raise ArgumentError, "NAAF_WSTUNNEL_TLS_VERIFY must be auto, on or off"
       end
+    end
+
+    # The resolver wstunnel uses to look up the endpoint, or nil to leave it on
+    # the system resolver. Validated like every other value that reaches the hook:
+    # Config[] prefers ENV, so an unvalidated value here would be one
+    # naaf.service environment away from root execution on every client.
+    #
+    # Its own key rather than settings.dns_upstream: that is the resolver the HUB
+    # uses and is legitimately a private address on setups running an internal
+    # resolver, which would point clients at something they cannot reach.
+    # "off" is the opt-out, NOT an empty value. Config#[] treats empty as "unset"
+    # and falls through to DEFAULTS, so a blank key here would silently keep
+    # emitting dns://1.1.1.1 — an escape hatch that looks set but does nothing.
+    # Same vocabulary as NAAF_WSTUNNEL_TLS_VERIFY=off.
+    def ws_dns_resolver
+      raw = Config["NAAF_WSTUNNEL_DNS_RESOLVER"].to_s
+      return nil if raw.empty? || raw.casecmp?("off")
+      raise ArgumentError, "NAAF_WSTUNNEL_DNS_RESOLVER is malformed" unless WS_SAFE_RESOLVER.match?(raw)
+      raw
     end
 
     # A port is the one field here with no legitimate non-numeric form, so

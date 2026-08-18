@@ -168,6 +168,16 @@ instead of leaving you with an interface that never handshakes.
 The ws flavors emit `PreUp` and `PostDown` in `[Interface]`, and that makes them
 importable by `wg-quick(8)` and by nothing else.
 
+If you try anyway, the app says:
+
+```
+Interface contains unrecognized key 'PreUp'
+```
+
+That is expected, not a bug — you have put a wg-quick config into an app that
+cannot run it. Use `sudo wg-quick up ./name-ws.conf` instead, or plain `split` if
+you need the GUI.
+
 `wireguard-apple`'s parser allows exactly `privatekey`, `listenport`, `address`,
 `dns` and `mtu` in `[Interface]` and **throws** `interfaceHasUnrecognizedKey` for
 anything else; wireguard-android does the same. `PreUp` is one. So the iOS and
@@ -175,6 +185,26 @@ Android apps do not ignore these lines, they reject the whole file — which is 
 `GET /clients/:id/qr/split-ws` returns **404 even when the transport is enabled**,
 and why the QR button on `/clients` stays where it was, outside the flavor loop
 and always pointing at plain `split`.
+
+On macOS the CLI is a separate install from the App Store app
+(`brew install wireguard-tools wstunnel`), and wg-quick runs hooks **as root**, so
+the check that matters is `sudo wstunnel --version` — not `wstunnel --version`.
+Homebrew's `/opt/homebrew/bin` is not on root's default `PATH`; if the sudo form
+fails, `sudo ln -s /opt/homebrew/bin/wstunnel /usr/local/bin/wstunnel`.
+
+If you would rather run the relay yourself — which also means it runs
+**unprivileged**, instead of as root under wg-quick — strip the hooks and start
+wstunnel by hand. The resulting file has no unrecognized keys, so the GUI app
+takes it:
+
+```bash
+CONF=~/Downloads/name-ws.conf
+grep '^PreUp = umask' "$CONF" | sed -E 's/^PreUp = umask [0-9]+; nohup //; s/ >\/var\/log.*$//'
+grep -vE '^(PreUp|PostDown) = ' "$CONF" > ~/Downloads/name-ws-bare.conf
+```
+
+Run the printed command, then import the `-bare` file. WireGuard still needs root
+for the interface — the GUI just asks on your behalf via its privileged helper.
 
 If you want a phone on this transport, the answer is a laptop or a router running
 wg-quick, not a workaround.
@@ -207,6 +237,43 @@ PersistentKeepalive = 25
 ```
 
 `split-ws-nodns` is the same file without the `DNS =` line.
+
+### Why `--dns-resolver` is in there
+
+It breaks a deadlock, and without it these flavors cannot come up on a machine
+that has never had the tunnel before.
+
+The config sets `DNS = 10.8.0.1` — the resolver **inside** the tunnel. wg-quick
+runs the hooks before `set_dns`, so wstunnel starts while your normal resolver is
+still in place, but it connects **lazily**: nothing happens until WireGuard sends
+its first datagram, and by then `set_dns` has repointed DNS into a tunnel that
+cannot come up until wstunnel resolves the endpoint. The transport waits on DNS,
+DNS waits on the transport.
+
+It looks like this, and it will retry until you stop it:
+
+```
+INFO wstunnel::protocols::udp::server: New UDP connection from 127.0.0.1:55577
+INFO wstunnel::protocols::tcp::server: Opening TCP connection to sg.joris.be:443
+INFO wstunnel::protocols::tcp::server: Opening TCP connection to sg.joris.be:443
+INFO wstunnel::protocols::tcp::server: Opening TCP connection to sg.joris.be:443
+```
+
+Note it never reaches `Doing TLS handshake` — the TCP connection itself is
+failing. (If you see the same backoff but DNS is fine, the port is probably not
+reachable at all; see §7.)
+
+`NAAF_WSTUNNEL_DNS_RESOLVER` pins a resolver that is reachable **without** the
+tunnel, which cuts the loop. Default `dns://1.1.1.1`.
+
+Set it to **`off`** to omit the flag — not blank. An empty value means "unset" to
+`lib/naaf/config.rb` and falls through to the default, so blanking it looks like
+an opt-out and silently isn't.
+
+The reason you might want it off: this sends DNS over udp/53 to a public
+resolver, and the restrictive networks these flavors exist for are exactly the
+ones that may block that. On such a network use **`split-ws-nodns`** instead — it
+never repoints DNS, so the deadlock cannot form and no override is needed.
 
 Three hooks, and each one is there for a reason:
 

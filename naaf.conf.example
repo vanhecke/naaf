@@ -192,6 +192,14 @@ NAAF_WSTUNNEL_SNI=
 # real certificate for the cover name. `off` never verifies.
 NAAF_WSTUNNEL_TLS_VERIFY=auto
 
+# The resolver wstunnel uses to look up the endpoint. Load-bearing: the ws
+# flavors set DNS to the tunnel's own resolver, and wstunnel must resolve the
+# endpoint before that tunnel exists — without this the two wait on each other
+# and the tunnel never comes up. Set it to "off" to omit the flag — not blank,
+# which means "unset" and falls through to the default (then use a
+# split-ws-nodns config, which never repoints DNS at all).
+NAAF_WSTUNNEL_DNS_RESOLVER=dns://1.1.1.1
+
 # ────────────────────────────────────────────────────────────── certificates
 # A general-purpose certificate store, owned by deploy/provision/60-certs.sh.
 # wstunnel is its first consumer, not its owner: consumers register themselves

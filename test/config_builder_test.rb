@@ -17,6 +17,11 @@ describe Naaf::ConfigBuilder do
     @client = @db[:clients][id: id]
   end
 
+  # The second PreUp — the one that actually starts the relay.
+  def hook_of(conf)
+    conf.lines.grep(/^PreUp = umask/).first.to_s.chomp
+  end
+
   def build(flavor, **opts)
     Naaf::ConfigBuilder.new(@db, @client).render(flavor, **opts)
   end
@@ -516,6 +521,53 @@ describe Naaf::ConfigBuilder do
     Naaf::ConfigBuilder::FLAVORS.each do |flavor|
       path = File.expand_path("../views/conf_#{flavor.tr("-", "_")}.erb", __dir__)
       expect(File.file?(path)).to be == true
+    end
+  end
+
+  # The DNS deadlock. The ws flavors point DNS at the tunnel's own resolver, and
+  # wstunnel resolves the endpoint lazily — on the first datagram, by which time
+  # wg-quick's set_dns has already repointed DNS into a tunnel that cannot come
+  # up until wstunnel connects. Observed in production before this flag existed:
+  # the client sat in "Opening TCP connection" on a backoff and never handshook.
+  it "pins a resolver reachable without the tunnel, breaking the DNS deadlock" do
+    with_wstunnel do
+      expect(hook_of(build("split-ws"))).to be(:include?, "--dns-resolver dns://1.1.1.1")
+    end
+  end
+
+  # "off", never blank. Config#[] treats an empty value as "unset" and falls
+  # through to DEFAULTS, so a blank key would silently keep emitting the flag —
+  # an opt-out that looks set and does nothing. Both halves are asserted because
+  # the blank case is the one that reads as if it should work.
+  it "omits the resolver flag for off, and NOT for a blank value" do
+    with_wstunnel("NAAF_WSTUNNEL_DNS_RESOLVER" => "off") do
+      expect(hook_of(build("split-ws")).include?("--dns-resolver")).to be == false
+    end
+    with_wstunnel("NAAF_WSTUNNEL_DNS_RESOLVER" => "") do
+      expect(hook_of(build("split-ws"))).to be(:include?, "--dns-resolver dns://1.1.1.1")
+    end
+  end
+
+  it "accepts the resolver forms wstunnel understands" do
+    ["dns://9.9.9.9", "dns://1.1.1.1:5353", "dns+https://dns.google/dns-query"].each do |r|
+      with_wstunnel("NAAF_WSTUNNEL_DNS_RESOLVER" => r) do
+        expect(hook_of(build("split-ws"))).to be(:include?, "--dns-resolver #{r}")
+      end
+    end
+  end
+
+  # This lands in an unquoted argv word inside a command wg-quick runs AS ROOT on
+  # the client, and Config[] prefers ENV — so it gets the same whitelist every
+  # other value on that path already gets. A bare address is rejected too:
+  # wstunnel wants a scheme, and accepting one would emit a flag it cannot parse.
+  it "refuses a resolver that could break out of the hook" do
+    bad = ["1.1.1.1", "ftp://1.1.1.1", "-dns://1.1.1.1", "dns://1.1.1.1 --foo",
+      "dns://1.1.1.1;id", "dns://1.1.1.1" + "|sh", "dns://" + "$(id)",
+      "dns://1.1.1.1\nPostUp = sh"]
+    bad.each do |value|
+      with_wstunnel("NAAF_WSTUNNEL_DNS_RESOLVER" => value) do
+        expect(render_error("split-ws")).to be =~ /DNS_RESOLVER/
+      end
     end
   end
 end
