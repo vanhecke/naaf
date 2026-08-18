@@ -46,6 +46,7 @@ change something.
 | **Clients** (`/clients`) | Add a client (server generates keys, or paste your own pubkey), enable/disable, delete, and download the config in up to five flavors, or as a QR (the three plain flavors only). IPAM assigns the next free VPN IP. |
 | **Exposed ports** | Which ports a spoke may accept **from other spokes** — a single port or a range like `8000-8100` (default-deny spoke-to-spoke, allow-list via an nftables interval set). |
 | **Port forwards** | Inbound DNAT from the public interface to a client's port, with an enable toggle. |
+| **Sites** | Remote WireGuard servers this hub dials (site-to-site). Naaf holds the session; clients reach those LANs without connecting to the remote themselves. |
 | **Routes** | Extra split-tunnel subnets folded into a client's `AllowedIPs` (global, or per-client). |
 | **DNS** | Static `A` records in the internal `.vpn` zone, layered over the automatic per-client `<hostname>.vpn` records. |
 | **Settings** | Edit endpoint host/IPs, DNS upstream + internal domain, MTU, WAN interface; change the admin password. Structural values (subnet, gateway, listen port, keys) are read-only. |
@@ -91,7 +92,8 @@ lib/naaf/               app, config, backup, renderers (pure), reconciler, zone,
 lib/naaf/metrics/       ring buffers, /proc samplers, DNS counters, SSE hub,
                         collector — all in memory, never persisted
 db/schema.rb            idempotent SQLite schema (settings, clients, exposed_ports,
-                        port_forwards, dns_records, extra_routes), run on boot
+                        port_forwards, dns_records, extra_routes, sites,
+                        site_networks), run on boot
 views/                  ERB templates (Bulma markup; plain form POST + redirect)
 views/metrics/          dashboard fragments (also served as GET /metrics/<name>)
 vendor/                 bulma.min.css, htmx.min.js, htmx-ext-sse.min.js,

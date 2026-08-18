@@ -398,7 +398,8 @@ module Naaf
           port_forwards: @db[:port_forwards].count,
           port_forwards_enabled: @db[:port_forwards].where(enabled: true).count,
           dns_records: @db[:dns_records].count,
-          extra_routes: @db[:extra_routes].count
+          extra_routes: @db[:extra_routes].count,
+          sites: @db[:sites].count
         }
       end
 

@@ -1030,7 +1030,7 @@ describe "Naaf::App integration" do
   # --- extra (split-tunnel) routes ---
 
   it "redirects the new pages to /login when unauthenticated" do
-    %w[/extra-routes /settings].each do |path|
+    %w[/extra-routes /sites /settings].each do |path|
       res = get(path)
       expect(res.status).to be == 302
       expect(res.headers["location"]).to be == "/login"
@@ -1058,6 +1058,82 @@ describe "Naaf::App integration" do
     post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "10.0.0.0") # no prefix
     post_form("/extra-routes", "/extra-routes", "client_id" => "9999", "cidr" => "192.168.9.0/24")
     expect(Naaf.db[:extra_routes].count).to be == 0
+  end
+
+  # --- sites (remote WireGuard servers) ---
+
+  def site_pub = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  def site_pub2 = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBQ="
+
+  def add_site(name: "unifi", pubkey: site_pub, host: "203.0.113.9", port: "51820",
+    cidr: "192.168.1.0/24", **extra)
+    fields = {
+      "name" => name, "pubkey" => pubkey, "endpoint_host" => host,
+      "endpoint_port" => port, "cidr" => cidr, "keepalive" => "25",
+      "address" => "", "psk" => ""
+    }.merge(extra.transform_keys(&:to_s))
+    post_form("/sites", "/sites", fields)
+  end
+
+  it "adds a site, a second network, toggles, and deletes" do
+    login!
+    add_site
+    site = Naaf.db[:sites].first
+    expect(site[:name]).to be == "unifi"
+    expect(site[:pubkey]).to be == site_pub
+    expect(site[:endpoint]).to be == "203.0.113.9:51820"
+    expect(site[:enabled]).to be == true
+    expect(Naaf.db[:site_networks].where(site_id: site[:id]).select_map(:cidr))
+      .to be == ["192.168.1.0/24"]
+
+    post_form("/sites", "/sites/#{site[:id]}/networks", "cidr" => "10.0.0.0/16")
+    expect(Naaf.db[:site_networks].where(site_id: site[:id]).select_map(:cidr).sort)
+      .to be == ["10.0.0.0/16", "192.168.1.0/24"]
+
+    post_form("/sites", "/sites/#{site[:id]}/toggle", {})
+    expect(Naaf.db[:sites][id: site[:id]][:enabled]).to be == false
+
+    net = Naaf.db[:site_networks].where(cidr: "10.0.0.0/16").first
+    post_form("/sites", "/sites/#{site[:id]}/networks/#{net[:id]}/delete", {})
+    expect(Naaf.db[:site_networks].where(id: net[:id]).count).to be == 0
+
+    post_form("/sites", "/sites/#{site[:id]}/delete", {})
+    expect(Naaf.db[:sites].count).to be == 0
+    expect(Naaf.db[:site_networks].count).to be == 0
+  end
+
+  it "refuses a default route, a VPN-subnet overlap, IPv6, and a colliding pubkey" do
+    login!
+    add_client("nas", pubkey: site_pub2)
+    add_site(cidr: "0.0.0.0/0")
+    add_site(cidr: "10.8.0.0/24")
+    add_site(cidr: "2001:db8::/32")
+    add_site(pubkey: site_pub2)
+    add_site(pubkey: "not-a-wireguard-key")
+    expect(Naaf.db[:sites].count).to be == 0
+  end
+
+  it "refuses a site CIDR that contains the remote endpoint or overlaps another site" do
+    login!
+    add_site(cidr: "192.168.1.0/24")
+    expect(Naaf.db[:sites].count).to be == 1
+    add_site(name: "other", pubkey: site_pub2, cidr: "192.168.1.0/25")
+    expect(Naaf.db[:sites].count).to be == 1
+    add_site(name: "loop", pubkey: site_pub2, host: "203.0.113.9",
+      cidr: "203.0.113.0/24")
+    expect(Naaf.db[:sites].count).to be == 1
+    # This box's own public address — would steal WAN if installed as a route.
+    add_site(name: "hub", pubkey: site_pub2, host: "198.51.100.9",
+      cidr: "203.0.113.0/24")
+    expect(Naaf.db[:sites].count).to be == 1
+  end
+
+  it "renders the instruction banner with this box's public key" do
+    login!
+    body = get("/sites").body
+    expect(body).to be(:include?, "SRVPUB")
+    expect(body).to be(:include?, "10.8.0.0/24")
+    expect(body).to be(:include?, "Sites")
   end
 
   # --- settings editor ---

@@ -146,6 +146,12 @@ module Naaf
       routes += @db[:extra_routes]
         .where(Sequel[client_id: nil] | Sequel[client_id: @client[:id]])
         .select_map(:cidr)
+      # Site LANs are global: every split client should send them to the hub
+      # so Naaf can cryptokey-route them to the remote peer. Deduped with
+      # extra_routes below — adding the same CIDR on both pages is harmless.
+      routes += @db[:site_networks]
+        .where(site_id: @db[:sites].where(enabled: true).select(:id))
+        .select_map(:cidr)
       routes = routes.uniq
       audit_transport_capture(routes, ws: WS_FLAVORS.include?(flavor))
       routes.join(", ")

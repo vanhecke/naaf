@@ -41,4 +41,40 @@ describe Naaf::Renderers::WireGuard do
     expect(out.include?("PostUp")).to be == false
     expect(out.include?("PostDown")).to be == false
   end
+
+  it "emits an enabled site as a peer with wide AllowedIPs, Endpoint and keepalive" do
+    make_site(@db, name: "unifi", pubkey: "UNIFIPUB", endpoint: "203.0.113.9:51820",
+      keepalive: 25, networks: ["192.168.1.0/24", "10.0.0.0/16"])
+    out = Naaf::Renderers::WireGuard.render(@db)
+    expect(out).to be(:include?, "PublicKey = UNIFIPUB")
+    expect(out).to be(:include?, "AllowedIPs = 10.0.0.0/16, 192.168.1.0/24")
+    expect(out).to be(:include?, "Endpoint = 203.0.113.9:51820")
+    expect(out).to be(:include?, "PersistentKeepalive = 25")
+    expect(out).to be(:include?, "# unifi (site)")
+    expect(out.include?("PresharedKey = ")).to be == false
+  end
+
+  it "emits PresharedKey only when the site has one" do
+    make_site(@db, name: "unifi", pubkey: "UNIFIPUB", psk: "SITEPSK",
+      networks: ["192.168.1.0/24"])
+    out = Naaf::Renderers::WireGuard.render(@db)
+    expect(out).to be(:include?, "PresharedKey = SITEPSK")
+  end
+
+  it "omits a disabled site and a site with no networks" do
+    make_site(@db, name: "off", pubkey: "OFFPUB", enabled: false,
+      networks: ["192.168.1.0/24"])
+    make_site(@db, name: "empty", pubkey: "EMPTYPUB", networks: [])
+    out = Naaf::Renderers::WireGuard.render(@db)
+    expect(out.include?("OFFPUB")).to be == false
+    expect(out.include?("EMPTYPUB")).to be == false
+  end
+
+  it "keeps client AllowedIPs as /32 when a site is also present" do
+    make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "LAPPUB", psk: "LAPPSK")
+    make_site(@db, name: "unifi", pubkey: "UNIFIPUB", networks: ["192.168.1.0/24"])
+    out = Naaf::Renderers::WireGuard.render(@db)
+    expect(out).to be(:include?, "AllowedIPs = 10.8.0.2/32")
+    expect(out).to be(:include?, "AllowedIPs = 192.168.1.0/24")
+  end
 end

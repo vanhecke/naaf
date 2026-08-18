@@ -70,7 +70,13 @@ tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 NAAF_DB="$tmpdir/ci.db" NAAF_CONF=/dev/null CI_NFT="$tmpdir/ci.nft" bundle exec ruby -e '
   $LOAD_PATH.unshift("lib"); require "naaf/db"; require "naaf/renderers/nftables"
-  File.write(ENV.fetch("CI_NFT"), Naaf::Renderers::Nftables.render(Naaf.db))
+  db = Naaf.db
+  # Exercise site_nets with an element so nft -c -f actually parses the new set
+  # and the accept/SNAT lines, not only the empty-set shape.
+  sid = db[:sites].insert(name: "ci", pubkey: "CI", endpoint: "203.0.113.9:51820",
+    keepalive: 25, address: "192.168.2.2", masquerade: true)
+  db[:site_networks].insert(site_id: sid, cidr: "192.168.1.0/24")
+  File.write(ENV.fetch("CI_NFT"), Naaf::Renderers::Nftables.render(db))
 '
 # The base firewall ships as a template, rendered at provisioning time by
 # 20-system.sh. A syntax error there locks you out of the box, so render it the

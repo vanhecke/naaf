@@ -26,6 +26,10 @@ module Naaf
 
     def genkeys = call("genkeys").transform_keys(&:to_sym)
     def dump = call("dump")["dump"]
-    def apply(wg_conf:, nft_ruleset:) = call("apply", wg_conf: wg_conf, nft_ruleset: nft_ruleset)
+
+    def apply(wg_conf:, nft_ruleset:, routes: [], addresses: [])
+      call("apply", wg_conf: wg_conf, nft_ruleset: nft_ruleset,
+        routes: routes, addresses: addresses)
+    end
   end
 end
