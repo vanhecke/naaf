@@ -13,4 +13,7 @@ jobs:
         with:
           ruby-version: .ruby-version
           bundler-cache: true
+      # ubuntu-latest has shellcheck; it does not have nftables. Without this
+      # the nft -c -f half of bin/ci is silently skipped on every PR.
+      - run: sudo apt-get update -qq && sudo apt-get install -y nftables
       - run: bin/ci

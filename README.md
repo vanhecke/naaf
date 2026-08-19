@@ -12,15 +12,18 @@ a small root helper.
   inline SVG pushed over server-sent events; history lives in in-memory ring
   buffers, so there is no metrics table and nothing extra for Litestream to
   replicate.
-- **One privilege boundary.** A ~120-line root helper on a Unix socket is the only
+- **One privilege boundary.** A small root helper on a Unix socket is the only
   privileged code. It speaks a fixed four-command JSON vocabulary
   (`genkeys` / `apply` / `dump` / `ping`) and never builds a shell string.
+  `apply` also syncs proto-158 site routes and extra `/32`s onto the WireGuard
+  interface.
 - **Safe firewall model.** The app owns only nftables table `inet naaf`,
   regenerated wholesale and applied atomically via `nft -f`. The static base
   firewall in `/etc/nftables.conf` is off-limits — that is what keeps SSH alive.
 - **Structural key custody.** Client private keys are generated server-side, shown
   **once** in the download/QR, and never stored — `clients` has no private-key column.
-- **No Node.** ERB + vendored Bulma + vendored htmx; htmx is the only client-side JS.
+- **No Node.** ERB + vendored Bulma + vendored htmx and its official SSE
+  extension; those two scripts are the only client-side JavaScript.
 
 ## Quick start
 
@@ -86,7 +89,7 @@ naaf.conf.example       the one config file — every key, documented
 bin/naaf                single-reactor entrypoint (web + dns + reconcile + backups)
 bin/naaf-helper         privileged root helper (separate systemd unit)
 bin/bootstrap.rb        one-time: server keys + admin pw + endpoint; --refresh-network
-bin/ci                  standardrb + sus + config lint + nft render check
+bin/ci                  standardrb + sus + shellcheck + config lint + nft render check
 lib/naaf/               app, config, backup, renderers (pure), reconciler, zone,
                         ipam, helper client, config_builder, bootstrap, format
 lib/naaf/metrics/       ring buffers, /proc samplers, DNS counters, SSE hub,
@@ -98,8 +101,8 @@ views/                  ERB templates (Bulma markup; plain form POST + redirect)
 views/metrics/          dashboard fragments (also served as GET /metrics/<name>)
 vendor/                 bulma.min.css, htmx.min.js, htmx-ext-sse.min.js,
                         naaf.css (served by Roda :public; digests pinned by bin/ci)
-test/                   sus tests (renderers, ipam, reconciler, zone, app, config,
-                        backup, bootstrap)
+test/                   sus tests (renderers, ipam, reconciler, helper, zone, app,
+                        config, backup, bootstrap, metrics)
 deploy.sh               the one deploy command (create, provision, update, verify)
 deploy/                 host artifacts (systemd, nftables template, sysctl, tmpfiles)
 deploy/provision/       idempotent provisioning steps (05-swap … 65-wstunnel)
@@ -128,10 +131,12 @@ bundle exec standardrb     # lint (or --fix)
 bin/ci                     # full gate: standardrb + sus + config lint + nft render check
 ```
 
-The renderers, IPAM, Zone, ConfigBuilder, backup and bootstrap helpers are
-pure/DB-only and are tested directly, without root or a live kernel. Running the
-full server (`bin/naaf`) binds the WireGuard IP and port 53, so it is exercised
-on the target host, not the dev box.
+The renderers, IPAM, Zone, ConfigBuilder, backup, bootstrap helpers, and the
+helper's validators are tested without root or a live kernel (`run!` is stubbed).
+`nft -c -f` runs in `bin/ci` where nftables is installed (required on GitHub
+Actions; skipped on a macOS workstation). Running the full server (`bin/naaf`)
+binds the WireGuard IP and port 53, so it is exercised on the target host, not
+the dev box. Live-box assertions live in `deploy/verify.sh`.
 
 ## Configuration
 

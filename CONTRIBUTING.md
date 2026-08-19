@@ -12,11 +12,12 @@ git checkout -b feat/<thing>
 bundle install
 bundle exec sus                 # tests
 bundle exec standardrb --fix    # style; standardrb is the single authority
-bin/ci                          # the full gate: standardrb + sus + an nft render check
+bin/ci                          # the full gate: standardrb + sus + shellcheck + nft render check
 ```
 
 `bin/ci` must be green before a change is done. There is no `.rubocop.yml` and no
-arguing with standardrb.
+arguing with standardrb. On CI a missing `nft` or `shellcheck` fails the job;
+on a workstation those checks skip with a message.
 
 ## What a good change looks like
 

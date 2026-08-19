@@ -7,7 +7,19 @@
 
 require "securerandom"
 require "tmpdir"
+# Production logs every expected failure as JSON on stderr (a 500 the error
+# handler swallowed, a tick! that rescued, apply! succeeding). That is noise
+# in the suite. CONSOLE_OUTPUT=Null is the console gem's own sink; override
+# with CONSOLE_OUTPUT=Serialized (or Terminal) to see the records again.
+# Must be set before the first Console.logger is built.
+ENV["CONSOLE_OUTPUT"] ||= "Null"
 require "console"
+require "bcrypt"
+
+# Default bcrypt cost is tens of milliseconds per hash AND per verify. Almost
+# every app example logs in; without this the suite spends most of its wall
+# time stretching a password nobody is attacking.
+BCrypt::Engine.cost = 4
 
 # Hermetic on purpose. NAAF_DB is forced, never ||=: now that naaf.conf is
 # shell-sourceable it is easy to have NAAF_DB exported in a working shell, and

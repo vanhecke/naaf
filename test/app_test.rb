@@ -26,17 +26,26 @@ class StubHelper
 end
 
 class StubReconciler
-  attr_reader :helper
+  attr_reader :helper, :applies
 
   def initialize
     @helper = StubHelper.new
+    @applies = 0
   end
 
-  def apply! = true
+  def apply!
+    @applies += 1
+    true
+  end
+
   def last_poll_at = nil
   def last_apply_at = nil
   def last_error = nil
 end
+
+# Bcrypt once per process: the default cost is tens of milliseconds, and this
+# file has ~100 examples that all log in as the same admin.
+ADMIN_PW_HASH = BCrypt::Password.create("secret")
 
 # Rack::MockResponse drains a response body eagerly the moment it is built, so a
 # stream that loops forever would wedge the whole suite with no timeout to save
@@ -97,7 +106,7 @@ describe "Naaf::App integration" do
     reset_db!(
       server_pubkey: "SRVPUB", server_ip: "10.8.0.1", endpoint_v4: "203.0.113.5",
       wg_subnet: "10.8.0.0/24", mtu: 1420, listen_port: 51820, dns_domain: "vpn",
-      admin_pw_hash: BCrypt::Password.create("secret")
+      admin_pw_hash: ADMIN_PW_HASH
     )
     Naaf::App.reconciler = StubReconciler.new
     Naaf::App.metrics = nil
@@ -1017,6 +1026,14 @@ describe "Naaf::App integration" do
 
   # --- client enable/disable toggle ---
 
+  it "rejects a duplicate client name without writing a second row" do
+    login!
+    add_client("nas")
+    post_form("/clients", "/clients", "name" => "nas", "hostname" => "other", "pubkey" => "")
+    expect(Naaf.db[:clients].count).to be == 1
+    expect(get("/clients").body).to be(:include?, "already taken")
+  end
+
   it "toggles a client between enabled and disabled" do
     login!
     dave = add_client("dave")
@@ -1057,7 +1074,18 @@ describe "Naaf::App integration" do
     post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "not-a-network")
     post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "10.0.0.0") # no prefix
     post_form("/extra-routes", "/extra-routes", "client_id" => "9999", "cidr" => "192.168.9.0/24")
+    post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "2001:db8::/32")
     expect(Naaf.db[:extra_routes].count).to be == 0
+  end
+
+  # param_cidr accepts 0.0.0.0/0 on purpose: split + a default extra route is a
+  # working full tunnel (the kernel WireGuard socket is fwmark-exempt). ConfigBuilder
+  # then refuses the same row for the ws flavors. Pin the form half so a future
+  # "helpful" check cannot silently change split-tunnel /0.
+  it "accepts a default extra route at the form" do
+    login!
+    post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "0.0.0.0/0")
+    expect(Naaf.db[:extra_routes].select_map(:cidr)).to be == ["0.0.0.0/0"]
   end
 
   # --- sites (remote WireGuard servers) ---
@@ -1198,6 +1226,12 @@ describe "Naaf::App integration" do
     expect(Naaf.db[:sites].count).to be == 0
   end
 
+  it "refuses a site address inside the VPN subnet" do
+    login!
+    add_site(address: "10.8.0.5")
+    expect(Naaf.db[:sites].count).to be == 0
+  end
+
   it "renders an edit form for an existing site" do
     login!
     add_site
@@ -1306,5 +1340,58 @@ describe "Naaf::App integration" do
     body = get("/login").body
     res = post("/login", "password" => "secret", "_csrf" => csrf_for(body, "/login"))
     expect(res.headers["location"]).to be == "/"
+  end
+
+  # submit runs apply! after a successful write. StubReconciler is a no-op
+  # helper, so without counting the call a route that forgot apply! would
+  # still look green.
+  describe "apply! after a mutation" do
+    def applies = Naaf::App.reconciler.applies
+
+    it "runs apply! after adding, toggling and deleting a client" do
+      login!
+      expect(applies).to be == 0
+      dave = add_client("dave")
+      expect(applies).to be == 1
+      post_form("/clients", "/clients/#{dave}/toggle", {})
+      expect(applies).to be == 2
+      post_form("/clients", "/clients/#{dave}/delete", {})
+      expect(applies).to be == 3
+    end
+
+    it "runs apply! from the navbar re-apply form" do
+      login!
+      body = get("/clients").body
+      post("/apply", "_csrf" => csrf_for(body, "/apply"))
+      expect(applies).to be == 1
+    end
+
+    it "runs apply! after ports, forwards, dns, extra-routes, sites and settings" do
+      login!
+      nas = add_client("nas")
+      expect(applies).to be == 1
+      post_form("/exposed-ports", "/exposed-ports",
+        "client_id" => nas, "proto" => "tcp", "port" => "443")
+      post_form("/port-forwards", "/port-forwards",
+        "client_id" => nas, "proto" => "tcp", "public_port" => "8443", "target_port" => "443")
+      post_form("/dns-records", "/dns-records", "name" => "wiki.vpn", "value" => "10.8.0.2")
+      post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "192.168.9.0/24")
+      add_site
+      save_settings
+      expect(applies).to be == 7
+    end
+
+    it "does not apply on a validation failure" do
+      login!
+      post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "not-a-network")
+      expect(applies).to be == 0
+      expect(Naaf.db[:extra_routes].count).to be == 0
+    end
+
+    it "does not apply on a password change" do
+      login!
+      post_form("/settings", "/settings/password", "password" => "newsecret123")
+      expect(applies).to be == 0
+    end
   end
 end

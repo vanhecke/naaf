@@ -224,21 +224,26 @@ rescue => e
   {error: e.message}
 end
 
-FileUtils.rm_f(SOCKET_PATH)
-server = UNIXServer.new(SOCKET_PATH)
-File.chown(0, SOCKET_GID, SOCKET_PATH) if SOCKET_GID
-File.chmod(0o660, SOCKET_PATH)
-warn "naaf-helper listening on #{SOCKET_PATH}"
+# Tests load this file as a library of functions (valid_v4_cidr?, handle, …)
+# and stub run!. The listen loop is the process entrypoint and must not run
+# then — it would bind /run/naaf/helper.sock and never return.
+if $PROGRAM_NAME == __FILE__
+  FileUtils.rm_f(SOCKET_PATH)
+  server = UNIXServer.new(SOCKET_PATH)
+  File.chown(0, SOCKET_GID, SOCKET_PATH) if SOCKET_GID
+  File.chmod(0o660, SOCKET_PATH)
+  warn "naaf-helper listening on #{SOCKET_PATH}"
 
-loop do
-  conn = server.accept
-  Thread.new(conn) do |c|
-    while (line = c.gets)
-      c.puts(JSON.generate(handle(line)))
+  loop do
+    conn = server.accept
+    Thread.new(conn) do |c|
+      while (line = c.gets)
+        c.puts(JSON.generate(handle(line)))
+      end
+    rescue => e
+      warn "helper connection error: #{e.message}"
+    ensure
+      c.close
     end
-  rescue => e
-    warn "helper connection error: #{e.message}"
-  ensure
-    c.close
   end
 end

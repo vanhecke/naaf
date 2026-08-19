@@ -2,19 +2,43 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "== Standard =="; bundle exec standardrb
+# Per-section wall time so a regression that doubles the suite is visible.
+# $SECONDS is integer-second resolution; that is enough.
+t0=$SECONDS
+tick() { echo "  ($((SECONDS - t0))s)"; t0=$SECONDS; }
+in_ci() { [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; }
 
-echo "== Tests ==";    bundle exec sus
+# Local macOS has neither nft nor (sometimes) shellcheck; skip there. GitHub
+# Actions sets CI=true and the workflow installs nftables, so a skip on CI
+# means the gate is lying.
+need_cmd() { # <cmd> <label>
+  if command -v "$1" >/dev/null 2>&1; then
+    return 0
+  fi
+  if in_ci; then
+    echo "$1 is required in CI ($2)" >&2
+    exit 1
+  fi
+  echo "($2 skipped — $1 not installed on this host)"
+  return 1
+}
+
+echo "== Standard =="
+bundle exec standardrb
+tick
+
+echo "== Tests =="
+bundle exec sus
+tick
 
 echo "== shellcheck =="
 # The deploy scripts are a real part of this project — two config-install bugs
 # shipped in them before a live deploy caught them — so lint them like code.
-if command -v shellcheck >/dev/null 2>&1; then
+if need_cmd shellcheck "shellcheck"; then
   shellcheck -S warning bin/ci deploy.sh deploy/*.sh deploy/provision/*.sh deploy/providers/*/*.sh
   echo "shellcheck clean"
-else
-  echo "(skipped — shellcheck not installed)"
 fi
+tick
 
 echo "== naaf.conf.example =="
 # naaf.conf is read three ways: systemd EnvironmentFile=, `set -a; . file`, and
@@ -41,12 +65,34 @@ if grep -nE '^[[:space:]]*require' lib/naaf/config.rb; then
 fi
 echo "config.rb is require-free"
 
+for f in package.json .rubocop.yml; do
+  if [ -e "$f" ]; then
+    echo "$f must not exist" >&2
+    exit 1
+  fi
+done
+tick
+
 echo "== vendored assets =="
 # The two scripts in vendor/ are the only client-side JavaScript that ships, and
 # they arrive by download rather than through a lockfile. Pin them by digest so
 # a swapped or truncated file fails the build instead of the browser.
 #   htmx.min.js         htmx 2.0.10
 #   htmx-ext-sse.min.js htmx-ext-sse 2.2.4 (0BSD)
+#
+# A third .js in vendor/ would pass the digest pin (we only hash the two we
+# know). The exact-set check is what makes "a third vendored script is Ask
+# first" a failing build rather than a review comment.
+js_got="$(find vendor -maxdepth 1 -name '*.js' | sed 's|.*/||' | LC_ALL=C sort)"
+js_want="$(printf '%s\n' htmx-ext-sse.min.js htmx.min.js)"
+if [ "$js_got" != "$js_want" ]; then
+  echo "vendor/ .js set drifted — only the two pinned htmx files are allowed" >&2
+  echo "  expected:" >&2
+  printf '%s\n' "$js_want" >&2
+  echo "  actual:" >&2
+  printf '%s\n' "$js_got" >&2
+  exit 1
+fi
 check_digest() {
   want="$2"
   got="$(openssl dgst -sha384 -binary "$1" | openssl base64 -A)"
@@ -63,6 +109,22 @@ check_digest vendor/htmx-ext-sse.min.js \
   "A986SAtodyH8eg8x8irJnYUk7i9inVQqYigD6qZ9evobksGNIXfeFvDwLSHcp31N"
 echo "vendored scripts match their pinned digests"
 
+# Inline <script> is a Never. The two <script src> tags in the layout are the
+# allowed load of those same files; anything else — a third src, a body, an
+# event-handler script — fails here.
+while IFS= read -r line; do
+  case "$line" in
+    *'<script src="/htmx.min.js" defer></script>'*) ;;
+    *'<script src="/htmx-ext-sse.min.js" defer></script>'*) ;;
+    *)
+      echo "views/ may only load the two vendored scripts; no inline <script>" >&2
+      echo "  $line" >&2
+      exit 1
+      ;;
+  esac
+done < <(grep -REn '<script' views || true)
+tick
+
 echo "== nft render check =="
 # Render against a throwaway DB so the check never depends on /var/lib/naaf, and
 # keep the output in the same temp dir so concurrent runs cannot collide.
@@ -71,6 +133,9 @@ trap 'rm -rf "$tmpdir"' EXIT
 NAAF_DB="$tmpdir/ci.db" NAAF_CONF=/dev/null CI_NFT="$tmpdir/ci.nft" bundle exec ruby -e '
   $LOAD_PATH.unshift("lib"); require "naaf/db"; require "naaf/renderers/nftables"
   db = Naaf.db
+  cols = db[:clients].columns.map(&:to_s)
+  bad = cols.grep(/privkey|private_key/i)
+  abort "clients table has a private-key column: #{bad.join(", ")}" unless bad.empty?
   # Exercise site_nets with an element so nft -c -f actually parses the new set
   # and the accept/SNAT lines, not only the empty-set shape.
   sid = db[:sites].insert(name: "ci", pubkey: "CI", endpoint: "203.0.113.9:51820",
@@ -78,6 +143,7 @@ NAAF_DB="$tmpdir/ci.db" NAAF_CONF=/dev/null CI_NFT="$tmpdir/ci.nft" bundle exec 
   db[:site_networks].insert(site_id: sid, cidr: "192.168.1.0/24")
   File.write(ENV.fetch("CI_NFT"), Naaf::Renderers::Nftables.render(db))
 '
+echo "clients schema has no private-key column"
 # The base firewall ships as a template, rendered at provisioning time by
 # 20-system.sh. A syntax error there locks you out of the box, so render it the
 # same way here — both branches of the conditional wstunnel rule, because the
@@ -114,7 +180,8 @@ echo "base firewall template renders with every placeholder consumed"
 # `nft -c -f "$f" 2>/dev/null && echo passed || echo skipped` could not fail the
 # build: a genuine syntax error took the same branch as "not root" and the script
 # still exited 0. Keep the message, and downgrade to skipped only when the kernel
-# refused us — never when the parser did.
+# refused us — never when the parser did. Missing nft is a skip on a workstation
+# and a failure in CI (need_cmd).
 nft_check() { # <label> <file>
   if out="$(nft -c -f "$2" 2>&1)"; then
     echo "$1 passed"
@@ -126,10 +193,11 @@ nft_check() { # <label> <file>
     exit 1
   fi
 }
-if command -v nft >/dev/null 2>&1; then
+if need_cmd nft "nft syntax checks"; then
   nft_check "nft check" "$tmpdir/ci.nft"
   nft_check "base firewall template check (wstunnel off)" "$tmpdir/base-off.nft"
   nft_check "base firewall template check (wstunnel on)" "$tmpdir/base-on.nft"
-else
-  echo "(nft syntax checks skipped — nft not installed on this host)"
 fi
+
+tick
+echo "== done in ${SECONDS}s =="

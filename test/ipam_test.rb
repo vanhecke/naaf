@@ -29,6 +29,19 @@ describe Naaf::IPAM do
     expect { Naaf::IPAM.allocate(@db) }.to raise_exception(RuntimeError, message: be =~ /exhausted/)
   end
 
+  it "never hands out the network address, the broadcast, or the server IP" do
+    # /29: .0 net, .1 server, .2–.6 hosts, .7 broadcast.
+    reset_db!(wg_subnet: "10.8.0.0/29", server_ip: "10.8.0.1")
+    allocated = []
+    5.times do |i|
+      ip = Naaf::IPAM.allocate(@db)
+      allocated << ip
+      make_client(@db, name: "c#{i}", wg_ip: ip)
+    end
+    expect(allocated).to be == %w[10.8.0.2 10.8.0.3 10.8.0.4 10.8.0.5 10.8.0.6]
+    expect { Naaf::IPAM.allocate(@db) }.to raise_exception(RuntimeError, message: be =~ /exhausted/)
+  end
+
   it "detects overlapping IPv4 CIDRs and not merely adjacent ones" do
     expect(Naaf::IPAM.overlap?("192.168.1.0/24", "192.168.1.0/25")).to be == true
     expect(Naaf::IPAM.overlap?("10.8.0.0/24", "10.8.0.0/24")).to be == true

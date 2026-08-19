@@ -3,19 +3,26 @@
 require_relative "helper"
 require "naaf/reconciler"
 require "naaf/metrics/peer_stats"
+require "naaf/renderers/routes"
 
 # Minimal stand-ins so we can drive the reconciler without a live helper/kernel.
 class FakeHelper
-  attr_reader :applies
+  attr_reader :applies, :last_apply
   attr_accessor :dump_text
 
   def initialize(dump_text)
     @dump_text = dump_text
     @applies = 0
+    @last_apply = nil
   end
 
   def dump = @dump_text
-  def apply(**) = (@applies += 1) && {ok: true}
+
+  def apply(**kwargs)
+    @applies += 1
+    @last_apply = kwargs
+    {ok: true}
+  end
 end
 
 # Sequel writes every statement to any object in db.loggers, so this is the
@@ -32,7 +39,16 @@ class SQLSpy
 end
 
 class FakeZone
-  def reload! = self
+  attr_reader :reloads
+
+  def initialize
+    @reloads = 0
+  end
+
+  def reload!
+    @reloads += 1
+    self
+  end
 end
 
 describe Naaf::Reconciler do
@@ -165,13 +181,37 @@ describe Naaf::Reconciler do
     expect(peers.sample["PEERPUB"]).to be(:frozen?)
   end
 
-  it "records when it last polled and applied, so a stall is visible" do
+  it "records when it last polled, so a stall is visible" do
     make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB")
     r = reconciler(dump_for("PEERPUB", handshake: 0))
     expect(r.last_poll_at).to be_nil
     r.poll!
     expect(r.last_poll_at.nil?).to be == false
     expect(r.last_error).to be_nil
+  end
+
+  # The mutation path: DB is already written; apply! is what projects it. poll!
+  # calls this on peer-set drift, and every form's submit does too.
+  it "apply! pushes renderer output through the helper, then reloads the zone" do
+    make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB")
+    make_site(@db, name: "unifi", address: "192.168.2.2", networks: ["192.168.1.0/24"])
+    helper = FakeHelper.new("")
+    zone = FakeZone.new
+    r = Naaf::Reconciler.new(@db, zone, helper: helper)
+
+    expect(r.last_apply_at).to be_nil
+    expect(r.apply!).to be == true
+
+    extra = Naaf::Renderers::Routes.desired(@db)
+    expect(helper.applies).to be == 1
+    expect(helper.last_apply[:wg_conf]).to be(:include?, "[Interface]")
+    expect(helper.last_apply[:wg_conf]).to be(:include?, "PublicKey = PEERPUB")
+    expect(helper.last_apply[:nft_ruleset]).to be(:include?, "table inet naaf")
+    expect(helper.last_apply[:nft_ruleset]).to be(:include?, "192.168.1.0/24")
+    expect(helper.last_apply[:routes]).to be == extra[:routes]
+    expect(helper.last_apply[:addresses]).to be == extra[:addresses]
+    expect(zone.reloads).to be == 1
+    expect(r.last_apply_at.nil?).to be == false
   end
 
   # Same contract as Naaf::Backup.tick!: the reactor task must survive a helper

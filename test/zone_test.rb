@@ -44,4 +44,27 @@ describe Naaf::Zone do
       {name: "gateway.vpn", rtype: "A", value: "10.8.0.1", source: :gateway}
     ]
   end
+
+  # apply! ends in Zone#reload!; a lookup against a Zone that was built before
+  # the write would otherwise keep serving the old hash until restart.
+  it "reload! picks up a client added after initialize" do
+    make_client(@db, name: "phone", hostname: "phone", wg_ip: "10.8.0.9")
+    expect(@zone.lookup_a("phone.vpn")).to be_nil
+    @zone.reload!
+    expect(@zone.lookup_a("phone.vpn")).to be == "10.8.0.9"
+    expect(@zone.lookup_a("phone")).to be == "10.8.0.9"
+  end
+
+  it "lets a static A override an auto record of the same name on reload" do
+    @db[:dns_records].insert(name: "nas.vpn", rtype: "A", value: "10.8.0.99", managed: false)
+    expect(@zone.lookup_a("nas.vpn")).to be == "10.8.0.3" # still the auto record
+    @zone.reload!
+    expect(@zone.lookup_a("nas.vpn")).to be == "10.8.0.99"
+  end
+
+  it "lets the gateway auto record win a colliding client hostname" do
+    make_client(@db, name: "gw", hostname: "gateway", wg_ip: "10.8.0.8")
+    @zone.reload!
+    expect(@zone.lookup_a("gateway.vpn")).to be == "10.8.0.1"
+  end
 end

@@ -273,6 +273,7 @@ module Naaf
       s = raw.to_s.strip
       raise ValidationError, "Route must be in CIDR form, e.g. 192.168.0.0/24." unless s.include?("/")
       ip = IPAddr.new(s)
+      raise ValidationError, "Route must be an IPv4 CIDR." unless ip.ipv4?
       "#{ip}/#{ip.prefix}"
     rescue IPAddr::InvalidAddressError, IPAddr::AddressFamilyError
       raise ValidationError, "Route must be a valid CIDR, e.g. 192.168.0.0/24."
