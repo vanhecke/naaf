@@ -1134,7 +1134,6 @@ describe "Naaf::App integration" do
     expect(body).to be(:include?, "SRVPUB")
     expect(body).to be(:include?, "10.8.0.0/24")
     expect(body).to be(:include?, "Sites")
-    expect(body).to be(:include?, "Endpoint = 203.0.113.5:51820")
   end
 
   it "edits an existing site's endpoint, key, keepalive and masquerade" do
@@ -1199,14 +1198,13 @@ describe "Naaf::App integration" do
     expect(Naaf.db[:sites].count).to be == 0
   end
 
-  it "renders an edit form and a remote peer block that dials this box" do
+  it "renders an edit form for an existing site" do
     login!
     add_site
     site = Naaf.db[:sites].first
     body = get("/sites").body
-    expect(body).to be(:include?, "Edit site")
+    expect(body).to be(:include?, ">Edit</summary>")
     expect(body).to be(:include?, %(action="/sites/#{site[:id]}"))
-    expect(body).to be(:include?, "PersistentKeepalive = 25")
     expect(body).to be(:include?, %(value="#{site_pub}"))
   end
 

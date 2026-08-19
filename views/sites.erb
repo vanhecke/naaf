@@ -7,21 +7,17 @@
 <p class="content">
   A site is a remote WireGuard <em>server</em> this hub dials — a UniFi gateway,
   another VPN, a home UDM. Clients stay on Naaf; Naaf holds the remote session
-  and routes the listed networks to that peer. This is not a client: the remote
-  side must add a peer whose public key is this box's server key.
+  and routes the listed networks to that peer.
 </p>
 
-<% hub_ep = "#{@settings[:endpoint_host] || @settings[:endpoint_v4]}:#{@settings[:listen_port]}" %>
-<div class="notification is-light">
+<div class="notification">
   <p>
-    On the remote server add a peer with
-    <strong>Public key =</strong> <code><%= h(@settings[:server_pubkey]) %></code>,
-    <code>AllowedIPs = <%= h(@settings[:wg_subnet]) %></code>,
-    <code>Endpoint = <%= h(hub_ep) %></code>
-    and a keepalive. A paste-ready block is shown on each site below. Do
-    <strong>not</strong> reuse a laptop's existing client config — that key is a
-    different identity. If the remote is behind NAT, <em>it</em> must dial this
-    box; Naaf dialing out only works when the remote accepts inbound UDP.
+    On the remote, add this box as a client whose
+    <strong>public key</strong> is <code><%= h(@settings[:server_pubkey]) %></code>
+    and whose <code>AllowedIPs</code> include
+    <code><%= h(@settings[:wg_subnet]) %></code>.
+    Do <strong>not</strong> reuse a laptop's existing client config — that key is a
+    different identity.
   </p>
   <p class="mt-2 mb-0">
     Leave <em>Masquerade</em> off unless the remote side will only accept its
@@ -36,7 +32,7 @@
   <% @sites.each do |site| %>
     <% nets = @networks[site[:id]] || [] %>
     <div class="box">
-      <div class="level mb-2">
+      <div class="level mb-2 is-align-items-flex-start">
         <div class="level-left">
           <div class="level-item">
             <h2 class="title is-5 mb-0"><%= h(site[:name]) %></h2>
@@ -58,6 +54,60 @@
               <%= csrf_tag("/sites/#{site[:id]}/toggle") %>
               <button class="button is-small" type="submit"><%= site[:enabled] ? "Disable" : "Enable" %></button>
             </form>
+          </div>
+          <div class="level-item">
+            <% ep_host, _, ep_port = site[:endpoint].rpartition(":") %>
+            <details>
+              <summary class="button is-small">Edit</summary>
+              <form method="post" action="/sites/<%= site[:id] %>" class="mt-2">
+                <%= csrf_tag("/sites/#{site[:id]}") %>
+                <div class="field is-grouped is-grouped-multiline">
+                  <div class="control">
+                    <label class="label">Name</label>
+                    <input class="input" type="text" name="name" value="<%= h(site[:name]) %>" required>
+                  </div>
+                  <div class="control is-expanded">
+                    <label class="label">Remote public key</label>
+                    <input class="input" type="text" name="pubkey" value="<%= h(site[:pubkey]) %>" required autocomplete="off">
+                  </div>
+                </div>
+                <div class="field is-grouped is-grouped-multiline">
+                  <div class="control is-expanded">
+                    <label class="label">Endpoint host</label>
+                    <input class="input" type="text" name="endpoint_host" value="<%= h(ep_host) %>" required>
+                  </div>
+                  <div class="control">
+                    <label class="label">Port</label>
+                    <input class="input" type="number" name="endpoint_port" value="<%= h(ep_port) %>" min="1" max="65535" required>
+                  </div>
+                  <div class="control">
+                    <label class="label">Keepalive</label>
+                    <input class="input" type="number" name="keepalive" value="<%= site[:keepalive] %>" min="1" max="65535">
+                  </div>
+                </div>
+                <div class="field is-grouped is-grouped-multiline">
+                  <div class="control">
+                    <label class="label">Assigned address <span class="has-text-grey">(optional)</span></label>
+                    <input class="input" type="text" name="address" value="<%= h(site[:address].to_s) %>" placeholder="192.168.2.2">
+                  </div>
+                </div>
+                <div class="field">
+                  <label class="label">Preshared key <span class="has-text-grey">(optional; blank clears it)</span></label>
+                  <input class="input" type="text" name="psk" value="<%= h(site[:psk].to_s) %>" autocomplete="off">
+                </div>
+                <div class="field">
+                  <label class="checkbox">
+                    <input type="checkbox" name="masquerade"<% if site[:masquerade] %> checked<% end %>>
+                    Masquerade traffic to this site (only if the remote AllowedIPs is the assigned /32)
+                  </label>
+                </div>
+                <div class="field">
+                  <div class="control">
+                    <button class="button is-primary" type="submit">Save &amp; apply</button>
+                  </div>
+                </div>
+              </form>
+            </details>
           </div>
           <div class="level-item">
             <details>
@@ -112,69 +162,6 @@
           </div>
         </div>
       </form>
-
-      <p class="is-size-7 has-text-grey mt-3 mb-1">Peer block for the remote — paste this as a new peer, not as a client config:</p>
-      <pre class="is-size-7">[Peer]
-PublicKey = <%= h(@settings[:server_pubkey]) %>
-<% if site[:psk] %>
-PresharedKey = <%= h(site[:psk]) %>
-<% end %>
-AllowedIPs = <%= h(@settings[:wg_subnet]) %>
-Endpoint = <%= h(hub_ep) %>
-PersistentKeepalive = <%= site[:keepalive] %></pre>
-
-      <% ep_host, _, ep_port = site[:endpoint].rpartition(":") %>
-      <details class="mt-3">
-        <summary class="button is-small">Edit site</summary>
-        <form method="post" action="/sites/<%= site[:id] %>" class="mt-3">
-          <%= csrf_tag("/sites/#{site[:id]}") %>
-          <div class="field is-grouped is-grouped-multiline">
-            <div class="control">
-              <label class="label">Name</label>
-              <input class="input" type="text" name="name" value="<%= h(site[:name]) %>" required>
-            </div>
-            <div class="control is-expanded">
-              <label class="label">Remote public key</label>
-              <input class="input" type="text" name="pubkey" value="<%= h(site[:pubkey]) %>" required autocomplete="off">
-            </div>
-          </div>
-          <div class="field is-grouped is-grouped-multiline">
-            <div class="control is-expanded">
-              <label class="label">Endpoint host</label>
-              <input class="input" type="text" name="endpoint_host" value="<%= h(ep_host) %>" required>
-            </div>
-            <div class="control">
-              <label class="label">Port</label>
-              <input class="input" type="number" name="endpoint_port" value="<%= h(ep_port) %>" min="1" max="65535" required>
-            </div>
-            <div class="control">
-              <label class="label">Keepalive</label>
-              <input class="input" type="number" name="keepalive" value="<%= site[:keepalive] %>" min="1" max="65535">
-            </div>
-          </div>
-          <div class="field is-grouped is-grouped-multiline">
-            <div class="control">
-              <label class="label">Assigned address <span class="has-text-grey">(optional)</span></label>
-              <input class="input" type="text" name="address" value="<%= h(site[:address].to_s) %>" placeholder="192.168.2.2">
-            </div>
-          </div>
-          <div class="field">
-            <label class="label">Preshared key <span class="has-text-grey">(optional; blank clears it)</span></label>
-            <input class="input" type="text" name="psk" value="<%= h(site[:psk].to_s) %>" autocomplete="off">
-          </div>
-          <div class="field">
-            <label class="checkbox">
-              <input type="checkbox" name="masquerade"<% if site[:masquerade] %> checked<% end %>>
-              Masquerade traffic to this site (only if the remote AllowedIPs is the assigned /32)
-            </label>
-          </div>
-          <div class="field">
-            <div class="control">
-              <button class="button is-primary" type="submit">Save &amp; apply</button>
-            </div>
-          </div>
-        </form>
-      </details>
     </div>
   <% end %>
 <% end %>

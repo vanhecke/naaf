@@ -101,8 +101,10 @@ echo
 echo "── 4. wireguard ──"
 ck "wg listen-port matches the database" "$PORT" "$(wg show "$WG_IF" listen-port 2>/dev/null)"
 has "interface carries the gateway address" "$SERVER_IP/" "$(ip -4 addr show "$WG_IF" 2>/dev/null)"
-ck "enabled clients are peers in the kernel" \
-   "$(q 'select count(*) from clients where enabled=1')" \
+# Sites with no networks are omitted from the conf (WireGuard refuses empty
+# AllowedIPs), so they must not count as expected peers here either.
+ck "enabled peers are in the kernel" \
+   "$(q 'select (select count(*) from clients where enabled=1) + (select count(*) from sites where enabled=1 and id in (select site_id from site_networks))')" \
    "$(wg show "$WG_IF" peers 2>/dev/null | grep -c .)"
 
 echo

@@ -399,11 +399,8 @@ sudo sqlite3 /var/lib/naaf/naaf.db \
 ```
 No peer → the site is disabled, has no networks, or apply did not run. Peer
 present, no handshake → Naaf cannot reach the remote listen address (WAN
-firewall, wrong endpoint), or the remote has not added *this* box's
-`settings.server_pubkey` as a peer **with `Endpoint` set to this box**
-(`endpoint_host:listen_port`) and a keepalive. UniFi VPN Server waits for
-inbound UDP; if the remote cannot accept that, *it* must dial us. The Sites
-page shows a paste-ready `[Peer]` block.
+firewall, wrong endpoint, remote has not added *this* box's
+`settings.server_pubkey` as a client).
 
 **2. Does the kernel send that dest into `wg0`?**
 ```bash
