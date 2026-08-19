@@ -17,14 +17,3 @@ deploy/logs/
 # editor / tooling caches
 .DS_Store
 .ruby-lsp/
-
-# Claude Code — personal/local state
-.claude/settings.local.json
-.claude/.credentials.json
-.claude/projects/
-.claude/shell-snapshots/
-.claude/todos/
-.claude/statsig/
-.claude/history.jsonl
-.claude/ide/
-.claude/worktrees/

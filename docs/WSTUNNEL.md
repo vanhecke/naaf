@@ -751,6 +751,3 @@ bound `127.0.0.1` and not `0.0.0.0`.
   no `endpoint_host` and no `endpoint_v4` the download is a 500. §7.
 - **`wstunnel --version` in your shell proves nothing.** The hook runs as root.
   Check with `sudo`.
-- **Nothing in this document has been run against a live client on a real
-  restricted network.** The server half is design-reviewed and unit-tested; the
-  end-to-end walkthrough in the plan is the check that has not happened yet.

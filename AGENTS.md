@@ -16,7 +16,7 @@
 - Lint/format: `bundle exec standardrb --fix`
 - Full gate: `bin/ci`
 - Apply state by hand: POST /apply, or `Reconciler#apply!` in a console
-- Inspect live: `sudo wg show wg0`, `sudo nft list table inet naaf`
+- Inspect live: `sudo wg show wg0`, `sudo nft list table inet naaf`, `ip -4 route show proto 158`
 - Deploy: `./deploy.sh` (one command, idempotent); `deploy/DEPLOY.md`
 - Troubleshoot a live box: `docs/TROUBLESHOOTING.md`
 
@@ -25,6 +25,7 @@
   the kernel is a projection. Only handshake/traffic stats flow inward.
 - All mutations follow: write DB -> Reconciler#apply! -> helper -> kernel.
 - Renderers are pure functions of the DB. No side effects in a renderer.
+  There are four: WireGuard, nftables, Routes, and ConfigBuilder.
 - `ConfigBuilder` is a renderer that also VALIDATES before it composes. Every
   value reaching a wg-quick hook runs as ROOT on a client's machine, so each one
   goes through an anchored whitelist (a leading `-` is an argv flag, a leading
@@ -35,9 +36,51 @@
   A refusal is an `ArgumentError` → 500, never a config that silently cannot work.
 - The helper's command vocabulary is fixed (genkeys/apply/dump/ping). Adding a
   command requires explicit approval — it widens the privilege boundary.
+  `apply` projects three things from the DB: the WireGuard conf (`wg syncconf`),
+  the entire `inet naaf` table (`nft -f`), and site extras (`ip route` proto 158
+  + extra `/32`s on wg0). Widening what apply writes to the kernel is the same
+  "Ask first" as a new command. Extra apply fields are optional so an older
+  helper still answers; a box whose helper predates a new side effect will
+  silently skip it.
 - Never build shell strings. Always argv arrays via IO.popen(array).
 - New long-running work is an `Async` task on the existing reactor, not a
-  new process and not a Thread.
+  new process and not a Thread. Privileged work stays in the helper — no
+  `wg` / `nft` / `system` on the web or DNS path. `HelperClient#call` opens a
+  fresh socket under a mutex; a slow helper call runs on the calling fiber.
+- Reconcile and backup loops must rescue and continue (`Reconciler.tick!`,
+  `Backup.tick!`). A raised task must not tear down the reactor. `Zone#reload!`
+  swaps whole hashes.
+- `Reconciler#failed!` stores the exception **class only**, never the message.
+  The helper interpolates child stderr into the raise, and `wg-quick strip` /
+  `wg syncconf` echo key material verbatim. That field is rendered in the admin
+  UI and pushed on every SSE stream.
+- Intra-VPN policy is the `inet naaf` forward chain, not `AllowedIPs`.
+  Spoke↔spoke is default-deny; `exposed_ports` go through the `daddr . dport`
+  sets; site LANs go through `site_nets`. `AllowedIPs` is a client-side hint.
+- Port forwards DNAT on the WAN iface and need
+  `oifname <wg> ct status dnat masquerade` (hairpin). Disabled forwards must
+  not appear. `ip saddr <wg_subnet> oifname <wan> masquerade` stays for
+  full-tunnel egress.
+- IPAM never hands out the network, broadcast, or server address, and reuses
+  freed ones. Enabled clients, and sites that have networks, are kernel peers;
+  disabled ones are absent.
+
+## Sites
+- A site is a remote WireGuard *server* this hub dials, not a client: no IPAM
+  address on `wg_subnet`. The remote's pubkey is the peer; Naaf presents
+  `settings.server_pubkey` on the other side. `docs/TROUBLESHOOTING.md` §1b.
+- `Renderers::Routes` emits the desired extra `/32`s and dests on wg0. Apply
+  tags those dests **proto 158** so it can diff them without touching the
+  kernel connected route or anything the operator added by hand.
+- The helper refuses a `/0` and any dest or address that covers the default
+  gateway or a non-wg local IPv4 (would steal SSH / WAN). That check is in the
+  root process on purpose; the form must refuse too, but the helper is the last
+  line.
+- `site_nets` in `inet naaf` must accept before the spoke↔spoke `counter drop`.
+  Optional per-site SNAT/masquerade is for remotes that will not put
+  `wg_subnet` in AllowedIPs.
+- A site with no networks is not a kernel peer (WireGuard refuses empty
+  AllowedIPs). `poll!` must not count it as drift.
 
 ## Frontend
 - htmx AND its official SSE extension (`vendor/htmx-ext-sse.min.js`, 0BSD) are
@@ -112,6 +155,19 @@
 - Every renderer change needs a test asserting the emitted text.
 - `nft -c -f` (check mode) is the real validator for firewall output; use it.
 
+## Verification
+- Always: `bin/ci` (standardrb, sus, shellcheck, conf grammar, require-free
+  `config.rb`, vendored script digests, `nft -c -f` including a non-empty
+  `site_nets`).
+- Apply-path or firewall change: `sudo nft list table inet naaf`,
+  `sudo wg show wg0`, `ip -4 route show proto 158`, and a continuous ping
+  between two spokes across `apply!`. A dropped packet means something used
+  `wg-quick down/up` instead of `wg syncconf`.
+- Client or key handling: `.schema clients` has no priv column; no
+  `PrivateKey` in logs.
+- Bind check: `ss -ltnp | grep ':8080'` is exactly two rows — the wg IP and
+  `127.0.0.1`, never `0.0.0.0`/`::`. DNS is on the wg IP, not `0.0.0.0`.
+
 ## Backups
 - Snapshots are `VACUUM INTO` on the app's own connection, written to a `.tmp`
   name then renamed, `chmod 0600` (they contain `server_privkey`).
@@ -178,7 +234,12 @@
 
 ## Workflow
 - Branch per change: `git checkout -b feat/<thing>`.
-- `/goal` to frame -> plan mode -> `/plan` -> approve -> implement.
+- For anything that is not a one-line fix, use the harness plan mode. The plan
+  names files to change, data-model impact, the apply path
+  (DB write → `Reconciler#apply!` → helper → kernel), the tests, and the
+  privilege check. Wait for approval before implementing. Do not invent
+  project slash commands or named agents for this — the built-in plan mode
+  is the loop.
 - After each behavior: run its test. Then `bin/ci`.
 - Commits: `<type>: <imperative ~60 chars>`. No Co-authored-by trailer.
 
@@ -194,6 +255,8 @@
 
 ### Ask first
 - Any change to the helper's command vocabulary or its privileges.
+- Widening what `apply` writes to the kernel (new `ip` / `nft` / `wg` side
+  effects, even if the command name stays `apply`).
 - Schema changes; changing the wg subnet (it invalidates every client config).
 - Touching the server private key handling.
 - Adding a gem.
@@ -256,7 +319,12 @@
   that output is the server private key and every peer line's field 1 is that
   peer's PSK, so a second parser feeding anything the browser renders puts both
   one bug away from the page. Peer telemetry reaches the dashboard through
-  `Metrics::PeerStats`, published by that one reader.
+  `Metrics::PeerStats`, published by that one reader. Never put a helper
+  exception message (or any other dump field) into a view or SSE fragment —
+  `Reconciler#failed!` keeps the class name only.
+- NEVER install a site dest or extra `/32` that covers the default gateway or
+  a non-wg local address. The form refuses those; the helper refuses them
+  again as root. A `/0` site dest is the same class of bug.
 - NEVER let a mutable object cross the metrics publish boundary. async-dns runs
   a fiber per datagram; if a render iterated a live counter hash and yielded on
   a socket write, a DNS fiber adding a key would raise inside the DNS fiber and
