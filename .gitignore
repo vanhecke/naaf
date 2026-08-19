@@ -27,3 +27,4 @@ deploy/logs/
 .claude/statsig/
 .claude/history.jsonl
 .claude/ide/
+.claude/worktrees/
