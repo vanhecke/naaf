@@ -82,7 +82,12 @@ class StubMetrics
 
   def initialize(**sections)
     empty = Naaf::Metrics::Snapshot.empty
-    merged = sections.to_h { |k, v| [k, empty.public_send(k).merge(v).freeze] }
+    # peers and interfaces are lists and are replaced wholesale; every other
+    # section is a flat Hash, so an override there names only the keys it cares
+    # about and inherits the rest of the empty snapshot.
+    merged = sections.to_h { |k, v|
+      [k, v.is_a?(Array) ? v.freeze : empty.public_send(k).merge(v).freeze]
+    }
     @snapshot = empty.with(**merged).freeze
     @hub = Naaf::Metrics::Hub.new
     @hub.publish(@snapshot)
@@ -162,6 +167,17 @@ describe "Naaf::App integration" do
   def post_form(list_path, action, params)
     body = get(list_path).body
     post(action, params.merge("_csrf" => csrf_for(body, action)))
+  end
+
+  # Two tabs open on the same list: the first deletes a row, the second still
+  # has the page — and its token — for that row and clicks toggle or delete.
+  # Lifting the token while the row exists is the only way to reach the id
+  # guards at all, since check_csrf! runs before any route body.
+  def post_stale(list_path, action, table, id, params = {})
+    body = get(list_path).body
+    token = csrf_for(body, action)
+    Naaf.db[table].where(id: id).delete
+    post(action, params.merge("_csrf" => token))
   end
 
   it "logs in with a request-specific CSRF token and reaches the dashboard" do
@@ -367,6 +383,193 @@ describe "Naaf::App integration" do
       body = get("/metrics/app").body
       expect(body).to be(:include?, "naaf-warn")
       expect(body.include?("naaf-alert")).to be == false
+    end
+  end
+
+  # Every other fragment test runs against an empty snapshot, so each of these
+  # panels has only ever rendered its "nothing here yet" arm. The populated arm
+  # is the one an operator actually looks at, and it is where the arithmetic is.
+  describe "panels with something in them" do
+    # The shape lib/naaf/metrics/collector.rb hands each fragment. The defaults
+    # describe a peer nothing has been measured for yet, so a test names only
+    # the fields it is about.
+    def peer(name:, id: 1, **over)
+      {
+        id: id, name: name, hostname: name, wg_ip: "10.8.0.2",
+        enabled: true, online: false, last_handshake_at: nil, endpoint: nil,
+        rx_bytes: 0, tx_bytes: 0, rx_bps: nil, tx_bps: nil,
+        rx_series: [].freeze, tx_series: [].freeze
+      }.merge(over).freeze
+    end
+
+    def iface(name:, **over)
+      {
+        name: name, role: nil, rx_bps: nil, tx_bps: nil, rx_pps: nil, tx_pps: nil,
+        rx_errs: 0, tx_errs: 0, rx_drop: 0, tx_drop: 0,
+        rx_series: [].freeze, tx_series: [].freeze
+      }.merge(over).freeze
+    end
+
+    # Pair each row's name cell with the chip in that same row. Asserting the
+    # set of chips alone would pass for a three-way branch whose arms had been
+    # swapped, which is the mistake that puts "online" beside a disabled peer.
+    def chips_by_name(body)
+      body.scan(%r{<tr>(.*?)</tr>}m).flatten.filter_map { |row|
+        name = row[%r{<td>([^<]*)</td>}, 1]
+        name && [name.strip, row[%r{<span class="tag[^"]*">([a-z]+)</span>}, 1]]
+      }.to_h
+    end
+
+    it "gives every peer the status chip it has earned" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(peers: [
+        peer(name: "nas", id: 1, wg_ip: "10.8.0.2", online: true,
+          last_handshake_at: Time.now - 30, endpoint: "81.82.83.84:51820",
+          rx_bps: 2048.0, tx_bps: 512.0, rx_series: [1024.0, 2048.0]),
+        peer(name: "laptop", id: 2, wg_ip: "10.8.0.3", last_handshake_at: Time.now - 7200),
+        peer(name: "old-phone", id: 3, wg_ip: "10.8.0.4", enabled: false, online: true)
+      ])
+      body = get("/metrics/clients").body
+
+      # A disabled peer that the kernel still counts as up is the case the
+      # order of the arms exists for: the admin turned it off, so say so.
+      expect(chips_by_name(body)).to be == {
+        "nas" => "online", "laptop" => "idle", "old-phone" => "disabled"
+      }
+      expect(body.include?("No clients yet")).to be == false
+    end
+
+    # An operator reading "976.6 KB" beside a peer that has moved a megabyte
+    # both ways cannot tell whether the column is stale or half-blind.
+    it "totals a peer's traffic in both directions, not just inbound" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(peers: [
+        peer(name: "nas", rx_bytes: 1_000_000, tx_bytes: 48_576)
+      ])
+      body = get("/metrics/clients").body
+
+      # Anchored to the total cell: a bare "1 MB" would also match the In or Out
+      # column if a later fixture gave this peer a rate.
+      expect(body).to be(:match?, %r{has-text-grey">\s*1 MB\s*</td>}) # 1_000_000 + 48_576 is exactly 1 MiB
+      expect(body.include?("976.6 KB")).to be == false
+    end
+
+    # The table is the table view for the sparkline beside it; a peer with a
+    # measured series and one with nothing measured have to coexist in it.
+    it "draws a peer's throughput trend without inventing a line for an unmeasured one" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(peers: [
+        peer(name: "nas", rx_series: [512.0, 4096.0, 2048.0]),
+        peer(name: "laptop", wg_ip: "10.8.0.3")
+      ])
+      body = get("/metrics/clients").body
+
+      expect(body).to be(:include?, "<title>nas inbound throughput</title>")
+      expect(body).to be(:include?, "<title>laptop inbound throughput</title>")
+      expect(body.scan("naaf-line").length).to be == 1
+      expect(body).not.to be(:match?, /NaN|Infinity/)
+    end
+
+    # Unknown is not zero: a peer whose rate has not been sampled yet must read
+    # as an em dash, or a live tunnel looks dead for a whole poll interval.
+    it "leaves an unmeasured peer's rate and endpoint as em dashes" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(peers: [peer(name: "nas")])
+      body = get("/metrics/clients").body
+
+      expect(body.scan("—").length).to be == 3 # in, out, endpoint
+      expect(body.include?("0 B/s")).to be == false
+    end
+
+    it "names each interface and labels the two that carry the tunnel" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(interfaces: [
+        iface(name: "ens3", role: :wan, rx_bps: 1_048_576.0, tx_bps: 2048.0,
+          rx_pps: 900.0, rx_errs: 2, tx_errs: 1, rx_drop: 3, tx_drop: 4,
+          rx_series: [1024.0, 2048.0]),
+        iface(name: "wg0", role: :wg, rx_bps: 4096.0, tx_bps: 1024.0, rx_pps: 12.0),
+        iface(name: "docker0")
+      ])
+      body = get("/metrics/interfaces").body
+
+      expect(body).to be(:include?, "<code>ens3</code>")
+      expect(body).to be(:include?, "<code>wg0</code>")
+      expect(body).to be(:include?, "<code>docker0</code>")
+      expect(body).to be(:include?, ">wan</span>")
+      expect(body).to be(:include?, ">tunnel</span>")
+      # An interface with no role gets no chip at all, rather than being called
+      # a tunnel because the ternary only ever asked "is it the wan".
+      expect(body.scan(%r{<span class="tag naaf-chip ml-1">}).length).to be == 2
+      expect(body).to be(:include?, "1 MB/s")
+      expect(body).not.to be(:match?, /NaN|Infinity/)
+      expect(body.include?("is not readable here")).to be == false
+    end
+
+    # Errors and drops are each summed over both directions. Reporting only the
+    # inbound half hides a NIC dropping everything it is asked to transmit.
+    it "sums an interface's errors and drops across both directions" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(interfaces: [
+        iface(name: "ens3", role: :wan, rx_errs: 1_200, tx_errs: 34, rx_drop: 5, tx_drop: 6)
+      ])
+      body = get("/metrics/interfaces").body
+
+      expect(body).to be(:match?, %r{title="since boot">\s*1,234\s*</td>})
+      expect(body).to be(:match?, %r{has-text-grey">\s*11\s*</td>})
+    end
+
+    it "lists the busiest names and clients once the resolver has answered anything" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(dns: {
+        qps: 4.5, total: 2_400, local: 400, upstream: 2_000, local_pct: 16.7,
+        top_domains: [["example.com", 1_234], ["nas.vpn", 12]].freeze,
+        top_clients: [["10.8.0.2", 2_000], ["10.8.0.3", 400]].freeze,
+        outcomes: {upstream_fail: 3, servfail: 2, aaaa_suppressed: 9}.freeze
+      })
+      body = get("/metrics/dns").body
+
+      expect(body).to be(:include?, "example.com")
+      expect(body).to be(:include?, "1,234")
+      expect(body).to be(:include?, "10.8.0.2")
+      expect(body).to be(:include?, "2,000")
+      # Both columns populated means neither "nothing yet" arm may show — a
+      # single shared guard would blank one of them.
+      expect(body.include?("nothing yet")).to be == false
+      expect(body).to be(:match?, /is-danger">\s*failed /)
+      expect(body).to be(:match?, /is-danger">\s*servfail /)
+      expect(body).to be(:include?, "AAAA suppressed")
+      expect(body).not.to be(:match?, /NaN|Infinity/)
+    end
+
+    # A resolver that answers everything locally still has clients; only the
+    # names column is empty. The two guards are independent for that reason.
+    it "keeps the empty half of the DNS panel labelled while the other half fills" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(dns: {
+        top_domains: [].freeze, top_clients: [["10.8.0.2", 12]].freeze
+      })
+      body = get("/metrics/dns").body
+
+      expect(body.scan("nothing yet").length).to be == 1
+      expect(body).to be(:include?, "10.8.0.2")
+    end
+
+    # A dashboard is one page, so a peer table that raises takes every panel
+    # with it — including the ones that were fine.
+    it "renders the whole dashboard with peers, interfaces and names present" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(
+        peers: [peer(name: "nas", online: true, last_handshake_at: Time.now - 30)],
+        interfaces: [iface(name: "wg0", role: :wg, rx_bps: 4096.0)],
+        dns: {top_domains: [["example.com", 7]].freeze}
+      )
+      res = get("/")
+
+      expect(res.status).to be == 200
+      expect(res.body).to be(:include?, ">online<")
+      expect(res.body).to be(:include?, "<code>wg0</code>")
+      expect(res.body).to be(:include?, "example.com")
+      expect(res.body).not.to be(:match?, /NaN|Infinity/)
     end
   end
 
@@ -880,6 +1083,20 @@ describe "Naaf::App integration" do
     expect(Naaf.db[:port_forwards][id: fwd[:id]]).to be_nil
   end
 
+  # The toggle reads the row before it writes it, to re-check the reserved-port
+  # rule on the way ON. A missing row would make that read nil and the guard is
+  # what keeps `row[:enabled]` from raising inside submit's redirect path.
+  it "answers a toggle for a port forward that has since been removed with 404" do
+    login!
+    nas = add_client("nas")
+    post_form("/port-forwards", "/port-forwards",
+      "client_id" => nas, "proto" => "tcp", "public_port" => "2222", "target_port" => "22")
+    fwd = Naaf.db[:port_forwards].where(public_port: 2222).first
+
+    res = post_stale("/port-forwards", "/port-forwards/#{fwd[:id]}/toggle", :port_forwards, fwd[:id])
+    expect(res.status).to be == 404
+  end
+
   # A forward becomes a DNAT in `inet naaf` prerouting, which runs before the
   # routing decision — so a forward on a port the box answers on rewrites
   # packets addressed to the host and hands them to a client. tcp/22 takes SSH
@@ -1044,6 +1261,28 @@ describe "Naaf::App integration" do
     expect(Naaf.db[:clients][id: dave][:enabled]).to be == true
   end
 
+  # Without the guard, toggle updates zero rows and redirects to a list that
+  # looks exactly as it did — the admin is told nothing went wrong while the
+  # client they meant to disable is still up on a different tab's copy of the
+  # page. Delete has the same shape, and both must say the row is gone.
+  it "answers a toggle or delete for a client that has since been removed with 404" do
+    login!
+    dave = add_client("dave")
+    expect(post_stale("/clients", "/clients/#{dave}/toggle", :clients, dave).status).to be == 404
+
+    erin = add_client("erin")
+    expect(post_stale("/clients", "/clients/#{erin}/delete", :clients, erin).status).to be == 404
+  end
+
+  # A download is a GET, so an id typed into the address bar reaches the guard
+  # directly. ConfigBuilder on a nil client raises, and error_handler flattens
+  # that into a 500 "Internal error" that reads as a broken server.
+  it "answers a config or QR download for an unknown client with 404" do
+    login!
+    expect(get("/clients/9999/config/split").status).to be == 404
+    expect(get("/clients/9999/qr/split").status).to be == 404
+  end
+
   # --- extra (split-tunnel) routes ---
 
   it "redirects the new pages to /login when unauthenticated" do
@@ -1128,6 +1367,20 @@ describe "Naaf::App integration" do
     post_form("/sites", "/sites/#{site[:id]}/delete", {})
     expect(Naaf.db[:sites].count).to be == 0
     expect(Naaf.db[:site_networks].count).to be == 0
+  end
+
+  # Every sub-action shares one lookup at the top of the id branch, so the guard
+  # has to hold for all of them: an edit, a toggle, a delete and adding a network
+  # all read the site before they touch it, and an admin holding a stale page
+  # must be told the site is gone rather than silently writing nothing.
+  it "answers any site action for a row that has since been removed with 404" do
+    login!
+    ["", "/toggle", "/delete", "/networks"].each do |suffix|
+      add_site
+      id = Naaf.db[:sites].where(name: "unifi").get(:id)
+      res = post_stale("/sites", "/sites/#{id}#{suffix}", :sites, id, "cidr" => "10.0.0.0/16")
+      expect(res.status).to be == 404
+    end
   end
 
   it "refuses a default route, a VPN-subnet overlap, IPv6, and a colliding pubkey" do
@@ -1277,6 +1530,39 @@ describe "Naaf::App integration" do
 
     save_settings("endpoint_v4" => "not-an-ip")
     expect(Naaf.settings[:endpoint_v4]).to be == "203.0.113.5"
+  end
+
+  # endpoint_v6 is rendered into a client config as [addr]:port, so whatever is
+  # stored is dialled verbatim by every phone that imports one. Normalizing on
+  # the way in means the config carries one spelling of the address and the
+  # settings page shows the same one back.
+  it "stores an IPv6 endpoint in its canonical form" do
+    login!
+    save_settings("endpoint_v6" => "  2001:0DB8:0000:0000:0000:0000:0000:0005  ")
+    expect(Naaf.settings[:endpoint_v6]).to be == "2001:db8::5"
+    expect(get("/settings").body).to be(:include?, %(value="2001:db8::5"))
+  end
+
+  # An IPv4 literal parses perfectly well — it is only the wrong family — and
+  # would be bracketed into "[203.0.113.9]:51820", which no client can dial.
+  it "refuses an IPv4 literal or a typo in the IPv6 endpoint field" do
+    login!
+    save_settings("endpoint_v6" => "2001:db8::5")
+
+    ["203.0.113.9", "2001:db8::zz", "not-an-address"].each do |bad|
+      save_settings("endpoint_v6" => bad)
+      expect(Naaf.settings[:endpoint_v6]).to be == "2001:db8::5"
+      expect(get("/settings").body).to be(:include?, "Must be an IPv6 address.")
+    end
+  end
+
+  # Dropping the AAAA endpoint has to be possible from the form: leaving it set
+  # after the address is gone hands out configs pointing at nothing.
+  it "clears the IPv6 endpoint when the field is left blank" do
+    login!
+    save_settings("endpoint_v6" => "2001:db8::5")
+    save_settings("endpoint_v6" => "")
+    expect(Naaf.settings[:endpoint_v6]).to be_nil
   end
 
   it "does not let the read-only subnet be written through the settings form" do

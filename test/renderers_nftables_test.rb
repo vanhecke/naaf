@@ -160,6 +160,53 @@ describe Naaf::Renderers::Nftables do
     expect(out.include?("192.168.1.0/25")).to be == false
   end
 
+  # One NAT rule per site, whatever the shape of its LANs. Two disjoint CIDRs
+  # cannot collapse into one address, so the destination has to become an
+  # anonymous set — emitting them bare would be a syntax error that fails the
+  # whole `nft -f`, taking every unrelated rule down with it.
+  it "wraps a masquerading site's disjoint LANs in one anonymous destination set" do
+    make_site(@db, name: "branch", masquerade: true,
+      networks: ["192.168.1.0/24", "10.10.0.0/24"])
+    out = Naaf::Renderers::Nftables.render(@db)
+    expect(out).to be(:include?,
+      %(ip saddr 10.8.0.0/24 ip daddr { 10.10.0.0/24, 192.168.1.0/24 } oifname "wg0" masquerade))
+    expect(out.scan("masquerade").length).to be == 3 # WAN + hairpin + this site
+  end
+
+  it "wraps disjoint LANs in a destination set for an snat site too" do
+    make_site(@db, name: "branch", address: "192.168.2.2", masquerade: true,
+      networks: ["192.168.1.0/24", "10.10.0.0/24"])
+    out = Naaf::Renderers::Nftables.render(@db)
+    expect(out).to be(:include?,
+      %(ip saddr 10.8.0.0/24 ip daddr { 10.10.0.0/24, 192.168.1.0/24 } ) +
+      %(oifname "wg0" snat to 192.168.2.2))
+    expect(out.scan("snat to").length).to be == 1
+  end
+
+  # Ranges are folded in sorted order, so a wide range can be followed by one
+  # that sits entirely inside it. Letting the narrower row win would pull the
+  # upper bound back to 8100 and silently close ports the operator did expose.
+  it "keeps the wider bound when a later range falls entirely inside an earlier one" do
+    nas = make_client(@db, name: "nas", wg_ip: "10.8.0.3")
+    @db[:exposed_ports].insert(client_id: nas, proto: "tcp", port: 8000, port_end: 8200)
+    @db[:exposed_ports].insert(client_id: nas, proto: "tcp", port: 8050, port_end: 8100)
+    tcp = Naaf::Renderers::Nftables.render(@db)[/set vpn_tcp_allow.*?\}/m]
+    expect(tcp).to be(:include?, "10.8.0.3 . 8000-8200")
+    expect(tcp.scan("10.8.0.3").length).to be == 1
+  end
+
+  # The mirror of the merge: 8101 was never exposed, so collapsing across it
+  # would open a port on the client that nobody asked for.
+  it "leaves a one-port gap between ranges alone instead of collapsing across it" do
+    nas = make_client(@db, name: "nas", wg_ip: "10.8.0.3")
+    @db[:exposed_ports].insert(client_id: nas, proto: "tcp", port: 8102, port_end: 8200)
+    @db[:exposed_ports].insert(client_id: nas, proto: "tcp", port: 8000, port_end: 8100)
+    tcp = Naaf::Renderers::Nftables.render(@db)[/set vpn_tcp_allow.*?\}/m]
+    expect(tcp).to be(:include?, "10.8.0.3 . 8000-8100")
+    expect(tcp).to be(:include?, "10.8.0.3 . 8102-8200")
+    expect(tcp.include?("8000-8200")).to be == false
+  end
+
   it "emits DNAT only for enabled forwards, plus the hairpin masquerade" do
     nas = make_client(@db, name: "nas", wg_ip: "10.8.0.3")
     @db[:port_forwards].insert(client_id: nas, public_port: 2222, proto: "tcp", target_port: 22, enabled: true)

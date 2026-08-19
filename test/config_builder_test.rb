@@ -453,6 +453,20 @@ describe Naaf::ConfigBuilder do
     expect(build("split")[/^AllowedIPs = .*/]).to be == "AllowedIPs = 10.8.0.0/24, 0.0.0.0/0"
   end
 
+  # param_cidr is the only writer the form has, so an unparseable row means the
+  # database was edited by hand or by a future migration. A route the audit
+  # cannot parse is a route it cannot clear, and for the ws flavors an
+  # unaudited AllowedIPs is exactly the line that captures the relay's own
+  # session — so refuse rather than emit it and hope.
+  it "refuses an unparseable extra route for the ws flavors rather than auditing nothing" do
+    @db[:extra_routes].insert(client_id: nil, cidr: "not-a-cidr")
+    with_wstunnel do
+      Naaf::ConfigBuilder::WS_FLAVORS.each do |flavor|
+        expect(render_error(flavor)).to be =~ /AllowedIPs route not-a-cidr is not a valid CIDR/
+      end
+    end
+  end
+
   # The weaker shape, and the likelier one: no /0 anywhere, just a route that
   # happens to contain the hub. wg-quick puts `ip route add 203.0.113.0/24 dev
   # wg0` in the main table, in front of wstunnel's own session.

@@ -18,10 +18,27 @@ describe "bin/naaf-helper" do
     return "PUB\n" if cmd == ["wg", "pubkey"]
     return "PSK\n" if cmd == ["wg", "genpsk"]
     return "DUMP\n" if cmd == ["wg", "show"]
+    return @addr_show.to_s if argv == ["ip", "-4", "-o", "addr", "show", "dev", WG_IF]
+    return @route_show.to_s if argv == ["ip", "-4", "route", "show", "proto", SITE_ROUTE_PROTO, "dev", WG_IF]
     ""
   end
 
   def steal_targets = @steal_targets || []
+
+  # Shaped like real `ip -4 -o addr show` / `ip -4 route show` output, trailing
+  # junk included: the helper parses those lines with a regex and a field split,
+  # so a stub that only emits the bare address would not exercise the parse.
+  def addr_line(cidr) = "4: #{WG_IF}    inet #{cidr} scope global #{WG_IF}\\       valid_lft forever preferred_lft forever\n"
+
+  # iproute2 suppresses the fields it was filtered on, so `ip -4 route show
+  # proto 158 dev wg0` prints neither `proto` nor `dev` back.
+  def route_line(dst) = "#{dst} scope link\n"
+
+  def ip_calls = @run_calls.map { |c| c[:argv] }.select { |a| a.first == "ip" }
+
+  def addr_writes = ip_calls.select { |a| a[0, 2] == ["ip", "addr"] }
+
+  def route_writes = ip_calls.select { |a| a[0, 2] == ["ip", "route"] }
 
   def apply_line(**extra)
     JSON.generate({
@@ -87,6 +104,64 @@ describe "bin/naaf-helper" do
       .to be(:include?, "covers 203.0.113.1")
     expect(handle(apply_line(addresses: [{addr: "203.0.113.1", dev: WG_IF}]))[:error])
       .to be(:include?, "covers 203.0.113.1")
+  end
+
+  # Everything below drives the add/delete diff. Every other apply test either
+  # raises during validation or passes empty lists, so the diff never actually
+  # moved an address or a route: a helper that added nothing, or deleted the
+  # wrong thing, would still have gone green.
+  describe "address diff" do
+    it "adds a site address the tunnel is not carrying yet" do
+      @addr_show = addr_line("10.8.0.1/24")
+      expect(handle(apply_line(addresses: [{addr: "10.8.0.9", dev: WG_IF}]))).to be == {ok: true}
+      expect(addr_writes).to be == [["ip", "addr", "replace", "10.8.0.9/32", "dev", WG_IF]]
+    end
+
+    it "drops a /32 the site no longer claims, so a revoked address cannot answer forever" do
+      @addr_show = addr_line("10.8.0.1/24") + addr_line("10.8.0.9/32")
+      expect(handle(apply_line(addresses: []))).to be == {ok: true}
+      expect(addr_writes).to be == [["ip", "addr", "del", "10.8.0.9/32", "dev", WG_IF]]
+    end
+
+    it "never deletes the interface's own /24 — that address is proto kernel and is the tunnel" do
+      @addr_show = addr_line("10.8.0.1/24") + addr_line("10.8.0.9/32") + addr_line("10.8.0.10/32")
+      expect(handle(apply_line(addresses: [{addr: "10.8.0.10", dev: WG_IF}]))).to be == {ok: true}
+      deleted = addr_writes.select { |a| a[2] == "del" }.map { |a| a[3] }
+      expect(deleted).to be == ["10.8.0.9/32"]
+    end
+
+    it "leaves an address that is present and still wanted completely alone" do
+      @addr_show = addr_line("10.8.0.1/24") + addr_line("10.8.0.9/32")
+      expect(handle(apply_line(addresses: [{addr: "10.8.0.9", dev: WG_IF}]))).to be == {ok: true}
+      expect(addr_writes).to be(:empty?)
+    end
+  end
+
+  describe "route diff" do
+    it "adds a desired site route the kernel does not carry yet" do
+      expect(handle(apply_line(routes: [{dst: "192.168.10.0/24", dev: WG_IF}]))).to be == {ok: true}
+      expect(route_writes).to be ==
+        [["ip", "route", "replace", "192.168.10.0/24", "dev", WG_IF, "proto", SITE_ROUTE_PROTO]]
+    end
+
+    it "deletes a proto 158 route the site no longer asks for" do
+      @route_show = route_line("192.168.10.0/24")
+      expect(handle(apply_line(routes: []))).to be == {ok: true}
+      expect(route_writes).to be ==
+        [["ip", "route", "del", "192.168.10.0/24", "proto", SITE_ROUTE_PROTO, "dev", WG_IF]]
+    end
+
+    it "leaves an unchanged route in place instead of churning it on every apply" do
+      @route_show = route_line("192.168.10.0/24")
+      expect(handle(apply_line(routes: [{dst: "192.168.10.0/24", dev: WG_IF}]))).to be == {ok: true}
+      expect(route_writes).to be(:empty?)
+    end
+
+    it "skips a default route found in the kernel's output rather than deleting WAN egress" do
+      @route_show = "default via 10.8.0.1\n" + route_line("192.168.10.0/24")
+      expect(handle(apply_line(routes: []))).to be == {ok: true}
+      expect(route_writes.map { |a| a[3] }).to be == ["192.168.10.0/24"]
+    end
   end
 
   describe "validators" do
