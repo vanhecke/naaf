@@ -1134,6 +1134,80 @@ describe "Naaf::App integration" do
     expect(body).to be(:include?, "SRVPUB")
     expect(body).to be(:include?, "10.8.0.0/24")
     expect(body).to be(:include?, "Sites")
+    expect(body).to be(:include?, "Endpoint = 203.0.113.5:51820")
+  end
+
+  it "edits an existing site's endpoint, key, keepalive and masquerade" do
+    login!
+    add_site
+    site = Naaf.db[:sites].first
+    # Same pubkey: the uniqueness check must exclude this row or a no-op
+    # save (and any later field-only edit) would refuse its own key.
+    post_form("/sites", "/sites/#{site[:id]}", {
+      "name" => "home",
+      "pubkey" => site_pub,
+      "endpoint_host" => "203.0.113.9",
+      "endpoint_port" => "51820",
+      "keepalive" => "25",
+      "address" => "",
+      "psk" => ""
+    })
+    expect(Naaf.db[:sites][id: site[:id]][:name]).to be == "home"
+
+    post_form("/sites", "/sites/#{site[:id]}", {
+      "name" => "home",
+      "pubkey" => site_pub2,
+      "endpoint_host" => "unifi.example.com",
+      "endpoint_port" => "51821",
+      "keepalive" => "15",
+      "address" => "192.168.2.2",
+      "psk" => site_pub,
+      "masquerade" => "on"
+    })
+    row = Naaf.db[:sites][id: site[:id]]
+    expect(row[:name]).to be == "home"
+    expect(row[:pubkey]).to be == site_pub2
+    expect(row[:endpoint]).to be == "unifi.example.com:51821"
+    expect(row[:keepalive]).to be == 15
+    expect(row[:address]).to be == "192.168.2.2"
+    expect(row[:psk]).to be == site_pub
+    expect(row[:masquerade]).to be == true
+    expect(Naaf.db[:site_networks].where(site_id: site[:id]).select_map(:cidr))
+      .to be == ["192.168.1.0/24"]
+  end
+
+  it "refuses an edit whose new endpoint sits inside an existing site network" do
+    login!
+    add_site(cidr: "192.168.1.0/24")
+    site = Naaf.db[:sites].first
+    post_form("/sites", "/sites/#{site[:id]}", {
+      "name" => "unifi",
+      "pubkey" => site_pub,
+      "endpoint_host" => "192.168.1.1",
+      "endpoint_port" => "51820",
+      "keepalive" => "25",
+      "address" => "",
+      "psk" => ""
+    })
+    expect(Naaf.db[:sites][id: site[:id]][:endpoint]).to be == "203.0.113.9:51820"
+  end
+
+  it "refuses this box's own server key as a site pubkey" do
+    login!
+    Naaf.db[:settings].update(server_pubkey: site_pub)
+    add_site
+    expect(Naaf.db[:sites].count).to be == 0
+  end
+
+  it "renders an edit form and a remote peer block that dials this box" do
+    login!
+    add_site
+    site = Naaf.db[:sites].first
+    body = get("/sites").body
+    expect(body).to be(:include?, "Edit site")
+    expect(body).to be(:include?, %(action="/sites/#{site[:id]}"))
+    expect(body).to be(:include?, "PersistentKeepalive = 25")
+    expect(body).to be(:include?, %(value="#{site_pub}"))
   end
 
   # --- settings editor ---

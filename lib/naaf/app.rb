@@ -343,7 +343,7 @@ module Naaf
     # Site CIDRs are IPv4, never a default route, never overlapping the VPN
     # subnet or another site, and must not contain the remote endpoint (that
     # would route the handshake into the tunnel).
-    def param_site_cidr(raw, endpoint:)
+    def param_site_cidr(raw, endpoint:, except_id: nil)
       cidr = param_cidr(raw)
       ip = IPAM.parse_v4(cidr)
       raise ValidationError, "Site networks must be IPv4 CIDRs." unless ip
@@ -367,20 +367,46 @@ module Naaf
         raise ValidationError,
           "Site network #{cidr} contains this box's endpoint address, which would steal WAN reachability."
       end
-      clash = Naaf.db[:site_networks].all.find { |row| IPAM.overlap?(cidr, row[:cidr]) }
+      clash = Naaf.db[:site_networks].all.find { |row|
+        next if except_id && row[:id] == except_id
+        IPAM.overlap?(cidr, row[:cidr])
+      }
       if clash
         raise ValidationError, "Site network #{cidr} overlaps #{clash[:cidr]}, which is already routed to a site."
       end
       cidr
     end
 
-    def assert_unused_pubkey!(key)
+    def assert_unused_pubkey!(key, except_site_id: nil)
+      if key == Naaf.settings[:server_pubkey]
+        raise ValidationError,
+          "That public key is this box's own server key — the remote must have a different identity."
+      end
       if Naaf.db[:clients].where(pubkey: key).count > 0
         raise ValidationError, "That public key already belongs to a client."
       end
-      if Naaf.db[:sites].where(pubkey: key).count > 0
+      q = Naaf.db[:sites].where(pubkey: key)
+      q = q.exclude(id: except_site_id) if except_site_id
+      if q.count > 0
         raise ValidationError, "That public key already belongs to a site."
       end
+    end
+
+    # Shared by add and edit so a new field cannot land on only one form.
+    def site_attrs(params, except_site_id: nil)
+      endpoint = param_site_endpoint(params["endpoint_host"], params["endpoint_port"])
+      pubkey = param_wg_key(params["pubkey"])
+      assert_unused_pubkey!(pubkey, except_site_id: except_site_id)
+      {
+        name: param_label(params["name"]),
+        pubkey: pubkey,
+        psk: optional_wg_key(params["psk"]),
+        endpoint: endpoint,
+        keepalive: param_keepalive(params["keepalive"]),
+        address: param_site_address(params["address"]),
+        masquerade: param_bool(params["masquerade"]),
+        notes: presence(params["notes"])
+      }
     end
 
     # A client selector that may be left blank to mean "global" (client_id NULL).
@@ -781,27 +807,25 @@ module Naaf
 
         r.post true do
           submit("/sites") do
-            endpoint = param_site_endpoint(r.params["endpoint_host"], r.params["endpoint_port"])
-            pubkey = param_wg_key(r.params["pubkey"])
-            assert_unused_pubkey!(pubkey)
-            cidr = param_site_cidr(r.params["cidr"], endpoint: endpoint)
-            id = Naaf.db[:sites].insert(
-              name: param_label(r.params["name"]),
-              pubkey: pubkey,
-              psk: optional_wg_key(r.params["psk"]),
-              endpoint: endpoint,
-              keepalive: param_keepalive(r.params["keepalive"]),
-              address: param_site_address(r.params["address"]),
-              masquerade: param_bool(r.params["masquerade"]),
-              notes: presence(r.params["notes"]),
-              created_at: Time.now
-            )
+            attrs = site_attrs(r.params)
+            cidr = param_site_cidr(r.params["cidr"], endpoint: attrs[:endpoint])
+            id = Naaf.db[:sites].insert(attrs.merge(created_at: Time.now))
             Naaf.db[:site_networks].insert(site_id: id, cidr: cidr)
           end
         end
 
         r.on Integer do |id|
           site = Naaf.db[:sites][id: id] || r.halt(404)
+
+          r.post true do
+            submit("/sites") do
+              attrs = site_attrs(r.params, except_site_id: id)
+              Naaf.db[:site_networks].where(site_id: id).each do |n|
+                param_site_cidr(n[:cidr], endpoint: attrs[:endpoint], except_id: n[:id])
+              end
+              Naaf.db[:sites].where(id: id).update(attrs)
+            end
+          end
 
           r.post "toggle" do
             submit("/sites") { Naaf.db[:sites].where(id: id).update(enabled: !site[:enabled]) }
