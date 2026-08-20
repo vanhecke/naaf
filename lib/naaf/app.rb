@@ -864,6 +864,19 @@ module Naaf
         r.get true do
           @clients = Naaf.db[:clients].order(:name).all
           @rows = Naaf.db[:extra_routes].order(:client_id).all
+          @site_routes = Naaf.db[:site_networks]
+            .join(:sites, id: :site_id)
+            .select(
+              Sequel[:site_networks][:cidr],
+              Sequel[:sites][:id],
+              Sequel[:sites][:name],
+              Sequel[:sites][:enabled]
+            )
+            .order(Sequel[:sites][:name], Sequel[:site_networks][:cidr])
+            .all
+          @redundant = @rows.to_h { |row|
+            [row[:id], @site_routes.find { |s| s[:enabled] && IPAM.overlap?(row[:cidr], s[:cidr]) }]
+          }.compact
           view("extra_routes")
         end
 
