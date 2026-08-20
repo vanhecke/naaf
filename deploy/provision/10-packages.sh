@@ -37,11 +37,16 @@ apt-get -y upgrade
 #                    delegation exists BEFORE it asks a rate-limited CA. Debian
 #                    minimal ships no resolver CLI at all, and `getent hosts`
 #                    can only do A/AAAA — it cannot see a CNAME or a TXT.
+#   iputils-ping     the Troubleshoot page runs it as the unprivileged naaf
+#   traceroute       user. Debian ships ping with cap_net_raw+ep and
+#                    traceroute defaults to UDP, so neither needs root — which
+#                    is the whole reason they are not helper commands. curl is
+#                    the third and is already above.
 log "installing packages"
 apt-get install -y --no-install-recommends \
   wireguard wireguard-tools nftables sqlite3 git rsync curl ca-certificates jq \
   xz-utils build-essential pkg-config libssl-dev unattended-upgrades \
-  openssl bind9-dnsutils
+  openssl bind9-dnsutils iputils-ping traceroute
 
 cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
 APT::Periodic::Update-Package-Lists "1";

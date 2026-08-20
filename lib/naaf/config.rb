@@ -47,6 +47,13 @@ module Naaf
       "NAAF_METRICS_POLL_INTERVAL" => "5",
       "NAAF_METRICS_DNS_NAMES" => "1",
 
+      # troubleshoot page: ping / traceroute / curl, run unprivileged in the web
+      # process. Set NAAF_DIAG_ENABLED=0 to remove the three routes and their
+      # panels; the flow tester is pure and stays either way.
+      "NAAF_DIAG_ENABLED" => "1",
+      "NAAF_DIAG_TIMEOUT" => "10",
+      "NAAF_DIAG_CONCURRENCY" => "2",
+
       # first-boot seeds for the settings table (the DB wins after first boot)
       "NAAF_WG_INTERFACE" => "wg0",
       "NAAF_WG_SUBNET" => "10.8.0.0/24",

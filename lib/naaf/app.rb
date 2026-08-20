@@ -14,6 +14,7 @@ require_relative "ipam"
 require_relative "reconciler"
 require_relative "config_builder"
 require_relative "flow"
+require_relative "diagnostics"
 require_relative "zone"
 require_relative "metrics"
 require_relative "renderers/svg"
@@ -578,6 +579,68 @@ module Naaf
       }
     end
 
+    DIAG_TOOLS = %w[ping traceroute curl].freeze
+    DIAG_SCHEMES = %w[tcp http https].freeze
+    DIAG_PORTS = {"tcp" => 443, "http" => 80, "https" => 443}.freeze
+    # Must start with a slash, and admits nothing with a space, a control
+    # character or a leading dash in it.
+    DIAG_PATH = %r{\A/[A-Za-z0-9._~\-/%?&=:@+]{0,512}\z}
+    METADATA_RANGE = "169.254.0.0/16"
+
+    # Same doctrine as ConfigBuilder's WS_SAFE_* classes: an anchored whitelist
+    # where the FIRST character matters as much as the rest. HOSTNAME starts
+    # [a-z0-9], so a host of "-o/tmp/x" can never reach the child as an argv
+    # flag, and there is nothing left to escape around. Dotted quads match it
+    # too, which is why there is no separate address branch.
+    def param_diag_host(raw)
+      host = raw.to_s.strip.downcase
+      raise ValidationError, "Host is required." if host.empty?
+      unless HOSTNAME.match?(host)
+        raise ValidationError, "Host must be a hostname or an IPv4 address."
+      end
+      host
+    end
+
+    def param_diag_curl(params)
+      host = param_diag_host(params["host"])
+      scheme = params["scheme"].to_s.downcase
+      unless DIAG_SCHEMES.include?(scheme)
+        raise ValidationError, "Scheme must be tcp, http or https."
+      end
+      raw_port = params["port"].to_s.strip
+      port = raw_port.empty? ? DIAG_PORTS.fetch(scheme) : param_port(raw_port)
+      path = params["path"].to_s.strip
+      path = "/" if path.empty?
+      unless DIAG_PATH.match?(path)
+        raise ValidationError, "Path must start with / and hold no spaces."
+      end
+      # A GET of 169.254.169.254 is how a cloud instance's credentials leave it.
+      # ping and traceroute cannot carry a response body, so they are not
+      # refused; curl can, so it is.
+      addr = IPAM.parse_v4(host)
+      if addr && IPAM.parse_v4(METADATA_RANGE).include?(addr)
+        raise ValidationError,
+          "#{METADATA_RANGE} is the cloud metadata range and is refused here."
+      end
+      {host: host, port: port, scheme: scheme, path: path,
+       insecure: param_bool(params["insecure"])}
+    end
+
+    def run_diagnostic(tool, params)
+      case tool
+      when "ping"
+        Diagnostics.run(:ping, Diagnostics.ping_argv(param_diag_host(params["host"])))
+      when "traceroute"
+        Diagnostics.run(:traceroute,
+          Diagnostics.traceroute_argv(param_diag_host(params["host"])))
+      else
+        opts = param_diag_curl(params)
+        url = Diagnostics.curl_url(**opts.slice(:host, :port, :scheme, :path))
+        Diagnostics.run(:curl,
+          Diagnostics.curl_argv(url, scheme: opts[:scheme], insecure: opts[:insecure]))
+      end
+    end
+
     def param_mtu(raw)
       n = Integer(raw.to_s, exception: false)
       raise ValidationError, "MTU must be between 1280 and 1500." unless n && (1280..1500).cover?(n)
@@ -1109,6 +1172,27 @@ module Naaf
           end
           if r.env["HTTP_HX_REQUEST"]
             render("troubleshoot/flow", locals: {report: @report, error: @flow_error})
+          else
+            @settings = Naaf.settings
+            view("troubleshoot")
+          end
+        end
+
+        # POST, unlike the flow tester: these put packets on the wire, so a
+        # bookmark, a reload or a browser prefetch must not be able to re-run
+        # them. CSRF is already automatic here (check_csrf! unless r.get?) and
+        # htmx serializes the hidden field with the form.
+        r.post String do |tool|
+          r.halt(404) unless DIAG_TOOLS.include?(tool) && Diagnostics.enabled?
+          @diag_tool = tool
+          begin
+            @diag_result = run_diagnostic(tool, r.params)
+          rescue ValidationError => e
+            @diag_error = e.message
+          end
+          if r.env["HTTP_HX_REQUEST"]
+            render("troubleshoot/output",
+              locals: {tool: tool, result: @diag_result, error: @diag_error})
           else
             @settings = Naaf.settings
             view("troubleshoot")
