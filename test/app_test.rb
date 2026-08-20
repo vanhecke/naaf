@@ -1334,6 +1334,27 @@ describe "Naaf::App integration" do
     expect(Naaf.db[:extra_routes][id: glob[:id]]).to be_nil
   end
 
+  it "lists site networks read-only and flags a redundant extra route" do
+    login!
+    add_site(name: "room", cidr: "192.168.1.0/24")
+    add_site(name: "off", pubkey: site_pub2, cidr: "10.20.0.0/16")
+    off = Naaf.db[:sites].where(name: "off").first
+    post_form("/sites", "/sites/#{off[:id]}/toggle", {})
+    post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "192.168.1.0/24")
+    post_form("/extra-routes", "/extra-routes", "client_id" => "", "cidr" => "10.20.0.0/16")
+
+    body = get("/extra-routes").body
+    expect(body).to be(:include?, "<code>192.168.1.0/24</code>")
+    expect(body).to be(:include?, "From sites")
+    expect(body).to be(:include?, "managed on Sites")
+    expect(body).to be(:include?, "also routed by site room")
+    expect(body).not.to be(:include?, "also routed by site off")
+    expect(body).to be(:include?, "disabled")
+    expect(body).not.to be(:include?, "/site_networks/")
+    extra = Naaf.db[:extra_routes].where(cidr: "192.168.1.0/24").first
+    expect(body).to be(:include?, "/extra-routes/#{extra[:id]}/delete")
+  end
+
   it "rejects routes that are not valid CIDR and one for an unknown client" do
     login!
     add_client("nas")

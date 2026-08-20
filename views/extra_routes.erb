@@ -10,12 +10,51 @@
   config already routes everything). A <em>global</em> route applies to every
   client; a route bound to a client applies to that client only. The VPN subnet
   itself is always included, so you only list networks <em>behind</em> the tunnel.
-  Networks of a <a href="/sites">site</a> are folded in automatically — do not
-  add them here as well.
+  Networks of a <a href="/sites">site</a> are folded into split configs
+  automatically and listed below so the split-tunnel set is visible in one place —
+  do not add them here as well.
 </p>
 
+<% unless @site_routes.empty? %>
+  <h2 class="title is-5">From sites</h2>
+  <p class="content is-small has-text-grey">
+    Managed on the site — these install a hub route and fold into every split
+    config. There is nothing to delete here.
+  </p>
+  <table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+      <tr>
+        <th>Scope</th>
+        <th>CIDR</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @site_routes.each do |row| %>
+        <tr>
+          <td>
+            <span class="tag is-light">site</span>
+            <%= h(row[:name]) %>
+            <% unless row[:enabled] %>
+              <span class="tag naaf-chip">disabled</span>
+            <% end %>
+          </td>
+          <td><code><%= h(row[:cidr]) %></code></td>
+          <td><a href="/sites">managed on Sites →</a></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
 <% if @rows.empty? %>
-  <div class="notification">No extra routes. Split configs route only the VPN subnet.</div>
+  <div class="notification">
+    <% if @site_routes.any? %>
+      No extra routes. Split configs already include the VPN subnet and the site networks above.
+    <% else %>
+      No extra routes. Split configs route only the VPN subnet.
+    <% end %>
+  </div>
 <% else %>
   <% by_id = @clients.to_h { |c| [c[:id], c] } %>
   <table class="table is-fullwidth is-striped is-hoverable">
@@ -39,7 +78,12 @@
               <span class="tag is-warning">client #<%= row[:client_id] %></span>
             <% end %>
           </td>
-          <td><code><%= row[:cidr] %></code></td>
+          <td>
+            <code><%= row[:cidr] %></code>
+            <% if (site = @redundant[row[:id]]) %>
+              <span class="tag is-warning is-light">also routed by site <%= h(site[:name]) %></span>
+            <% end %>
+          </td>
           <td>
             <form method="post" action="/extra-routes/<%= row[:id] %>/delete">
               <%= csrf_tag("/extra-routes/#{row[:id]}/delete") %>
