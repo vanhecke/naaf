@@ -1,0 +1,42 @@
+<% if error %>
+  <div class="notification is-danger"><%= h(error) %></div>
+<% elsif report %>
+  <% chip = Naaf::Flow::CHIP[report.verdict] %>
+  <% tone = {pass: "is-success", fail: "is-danger", warn: "is-warning"}[report.verdict] || "naaf-chip" %>
+  <div class="box <%= {fail: "naaf-alert", warn: "naaf-warn"}[report.verdict] %>">
+    <div class="level is-mobile is-flex-wrap-wrap mb-3">
+      <div class="level-left">
+        <span class="level-item tag <%= tone %>"><%= chip %></span>
+        <p class="level-item"><%= h(report.summary) %></p>
+      </div>
+    </div>
+
+    <%# A step list, not a diagram: the interesting part is which line decided
+        it, and a line of nft is text. %>
+    <% report.steps.each do |step| %>
+      <% mark = {pass: "is-success", fail: "is-danger", warn: "is-warning",
+                 unknown: "naaf-chip"}[step.verdict] || "is-light" %>
+      <div class="media is-align-items-flex-start">
+        <div class="media-left">
+          <span class="tag <%= mark %>"><%= step.verdict %></span>
+        </div>
+        <div class="media-content">
+          <p class="has-text-weight-semibold is-size-7 mb-1"><%= h(step.stage) %></p>
+          <p class="is-size-7"><%= h(step.detail) %></p>
+          <% if step.rule %>
+            <pre class="naaf-log is-size-7 mt-1 mb-0"><%= h(step.rule) %></pre>
+          <% end %>
+          <% if step.fix %>
+            <p class="is-size-7 mt-1"><a href="<%= step.fix %>">Change it on <%= step.fix %> →</a></p>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+
+    <p class="is-size-7 has-text-grey mt-4 mb-0">
+      This reads the database, not the kernel. It cannot see the remote end of a
+      site, the base firewall as loaded, or whether a peer is actually
+      handshaking. Use ping and traceroute above for what the kernel really does.
+    </p>
+  </div>
+<% end %>

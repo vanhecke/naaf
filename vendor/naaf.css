@@ -190,3 +190,20 @@ code {
 
 /* A wide table stays inside its card instead of scrolling the whole page. */
 .naaf-scroll { overflow-x: auto; }
+
+/* Diagnostic output: remote text, sometimes wide, always long. Wrapping beats a
+   horizontal scrollbar for a traceroute, and a height cap keeps the page usable
+   when curl -v echoes a certificate chain. */
+pre.naaf-log {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+/* htmx sets .htmx-request on the element that issued the request for as long as
+   it is in flight. This is the whole of the busy indicator -- no script, and no
+   spinner that keeps spinning after a failure. */
+.naaf-busy { visibility: hidden; }
+.htmx-request .naaf-busy,
+.htmx-request.naaf-busy { visibility: visible; }
