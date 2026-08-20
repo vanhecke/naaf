@@ -1738,6 +1738,252 @@ describe "Naaf::App integration" do
     expect(res.headers["location"]).to be == "/"
   end
 
+  describe "conditional DNS forwarding" do
+    def forward(**over)
+      post_form("/dns-records", "/dns-forwarders",
+        {"suffix" => "example.com", "server" => "9.9.9.9", "port" => "53"}.merge(over))
+    end
+
+    def site_with_dns(**over)
+      add_site(**{"dns_server" => "192.168.1.53", "dns_port" => "53",
+                  "dns_domains" => "roomkoetje.be"}.merge(over))
+    end
+
+    it "adds a manual forwarder, shows it, and deletes it" do
+      login!
+      forward(notes: "quad9")
+      row = Naaf.db[:dns_forwarders].first
+      expect(row[:suffix]).to be == "example.com"
+      expect(row[:server]).to be == "9.9.9.9"
+      expect(row[:port]).to be == 53
+      expect(row[:site_id]).to be_nil
+
+      body = get("/dns-records").body
+      expect(body).to be(:include?, "Conditional forwarding")
+      expect(body).to be(:include?, "<code>*.example.com</code>")
+      expect(body).to be(:include?, "/dns-forwarders/#{row[:id]}/delete")
+
+      post_form("/dns-records", "/dns-forwarders/#{row[:id]}/delete", {})
+      expect(Naaf.db[:dns_forwarders].count).to be == 0
+    end
+
+    it "normalizes a leading star, a trailing dot and the case" do
+      login!
+      forward(suffix: "*.Example.COM.")
+      expect(Naaf.db[:dns_forwarders].first[:suffix]).to be == "example.com"
+    end
+
+    it "defaults the port to 53 when the field is blank" do
+      login!
+      forward(port: "")
+      expect(Naaf.db[:dns_forwarders].first[:port]).to be == 53
+    end
+
+    # A single label would capture an entire TLD, and ".com" is not what anyone
+    # means when they type it into that box.
+    it "refuses a bare top-level domain" do
+      login!
+      res = forward(suffix: "com")
+      expect(res.headers["location"]).to be == "/dns-records"
+      expect(Naaf.db[:dns_forwarders].count).to be == 0
+      expect(get("/dns-records").body).to be(:include?, "at least two labels")
+    end
+
+    it "refuses a name inside the internal zone, which this resolver answers" do
+      login!
+      forward(suffix: "nas.vpn")
+      expect(Naaf.db[:dns_forwarders].count).to be == 0
+      expect(get("/dns-records").body).to be(:include?, "inside the internal zone")
+    end
+
+    it "refuses 0.0.0.0 and this resolver's own listening address" do
+      login!
+      forward(server: "0.0.0.0")
+      forward(suffix: "b.example.com", server: "10.8.0.1")
+      forward(suffix: "c.example.com", server: "127.0.0.1")
+      expect(Naaf.db[:dns_forwarders].count).to be == 0
+      expect(get("/dns-records").body).to be(:include?, "loop back to itself")
+    end
+
+    # Port-sensitive on purpose: 127.0.0.1:5335 is a legitimate local recursor.
+    it "allows the loopback on a port this resolver is not listening on" do
+      login!
+      forward(server: "127.0.0.1", port: "5335")
+      expect(Naaf.db[:dns_forwarders].count).to be == 1
+    end
+
+    it "names the owner when a suffix is already forwarded" do
+      login!
+      forward
+      forward(server: "1.1.1.1")
+      expect(Naaf.db[:dns_forwarders].count).to be == 1
+      body = get("/dns-records").body
+      expect(body).to be(:include?, "already forwarded to 9.9.9.9 by a global rule")
+      expect(body).not.to be(:include?, "That entry already exists")
+    end
+
+    # The clash a SQL `exclude(site_id: x)` cannot see: `site_id != x` is NULL,
+    # and therefore false, for exactly the global rows. Without the Ruby
+    # comparison this reaches the UNIQUE constraint and reports the generic
+    # message instead of naming the owner.
+    it "names a global rule when a site tries to claim its suffix" do
+      login!
+      forward(suffix: "roomkoetje.be")
+      res = site_with_dns
+      expect(res.headers["location"]).to be == "/sites"
+      expect(Naaf.db[:sites].count).to be == 0
+      expect(get("/sites").body).to be(:include?, "already forwarded to 9.9.9.9 by a global rule")
+    end
+
+    it "names the site when a manual rule tries to claim its suffix" do
+      login!
+      site_with_dns(name: "room")
+      forward(suffix: "roomkoetje.be")
+      expect(Naaf.db[:dns_forwarders].count).to be == 1
+      expect(get("/dns-records").body).to be(:include?, "by site room")
+    end
+
+    it "creates a site with a resolver and lists it read-only on the DNS page" do
+      login!
+      site_with_dns(name: "room")
+      row = Naaf.db[:dns_forwarders].first
+      site = Naaf.db[:sites].first
+      expect(row[:site_id]).to be == site[:id]
+      expect(row[:server]).to be == "192.168.1.53"
+
+      body = get("/dns-records").body
+      expect(body).to be(:include?, "site room")
+      expect(body).not.to be(:include?, "/dns-forwarders/#{row[:id]}/delete")
+    end
+
+    # Not a check that can be forgotten: the delete route filters on
+    # site_id IS NULL, so a site-owned row is a no-op there BY QUERY.
+    it "will not delete a site-owned row through the DNS page" do
+      login!
+      site_with_dns
+      row = Naaf.db[:dns_forwarders].first
+      post_form("/dns-records", "/dns-forwarders/#{row[:id]}/delete", {})
+      expect(Naaf.db[:dns_forwarders].count).to be == 1
+    end
+
+    it "removes one of a site's domains from the site page" do
+      login!
+      site_with_dns(dns_domains: "roomkoetje.be\nkoetje.local")
+      expect(Naaf.db[:dns_forwarders].count).to be == 2
+      site = Naaf.db[:sites].first
+      row = Naaf.db[:dns_forwarders].where(suffix: "koetje.local").first
+
+      body = get("/sites").body
+      expect(body).to be(:include?, "<code>*.koetje.local</code>")
+      post_form("/sites", "/sites/#{site[:id]}/forwarders/#{row[:id]}/delete", {})
+      expect(Naaf.db[:dns_forwarders].map { |f| f[:suffix] }).to be == ["roomkoetje.be"]
+    end
+
+    it "adds a domain to an existing site and leaves the others alone" do
+      login!
+      site_with_dns
+      site = Naaf.db[:sites].first
+      post_form("/sites", "/sites/#{site[:id]}", {
+        "name" => "unifi", "pubkey" => site_pub, "endpoint_host" => "203.0.113.9",
+        "endpoint_port" => "51820", "keepalive" => "25", "address" => "", "psk" => "",
+        "dns_server" => "192.168.1.53", "dns_port" => "53", "dns_domains" => "koetje.local"
+      })
+      expect(Naaf.db[:dns_forwarders].map { |f| f[:suffix] }.sort)
+        .to be == ["koetje.local", "roomkoetje.be"]
+    end
+
+    it "repoints every one of a site's domains when its resolver changes" do
+      login!
+      site_with_dns(dns_domains: "roomkoetje.be\nkoetje.local")
+      site = Naaf.db[:sites].first
+      post_form("/sites", "/sites/#{site[:id]}", {
+        "name" => "unifi", "pubkey" => site_pub, "endpoint_host" => "203.0.113.9",
+        "endpoint_port" => "51820", "keepalive" => "25", "address" => "", "psk" => "",
+        "dns_server" => "192.168.1.99", "dns_port" => "5353", "dns_domains" => ""
+      })
+      expect(Naaf.db[:dns_forwarders].map { |f| f[:server] }.uniq).to be == ["192.168.1.99"]
+      expect(Naaf.db[:dns_forwarders].map { |f| f[:port] }.uniq).to be == [5353]
+    end
+
+    # Those are the only CIDRs Routes.desired installs a proto-158 route for, so
+    # anything else is configured-but-unreachable.
+    it "refuses a site resolver outside that site's own networks" do
+      login!
+      res = site_with_dns(dns_server: "10.20.0.53")
+      expect(res.headers["location"]).to be == "/sites"
+      expect(Naaf.db[:sites].count).to be == 0
+      expect(get("/sites").body).to be(:include?, "so the hub has no route to it")
+    end
+
+    # server and port are denormalized onto the forwarder rows, so a resolver
+    # with no domain has nowhere to live and would vanish without a word.
+    it "refuses a site resolver with no domains" do
+      login!
+      site_with_dns(dns_domains: "")
+      expect(Naaf.db[:sites].count).to be == 0
+      expect(get("/sites").body).to be(:include?, "at least one domain")
+    end
+
+    it "refuses to clear a resolver that still has domains" do
+      login!
+      site_with_dns
+      site = Naaf.db[:sites].first
+      post_form("/sites", "/sites/#{site[:id]}", {
+        "name" => "unifi", "pubkey" => site_pub, "endpoint_host" => "203.0.113.9",
+        "endpoint_port" => "51820", "keepalive" => "25", "address" => "", "psk" => "",
+        "dns_server" => "", "dns_port" => "53", "dns_domains" => ""
+      })
+      expect(Naaf.db[:dns_forwarders].count).to be == 1
+      expect(get("/sites").body).to be(:include?, "before clearing its DNS server")
+    end
+
+    # An edit form that carries no DNS fields at all must read as "leave this
+    # alone", or every unrelated save would refuse.
+    it "leaves the resolver alone when the form carries no DNS fields" do
+      login!
+      site_with_dns
+      site = Naaf.db[:sites].first
+      post_form("/sites", "/sites/#{site[:id]}", {
+        "name" => "renamed", "pubkey" => site_pub, "endpoint_host" => "203.0.113.9",
+        "endpoint_port" => "51820", "keepalive" => "25", "address" => "", "psk" => ""
+      })
+      expect(Naaf.db[:sites].first[:name]).to be == "renamed"
+      expect(Naaf.db[:dns_forwarders].count).to be == 1
+    end
+
+    it "refuses to delete the last network that reaches a resolver" do
+      login!
+      site_with_dns
+      site = Naaf.db[:sites].first
+      post_form("/sites", "/sites/#{site[:id]}/networks", "cidr" => "10.30.0.0/16")
+      spare = Naaf.db[:site_networks].where(cidr: "10.30.0.0/16").first
+      home = Naaf.db[:site_networks].where(cidr: "192.168.1.0/24").first
+
+      # The network that does not contain the resolver goes without argument.
+      post_form("/sites", "/sites/#{site[:id]}/networks/#{spare[:id]}/delete", {})
+      expect(Naaf.db[:site_networks].where(id: spare[:id]).count).to be == 0
+
+      post_form("/sites", "/sites/#{site[:id]}/networks/#{home[:id]}/delete", {})
+      expect(Naaf.db[:site_networks].where(id: home[:id]).count).to be == 1
+      expect(get("/sites").body).to be(:include?, "only reachable via 192.168.1.0/24")
+    end
+
+    it "cascades a site's forwarders away when the site is deleted" do
+      login!
+      site_with_dns
+      site = Naaf.db[:sites].first
+      post_form("/sites", "/sites/#{site[:id]}/delete", {})
+      expect(Naaf.db[:dns_forwarders].count).to be == 0
+    end
+
+    it "runs apply! so the resolver picks the rule up on the next query" do
+      login!
+      expect(Naaf::App.reconciler.applies).to be == 0
+      forward
+      expect(Naaf::App.reconciler.applies).to be == 1
+    end
+  end
+
   # submit runs apply! after a successful write. StubReconciler is a no-op
   # helper, so without counting the call a route that forgot apply! would
   # still look green.

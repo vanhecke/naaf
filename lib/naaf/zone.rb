@@ -7,7 +7,7 @@ module Naaf
     # the exact invalidation point, and the resolver gets the new value without a
     # blocking SELECT on the passthrough path (the hot path for a full-tunnel
     # client).
-    attr_reader :upstream
+    attr_reader :upstream, :forwarders, :generation
 
     def initialize(db)
       @db = db
@@ -55,11 +55,42 @@ module Naaf
       @db[:dns_records].each { |r| a[r[:name]] = r[:value] if r[:rtype] == "A" }
       @a = a
       @ptr = ptr
+      # A disabled site contributes no forwarder. It is not a kernel peer and its
+      # route is not installed, so its resolver is unreachable — dropping the
+      # rule turns a guaranteed timeout into an ordinary upstream answer.
+      disabled = @db[:sites].where(enabled: false).select_map(:id).to_set
+      fwd = {}
+      @db[:dns_forwarders].order(:suffix).each do |row|
+        next if row[:site_id] && disabled.include?(row[:site_id])
+        fwd[row[:suffix]] = [row[:server], row[:port]].freeze
+      end
+      # Whole-object swap, the same discipline as @a and @ptr: one fiber per
+      # datagram means a half-rebuilt hash must never be visible.
+      @forwarders = fwd.freeze
+      # DNSServer memoizes a Resolver per [ip, port] and keys that memo on this
+      # counter, so a reload that happens to produce an identical hash still
+      # invalidates it.
+      @generation = @generation.to_i + 1
       @upstream = Naaf.settings[:dns_upstream]
       self
     end
 
     def lookup_a(name) = @a[self.class.normalize(name)]
     def lookup_ptr(name) = @ptr[self.class.normalize(name)]
+
+    # dnsmasq-style suffix match, longest wins: the stored suffix `example.com`
+    # matches `example.com` and `foo.bar.example.com`. nil means "use the default
+    # upstream", so a box with no forwarders keeps exactly the code path it had
+    # before this existed, at the cost of one Hash#empty?.
+    def upstream_for(name)
+      return nil if @forwarders.empty?
+      n = self.class.normalize(name)
+      loop do
+        hit = @forwarders[n]
+        return hit if hit
+        i = n.index(".") or return nil
+        n = n[(i + 1)..]
+      end
+    end
   end
 end

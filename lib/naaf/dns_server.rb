@@ -2,6 +2,7 @@
 
 require "resolv"
 require "async/dns"
+require_relative "config"
 
 module Naaf
   class DNSServer < Async::DNS::Server
@@ -32,6 +33,7 @@ module Naaf
     # hot path. Only the codes an upstream realistically returns are listed.
     RCODES = {0 => :NoError, 1 => :FormErr, 2 => :ServFail,
               3 => :NXDomain, 4 => :NotImp, 5 => :Refused}.freeze
+    UPSTREAM_TIMEOUT = Config.int("NAAF_DNS_UPSTREAM_TIMEOUT")
 
     # `stats` is optional and every call to it is guarded, because answering
     # queries must never depend on the dashboard existing.
@@ -39,6 +41,8 @@ module Naaf
       @zone = zone
       @upstream = upstream
       @stats = stats
+      @forwarder_generation = nil
+      @forwarder_resolvers = {}
       super(endpoint)
     end
 
@@ -54,6 +58,22 @@ module Naaf
         @resolver = Async::DNS::Resolver.new(Async::DNS::Endpoint.for(up))
       end
       @resolver
+    end
+
+    def resolver_for(spec)
+      return resolver if spec.nil?
+      gen = @zone.generation
+      if @forwarder_generation != gen
+        @forwarder_generation = gen
+        @forwarder_resolvers = {}
+      end
+      @forwarder_resolvers[spec] ||=
+        Async::DNS::Resolver.new(Async::DNS::Endpoint.for(spec[0], port: spec[1]))
+    end
+
+    def with_upstream_timeout
+      scheduler = Fiber.scheduler or return yield
+      scheduler.with_timeout(UPSTREAM_TIMEOUT) { yield }
     end
 
     def process(name, resource_class, transaction)
@@ -82,8 +102,14 @@ module Naaf
       # Only the upstream round trip is timed. The branches above are hash reads
       # against an in-memory zone, so timing them would add two clock reads to
       # the fastest path in the server to measure a number that is always ~0.
+      spec = @zone.upstream_for(name)
       began = @stats && Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      result = transaction.passthrough!(resolver)
+      begin
+        result = with_upstream_timeout { transaction.passthrough!(resolver_for(spec)) }
+      rescue Async::TimeoutError
+        @stats&.record(:upstream_fail, name: name, remote: remote, ms: UPSTREAM_TIMEOUT * 1000.0)
+        return transaction.fail!(:ServFail)
+      end
       if @stats
         ms = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - began) * 1000
         # passthrough! turns "the resolver returned nothing" into ServFail

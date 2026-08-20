@@ -36,7 +36,7 @@ require "naaf/db"
 # Returns the shared Naaf.db handle.
 def reset_db!(**settings)
   db = Naaf.db
-  [:site_networks, :sites, :extra_routes, :dns_records, :port_forwards, :exposed_ports, :clients, :settings].each do |t|
+  [:dns_forwarders, :site_networks, :sites, :extra_routes, :dns_records, :port_forwards, :exposed_ports, :clients, :settings].each do |t|
     db[t].delete
   end
   # clients.id is AUTOINCREMENT, whose counter survives a plain delete via
@@ -66,13 +66,18 @@ end
 # list of CIDRs installed as that peer's AllowedIPs.
 def make_site(db, name:, pubkey: "SITE-#{name}", endpoint: "203.0.113.9:51820",
   psk: nil, keepalive: 25, address: nil, masquerade: false, enabled: true,
-  networks: [])
+  networks: [], dns_server: nil, dns_port: 53, domains: [])
   id = db[:sites].insert(
     name: name, pubkey: pubkey, psk: psk, endpoint: endpoint,
     keepalive: keepalive, address: address, masquerade: masquerade,
     enabled: enabled, created_at: Time.now
   )
   networks.each { |cidr| db[:site_networks].insert(site_id: id, cidr: cidr) }
+  if dns_server
+    domains.each do |suffix|
+      db[:dns_forwarders].insert(site_id: id, suffix: suffix, server: dns_server, port: dns_port)
+    end
+  end
   id
 end
 

@@ -1,6 +1,6 @@
 <div class="level">
   <div class="level-left">
-    <h1 class="title level-item">DNS records</h1>
+    <h1 class="title level-item">DNS</h1>
   </div>
 </div>
 
@@ -9,6 +9,9 @@
   automatic per-client records appear below; add a static <code>A</code> record
   further down to layer extra names on top — a static record overrides an auto
   record with the same name. Only <code>A</code> records are served today.
+  Everything this zone does not answer is forwarded — to the default upstream,
+  or to a resolver you choose per domain under
+  <a href="#conditional-forwarding">Conditional forwarding</a>.
 </p>
 
 <h2 class="title is-5">Automatic records</h2>
@@ -107,6 +110,102 @@
   <div class="field">
     <div class="control">
       <button class="button is-primary" type="submit">Add &amp; apply</button>
+    </div>
+  </div>
+</form>
+
+<hr>
+
+<h2 class="title is-5" id="conditional-forwarding">Conditional forwarding</h2>
+<p class="content is-small has-text-grey">
+  Send one domain to a different resolver — a site's own DNS server, or a
+  public one. The match is a suffix, dnsmasq-style and not an RFC 1034 wildcard:
+  <code>example.com</code> matches <code>example.com</code> and
+  <code>anything.example.com</code>, and the <strong>longest</strong> matching
+  suffix wins. The zone above always wins over all of it, so a client's
+  <code>.<%= @settings[:dns_domain] %></code> name is never forwarded. Names
+  matching no suffix go to the default upstream
+  (<code><%= h(@settings[:dns_upstream]) %></code>), set in
+  <a href="/settings">Settings</a>. A reverse zone is ordinary DNS text here, so
+  <code>1.168.192.in-addr.arpa</code> is a legal domain.
+</p>
+
+<% if @forwarders.empty? %>
+  <div class="notification">
+    No conditional forwarding. Every name this zone does not answer goes to
+    <code><%= h(@settings[:dns_upstream]) %></code>.
+  </div>
+<% else %>
+  <table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+      <tr>
+        <th>Domain</th>
+        <th>Resolver</th>
+        <th>Source</th>
+        <th>Notes</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @forwarders.each do |row| %>
+        <tr>
+          <td><code>*.<%= h(row[:suffix]) %></code></td>
+          <td>
+            <code><%= h(row[:server]) %><%= (row[:port] == 53) ? "" : ":#{row[:port]}" %></code>
+          </td>
+          <td>
+            <% if row[:site_id] %>
+              <a href="/sites"><span class="tag is-light">site <%= h(row[:site_name]) %></span></a>
+            <% else %>
+              <span class="tag is-light">manual</span>
+            <% end %>
+          </td>
+          <td><%= h(row[:notes].to_s) %></td>
+          <td>
+            <%# Site-owned rows are read-only here, the same treatment the
+                automatic records get. The delete route filters on
+                site_id IS NULL as well, so this is a presentation choice
+                sitting on top of a guarantee rather than instead of one. %>
+            <% if row[:site_id] %>
+              <a href="/sites">managed on Sites →</a>
+            <% else %>
+              <form method="post" action="/dns-forwarders/<%= row[:id] %>/delete">
+                <%= csrf_tag("/dns-forwarders/#{row[:id]}/delete") %>
+                <button class="button is-small is-danger is-light" type="submit">Delete</button>
+              </form>
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<h2 class="title is-6">Forward a domain</h2>
+<form method="post" action="/dns-forwarders">
+  <%= csrf_tag("/dns-forwarders") %>
+  <div class="field is-grouped is-grouped-multiline">
+    <div class="control is-expanded">
+      <label class="label">Domain</label>
+      <input class="input" type="text" name="suffix" placeholder="example.com" required>
+      <p class="help">A leading <code>*.</code> is accepted and stripped.</p>
+    </div>
+    <div class="control">
+      <label class="label">Resolver</label>
+      <input class="input" type="text" name="server" placeholder="9.9.9.9" required>
+    </div>
+    <div class="control">
+      <label class="label">Port</label>
+      <input class="input" type="number" name="port" value="53" min="1" max="65535">
+    </div>
+    <div class="control is-expanded">
+      <label class="label">Notes <span class="has-text-grey">(optional)</span></label>
+      <input class="input" type="text" name="notes" placeholder="corporate split-horizon">
+    </div>
+  </div>
+  <div class="field">
+    <div class="control">
+      <button class="button is-primary" type="submit">Forward &amp; apply</button>
     </div>
   </div>
 </form>
