@@ -421,6 +421,64 @@ describe "Naaf::App integration" do
       }.to_h
     end
 
+    # wg[:online]/[:enabled] count clients ONLY, because Collector#judge's stall
+    # detector reads them and one online site would mask a total client outage.
+    # The label has to agree with that, or the strip contradicts the Peers panel
+    # directly below it.
+    it "counts clients and sites apart, and labels each for what it is" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(
+        wg: {total: 2, enabled: 2, online: 1, sites_total: 3, sites_enabled: 3,
+             sites_online: 2, rx_bps: 4096.0, tx_bps: 1024.0, interval: 30.0}
+      )
+      health = get("/metrics/health").body
+      expect(health).to be(:include?, "clients up")
+      expect(health).to be(:include?, "sites up")
+      expect(health).not.to be(:include?, "peers up")
+      expect(health).to be(:include?, %(<strong class="mr-1">1/2</strong> clients up))
+      expect(health).to be(:include?, %(<strong class="mr-1">2/3</strong> sites up))
+
+      kpis = get("/metrics/kpis").body
+      expect(kpis).to be(:include?, "1 of 2 clients up")
+      expect(kpis).to be(:include?, "2 of 3 sites up")
+    end
+
+    # A box with no sites should not grow an empty chip.
+    it "hides the sites chip entirely when there are none" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(wg: {total: 1, enabled: 1, online: 1})
+      expect(get("/metrics/health").body).not.to be(:include?, "sites up")
+      expect(get("/metrics/kpis").body).not.to be(:include?, "sites up")
+    end
+
+    # Every other example renders this panel empty, which never reaches the
+    # branch that draws the bar -- and a share of exactly 0.0 is truthy, so the
+    # "unknown" guard does not cover it.
+    it "shows a share as a number, and never floors a real zero up to one" do
+      login!
+      talker = ->(name, share, **over) {
+        {name: name, kind: :client, rx_bps: 0.0, tx_bps: 0.0,
+         rx_bytes: 0, tx_bytes: 0, share: share}.merge(over).freeze
+      }
+      Naaf::App.metrics = StubMetrics.new(talkers: [
+        talker["busy", 99.5, kind: :site, rx_bps: 4096.0, tx_bps: 1024.0],
+        talker["trickle", 0.4],
+        talker["quiet", 0.0],
+        talker["unmeasured", nil]
+      ])
+      body = get("/metrics/talkers").body
+
+      values = body.scan(/<progress[^>]*value="(\d+)"/m).flatten
+      expect(values).to be == ["100", "1", "0"] # a sliver for 0.4%, nothing for 0.0
+      # The number itself must be OUTSIDE the element: <progress> treats its
+      # children as fallback content and does not render them.
+      expect(body).not.to be(:match?, %r{<progress[^>]*>\s*[^<\s]})
+      expect(body).to be(:include?, "under 1%")   # Format.pct, for 0.4
+      expect(body).to be(:include?, "0%")
+      expect(body).to be(:include?, ">site<")
+      expect(body).not.to be(:match?, /NaN|Infinity/)
+    end
+
     it "gives every peer the status chip it has earned" do
       login!
       Naaf::App.metrics = StubMetrics.new(peers: [
