@@ -31,6 +31,8 @@
 <% else %>
   <% @sites.each do |site| %>
     <% nets = @networks[site[:id]] || [] %>
+    <% fwds = @forwarders[site[:id]] || [] %>
+    <% dns = fwds.first %>
     <div class="box">
       <div class="level mb-2 is-align-items-flex-start">
         <div class="level-left">
@@ -101,6 +103,38 @@
                     Masquerade traffic to this site (only if the remote AllowedIPs is the assigned /32)
                   </label>
                 </div>
+                <div class="field is-grouped is-grouped-multiline">
+                  <div class="control">
+                    <label class="label">DNS server <span class="has-text-grey">(optional)</span></label>
+                    <input class="input" type="text" name="dns_server"
+                           value="<%= h(dns ? dns[:server] : "") %>" placeholder="192.168.1.1">
+                  </div>
+                  <div class="control">
+                    <label class="label">Port</label>
+                    <input class="input" type="number" name="dns_port"
+                           value="<%= dns ? dns[:port] : 53 %>" min="1" max="65535">
+                  </div>
+                  <div class="control is-expanded">
+                    <label class="label">Add domains <span class="has-text-grey">(one per line)</span></label>
+                    <textarea class="textarea" name="dns_domains" rows="2"
+                              placeholder="roomkoetje.be"></textarea>
+                    <p class="help">
+                      Existing domains are listed below with a Remove button —
+                      this box only adds.
+                    </p>
+                  </div>
+                </div>
+                <p class="help mb-3">
+                  A forwarded query is sent by this hub, from
+                  <code><%= h(@settings[:server_ip]) %></code>, over the site
+                  tunnel. It works only if the remote lists
+                  <code><%= h(@settings[:wg_subnet]) %></code> in its
+                  <code>AllowedIPs</code>, or Masquerade is on for this site (in
+                  which case the remote resolver sees the query coming from this
+                  site's assigned address). Same condition as reaching the LAN at
+                  all. <code>split·nodns</code> clients never use this resolver
+                  and are unaffected.
+                </p>
                 <div class="field">
                   <div class="control">
                     <button class="button is-primary" type="submit">Save &amp; apply</button>
@@ -142,6 +176,30 @@
                 <td class="has-text-right">
                   <form method="post" action="/sites/<%= site[:id] %>/networks/<%= n[:id] %>/delete">
                     <%= csrf_tag("/sites/#{site[:id]}/networks/#{n[:id]}/delete") %>
+                    <button class="button is-small is-danger is-light" type="submit">Remove</button>
+                  </form>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% end %>
+
+      <% unless fwds.empty? %>
+        <p class="is-size-7 has-text-grey mt-3 mb-1">
+          Forwarded to <code><%= h(dns[:server]) %><%= (dns[:port] == 53) ? "" : ":#{dns[:port]}" %></code>
+          <% unless site[:enabled] %>
+            <span class="tag is-warning is-light">not active while this site is disabled</span>
+          <% end %>
+        </p>
+        <table class="table is-fullwidth is-narrow">
+          <tbody>
+            <% fwds.each do |f| %>
+              <tr>
+                <td><code>*.<%= h(f[:suffix]) %></code></td>
+                <td class="has-text-right">
+                  <form method="post" action="/sites/<%= site[:id] %>/forwarders/<%= f[:id] %>/delete">
+                    <%= csrf_tag("/sites/#{site[:id]}/forwarders/#{f[:id]}/delete") %>
                     <button class="button is-small is-danger is-light" type="submit">Remove</button>
                   </form>
                 </td>
@@ -214,6 +272,22 @@
       <input type="checkbox" name="masquerade">
       Masquerade traffic to this site (only if the remote AllowedIPs is the assigned /32)
     </label>
+  </div>
+  <div class="field is-grouped is-grouped-multiline">
+    <div class="control">
+      <label class="label">DNS server <span class="has-text-grey">(optional)</span></label>
+      <input class="input" type="text" name="dns_server" placeholder="192.168.1.1">
+      <p class="help">Must sit inside the first network above.</p>
+    </div>
+    <div class="control">
+      <label class="label">Port</label>
+      <input class="input" type="number" name="dns_port" value="53" min="1" max="65535">
+    </div>
+    <div class="control is-expanded">
+      <label class="label">Domains it answers <span class="has-text-grey">(one per line)</span></label>
+      <textarea class="textarea" name="dns_domains" rows="2" placeholder="roomkoetje.be"></textarea>
+      <p class="help">Required if a DNS server is set — the resolver is stored per domain.</p>
+    </div>
   </div>
   <div class="field">
     <div class="control">

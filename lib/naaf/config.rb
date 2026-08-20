@@ -34,6 +34,7 @@ module Naaf
       # listen / session
       "NAAF_WEB_PORT" => "8080",
       "NAAF_DNS_PORT" => "53",
+      "NAAF_DNS_UPSTREAM_TIMEOUT" => "4",
       "NAAF_RECONCILE_INTERVAL" => "30",
       "NAAF_SESSION_SECRET" => nil, # required; no sane default exists
       "NAAF_SESSION_COOKIE" => "naaf.session",

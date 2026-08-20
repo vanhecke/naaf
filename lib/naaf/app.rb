@@ -436,6 +436,124 @@ module Naaf
       s
     end
 
+    def param_dns_suffix(raw)
+      s = raw.to_s.strip.downcase.chomp(".").delete_prefix("*.")
+      raise ValidationError, "Domain is required." if s.empty?
+      raise ValidationError, "Domain must be a DNS name like example.com." unless HOSTNAME.match?(s)
+      unless s.count(".") >= 1
+        raise ValidationError, "Use at least two labels (example.com), not a bare top-level domain."
+      end
+      domain = Naaf.settings[:dns_domain]
+      if s == domain || s.end_with?(".#{domain}")
+        raise ValidationError,
+          "#{s} is inside the internal zone (#{domain}), which this resolver already answers."
+      end
+      s
+    end
+
+    def param_dns_server(host_raw, port_raw)
+      ip = param_ipv4(host_raw)
+      port = port_raw.to_s.strip.empty? ? 53 : param_port(port_raw)
+      raise ValidationError, "0.0.0.0 is not a resolver address." if ip == "0.0.0.0"
+      if (ip == Naaf.settings[:server_ip] || ip == "127.0.0.1") && port == Config.int("NAAF_DNS_PORT")
+        raise ValidationError,
+          "That is this resolver's own address — the query would loop back to itself."
+      end
+      [ip, port]
+    end
+
+    # Uniqueness is global — two rows for one suffix make resolution ambiguous —
+    # so the exclusions are applied in Ruby, not in SQL. `exclude(site_id: 5)`
+    # renders `site_id != 5`, which is NULL and therefore false for exactly the
+    # rows whose site_id IS NULL, so a clashing GLOBAL rule would be invisible
+    # here and would surface one layer down as submit's generic "That entry
+    # already exists." instead of naming its owner.
+    def assert_suffix_free!(suffix, except_id: nil, except_site_id: nil)
+      clash = Naaf.db[:dns_forwarders].where(suffix: suffix).first
+      return unless clash
+      return if except_id && clash[:id] == except_id
+      return if except_site_id && clash[:site_id] == except_site_id
+      owner = if clash[:site_id]
+        "site #{Naaf.db[:sites][id: clash[:site_id]][:name]}"
+      else
+        "a global rule"
+      end
+      raise ValidationError, "#{suffix} is already forwarded to #{clash[:server]} by #{owner}."
+    end
+
+    # A site's resolver must sit inside one of THAT site's networks. Those are
+    # the only CIDRs Renderers::Routes.desired installs a proto-158 route for, so
+    # a resolver outside them is configured-but-unreachable — which shows up as
+    # an unexplained query timeout rather than as anything a log would name.
+    def assert_resolver_in_site_networks!(site_id, ip)
+      nets = Naaf.db[:site_networks].where(site_id: site_id).select_map(:cidr)
+      if nets.empty?
+        raise ValidationError, "Add a site network before setting a DNS server."
+      end
+      addr = IPAM.parse_v4(ip)
+      return if addr && nets.any? { |c| IPAM.parse_v4(c)&.include?(addr) }
+      raise ValidationError,
+        "#{ip} is outside this site's networks (#{nets.join(", ")}), so the hub has no route to it."
+    end
+
+    # The site half of conditional forwarding. Every refusal below is raised
+    # before the first write, and the caller runs this inside a transaction, so a
+    # rejected save leaves no half-configured site behind.
+    #
+    # A form that carries neither field reads as "leave this alone". Treating an
+    # absent key as an empty one would make an unrelated POST to /sites/:id
+    # refuse with a message about domains it never mentioned.
+    def apply_site_dns!(site_id, params)
+      return unless params.key?("dns_server") || params.key?("dns_domains")
+      server_raw = params["dns_server"].to_s.strip
+      raw_lines = params["dns_domains"].to_s.split(/\r?\n/).map(&:strip).reject(&:empty?)
+      existing = Naaf.db[:dns_forwarders].where(site_id: site_id)
+      known = existing.select_map(:suffix)
+
+      if server_raw.empty?
+        # server and port are denormalized onto every forwarder row, so there is
+        # nowhere to keep a resolver once its last domain is gone. Refuse rather
+        # than delete rows the admin did not name.
+        if known.any? || raw_lines.any?
+          raise ValidationError,
+            "Remove this site's forwarded domains before clearing its DNS server."
+        end
+        return
+      end
+
+      ip, port = param_dns_server(server_raw, params["dns_port"])
+      assert_resolver_in_site_networks!(site_id, ip)
+      suffixes = raw_lines.map { |line| param_dns_suffix(line) }.uniq
+      suffixes.each { |suffix| assert_suffix_free!(suffix, except_site_id: site_id) }
+      # Same denormalization, from the other end: a resolver with no suffix has
+      # no row to live on and would vanish on save without a word.
+      if suffixes.empty? && known.empty?
+        raise ValidationError, "Add at least one domain for this resolver to answer."
+      end
+
+      existing.update(server: ip, port: port)
+      (suffixes - known).each do |suffix|
+        Naaf.db[:dns_forwarders].insert(site_id: site_id, suffix: suffix, server: ip, port: port)
+      end
+    end
+
+    # The compensating rule for the one above: removing a network can strand a
+    # resolver just as surely as pointing at the wrong address ever could.
+    def assert_network_not_last_resolver_path!(site_id, nid)
+      net = Naaf.db[:site_networks].where(id: nid, site_id: site_id).first
+      return unless net
+      cidr = IPAM.parse_v4(net[:cidr])
+      return unless cidr
+      remaining = Naaf.db[:site_networks].where(site_id: site_id).exclude(id: nid).select_map(:cidr)
+      Naaf.db[:dns_forwarders].where(site_id: site_id).each do |row|
+        addr = IPAM.parse_v4(row[:server])
+        next unless addr && cidr.include?(addr)
+        next if remaining.any? { |c| IPAM.parse_v4(c)&.include?(addr) }
+        raise ValidationError,
+          "Clear this site's DNS server first — #{row[:server]} is only reachable via #{net[:cidr]}."
+      end
+    end
+
     def param_mtu(raw)
       n = Integer(raw.to_s, exception: false)
       raise ValidationError, "MTU must be between 1280 and 1500." unless n && (1280..1500).cover?(n)
@@ -778,6 +896,19 @@ module Naaf
             .select { |rec| rec[:rtype] == "A" && rec[:source] != :client_bare }
           @shadowed = @rows.select { |r| r[:rtype] == "A" }
             .map { |r| Naaf::Zone.normalize(r[:name]) }.to_set
+          @forwarders = Naaf.db[:dns_forwarders]
+            .left_join(:sites, id: :site_id)
+            .select(
+              Sequel[:dns_forwarders][:id],
+              Sequel[:dns_forwarders][:suffix],
+              Sequel[:dns_forwarders][:server],
+              Sequel[:dns_forwarders][:port],
+              Sequel[:dns_forwarders][:notes],
+              Sequel[:dns_forwarders][:site_id],
+              Sequel[:sites][:name].as(:site_name)
+            )
+            .order(Sequel[:dns_forwarders][:suffix])
+            .all
           @settings = Naaf.settings
           view("dns_records")
         end
@@ -801,20 +932,47 @@ module Naaf
         end
       end
 
+      r.on "dns-forwarders" do
+        r.post true do
+          submit("/dns-records") do
+            suffix = param_dns_suffix(r.params["suffix"])
+            assert_suffix_free!(suffix)
+            ip, port = param_dns_server(r.params["server"], r.params["port"])
+            Naaf.db[:dns_forwarders].insert(
+              suffix: suffix, server: ip, port: port, notes: presence(r.params["notes"])
+            )
+          end
+        end
+
+        r.on Integer do |id|
+          r.post "delete" do
+            submit("/dns-records") { Naaf.db[:dns_forwarders].where(id: id, site_id: nil).delete }
+          end
+        end
+      end
+
       r.on "sites" do
         r.get true do
           @sites = Naaf.db[:sites].order(:name).all
           @networks = Naaf.db[:site_networks].order(:cidr).all.group_by { |n| n[:site_id] }
+          @forwarders = Naaf.db[:dns_forwarders].order(:suffix).all.group_by { |f| f[:site_id] }
           @settings = Naaf.settings
           view("sites")
         end
 
         r.post true do
           submit("/sites") do
-            attrs = site_attrs(r.params)
-            cidr = param_site_cidr(r.params["cidr"], endpoint: attrs[:endpoint])
-            id = Naaf.db[:sites].insert(attrs.merge(created_at: Time.now))
-            Naaf.db[:site_networks].insert(site_id: id, cidr: cidr)
+            # The only write path here that cannot validate everything up front:
+            # apply_site_dns! checks the resolver against this site's networks,
+            # which do not exist until the rows below do. A transaction is what
+            # keeps a refusal from leaving a half-built site behind.
+            Naaf.db.transaction do
+              attrs = site_attrs(r.params)
+              cidr = param_site_cidr(r.params["cidr"], endpoint: attrs[:endpoint])
+              id = Naaf.db[:sites].insert(attrs.merge(created_at: Time.now))
+              Naaf.db[:site_networks].insert(site_id: id, cidr: cidr)
+              apply_site_dns!(id, r.params)
+            end
           end
         end
 
@@ -823,11 +981,14 @@ module Naaf
 
           r.post true do
             submit("/sites") do
-              attrs = site_attrs(r.params, except_site_id: id)
-              Naaf.db[:site_networks].where(site_id: id).each do |n|
-                param_site_cidr(n[:cidr], endpoint: attrs[:endpoint], except_id: n[:id])
+              Naaf.db.transaction do
+                attrs = site_attrs(r.params, except_site_id: id)
+                Naaf.db[:site_networks].where(site_id: id).each do |n|
+                  param_site_cidr(n[:cidr], endpoint: attrs[:endpoint], except_id: n[:id])
+                end
+                Naaf.db[:sites].where(id: id).update(attrs)
+                apply_site_dns!(id, r.params)
               end
-              Naaf.db[:sites].where(id: id).update(attrs)
             end
           end
 
@@ -852,8 +1013,17 @@ module Naaf
             r.on Integer do |nid|
               r.post "delete" do
                 submit("/sites") do
+                  assert_network_not_last_resolver_path!(id, nid)
                   Naaf.db[:site_networks].where(id: nid, site_id: id).delete
                 end
+              end
+            end
+          end
+
+          r.on "forwarders" do
+            r.on Integer do |fid|
+              r.post "delete" do
+                submit("/sites") { Naaf.db[:dns_forwarders].where(id: fid, site_id: id).delete }
               end
             end
           end

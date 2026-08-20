@@ -87,7 +87,7 @@ module Naaf
 
     EMPTY_POLICY = {
       clients: 0, enabled: 0, exposed_ports: 0, port_forwards: 0,
-      port_forwards_enabled: 0, dns_records: 0, extra_routes: 0, sites: 0,
+      port_forwards_enabled: 0, dns_records: 0, dns_forwarders: 0, extra_routes: 0, sites: 0,
       subnet: nil, server_ip: nil, listen_port: nil, wg_interface: nil,
       wan_interface: nil, dns_domain: nil, dns_upstream: nil, endpoint: nil
     }.freeze

@@ -108,6 +108,25 @@ module Naaf
         unique [:site_id, :cidr]
       end
 
+      # Conditional DNS forwarding: names under `suffix` go to `server` instead
+      # of settings.dns_upstream. Declared after site_networks so the FK target
+      # exists. One table, not two: a site's domains and an admin's own rules
+      # share the suffix namespace, and getting global uniqueness from SQLite is
+      # worth more than a Ruby check across two tables that can be forgotten.
+      db.create_table?(:dns_forwarders) do
+        primary_key :id
+        # NULL = a rule typed on the DNS page. Non-NULL = owned by a site,
+        # read-only there, and deleted with it.
+        foreign_key :site_id, :sites, on_delete: :cascade
+        String :suffix, null: false   # normalized: lowercase, no leading "*.", no trailing dot
+        String :server, null: false   # IPv4 literal
+        Integer :port, null: false, default: 53
+        String :notes
+        # Global, not [site_id, suffix]: two rows for one suffix make resolution
+        # ambiguous. The route refuses the clash with a message naming the owner.
+        unique [:suffix]
+      end
+
       alter_existing!(db)
     end
 
