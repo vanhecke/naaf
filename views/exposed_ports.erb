@@ -10,43 +10,92 @@
   <code>inet naaf</code> and applies it atomically.
 </p>
 
-<% if @rows.empty? %>
+<% if @groups.all? { |g| g[:rows].empty? } && @orphans.empty? %>
   <div class="notification">
     No exposed ports. Spoke-to-spoke traffic is fully denied.
   </div>
 <% else %>
-  <% by_id = @clients.to_h { |c| [c[:id], c] } %>
-  <table class="table is-fullwidth is-striped is-hoverable">
-    <thead>
-      <tr>
-        <th>Client</th>
-        <th>VPN IP</th>
-        <th>Proto</th>
-        <th>Port(s)</th>
-        <th>Description</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      <% @rows.each do |row| %>
-        <% c = by_id[row[:client_id]] %>
-        <tr>
-          <td><%= c ? c[:name] : "—" %></td>
-          <td><code><%= c ? c[:wg_ip] : "?" %></code></td>
-          <td><span class="tag"><%= row[:proto] %></span></td>
-          <% last = row[:port_end] || row[:port] %>
-          <td><code><%= (last == row[:port]) ? row[:port] : "#{row[:port]}-#{last}" %></code></td>
-          <td><%= row[:description] %></td>
-          <td>
-            <form method="post" action="/exposed-ports/<%= row[:id] %>/delete">
-              <%= csrf_tag("/exposed-ports/#{row[:id]}/delete") %>
-              <button class="button is-small is-danger is-light" type="submit">Delete</button>
-            </form>
-          </td>
-        </tr>
+  <% @groups.each do |group| %>
+    <% c = group[:client] %>
+    <% rows = group[:rows] %>
+    <div class="box">
+      <div class="level mb-2 is-align-items-flex-start">
+        <div class="level-left">
+          <div class="level-item">
+            <h2 class="title is-5 mb-0"><%= h(c[:name]) %></h2>
+          </div>
+          <div class="level-item">
+            <code><%= h(c[:wg_ip]) %></code>
+          </div>
+          <div class="level-item">
+            <span class="tag"><%= rows.size %></span>
+          </div>
+        </div>
+      </div>
+      <% if rows.empty? %>
+        <p class="has-text-grey">No ports exposed. Other spokes cannot reach this client.</p>
+      <% else %>
+        <table class="table is-fullwidth is-narrow is-striped is-hoverable">
+          <thead>
+            <tr>
+              <th>Proto</th>
+              <th>Port(s)</th>
+              <th>Description</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% rows.each do |row| %>
+              <tr>
+                <td><span class="tag"><%= row[:proto] %></span></td>
+                <% last = row[:port_end] || row[:port] %>
+                <td><code><%= (last == row[:port]) ? row[:port] : "#{row[:port]}-#{last}" %></code></td>
+                <td><%= row[:description] %></td>
+                <td>
+                  <form method="post" action="/exposed-ports/<%= row[:id] %>/delete">
+                    <%= csrf_tag("/exposed-ports/#{row[:id]}/delete") %>
+                    <button class="button is-small is-danger is-light" type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
       <% end %>
-    </tbody>
-  </table>
+    </div>
+  <% end %>
+  <% unless @orphans.empty? %>
+    <div class="box naaf-warn">
+      <h2 class="title is-5">Orphaned ports</h2>
+      <p class="content">These rows have no matching client. The foreign key should have prevented this.</p>
+      <table class="table is-fullwidth is-narrow is-striped">
+        <thead>
+          <tr>
+            <th>Proto</th>
+            <th>Port(s)</th>
+            <th>Description</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% @orphans.each do |row| %>
+            <tr>
+              <td><span class="tag"><%= row[:proto] %></span></td>
+              <% last = row[:port_end] || row[:port] %>
+              <td><code><%= (last == row[:port]) ? row[:port] : "#{row[:port]}-#{last}" %></code></td>
+              <td><%= row[:description] %></td>
+              <td>
+                <form method="post" action="/exposed-ports/<%= row[:id] %>/delete">
+                  <%= csrf_tag("/exposed-ports/#{row[:id]}/delete") %>
+                  <button class="button is-small is-danger is-light" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
 <% end %>
 
 <hr>

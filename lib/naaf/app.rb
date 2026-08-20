@@ -695,7 +695,10 @@ module Naaf
       r.on "exposed-ports" do
         r.get true do
           @clients = Naaf.db[:clients].order(:name).all
-          @rows = Naaf.db[:exposed_ports].order(:client_id, :port).all
+          rows = Naaf.db[:exposed_ports].order(:proto, :port).all
+          by_client = rows.group_by { |row| row[:client_id] }
+          @groups = @clients.map { |c| {client: c, rows: by_client.delete(c[:id]) || []} }
+          @orphans = by_client.values.flatten
           view("exposed_ports")
         end
 

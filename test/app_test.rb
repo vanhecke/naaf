@@ -1061,6 +1061,33 @@ describe "Naaf::App integration" do
     expect(Naaf.db[:exposed_ports].count).to be == 2
   end
 
+  it "groups exposed ports per client and lists a client with nothing exposed" do
+    login!
+    nas = add_client("nas")
+    pi = add_client("pi")
+    add_client("idle")
+    post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => pi, "proto" => "udp", "port" => "53")
+    post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => nas, "proto" => "tcp", "port" => "22", "description" => "ssh")
+    post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => nas, "proto" => "tcp", "port" => "8000-8100")
+
+    body = get("/exposed-ports").body
+    idle_at = body.index("idle")
+    nas_at = body.index("<h2 class=\"title is-5 mb-0\">nas</h2>")
+    pi_at = body.index("<h2 class=\"title is-5 mb-0\">pi</h2>")
+    expect(idle_at).not.to be_nil
+    expect(nas_at).not.to be_nil
+    expect(pi_at).not.to be_nil
+    expect(nas_at).to be < pi_at
+    expect(body.index("22", nas_at)).to be < pi_at
+    expect(body.index("8000-8100", nas_at)).to be < pi_at
+    expect(body.index(">53<", pi_at)).to be > pi_at
+    expect(body).to be(:include?, "No ports exposed. Other spokes cannot reach this client.")
+    expect(body.index("No ports exposed. Other spokes cannot reach this client.")).to be > idle_at
+  end
+
   it "rejects an exposed port for an unknown client" do
     login!
     add_client("nas")
