@@ -108,13 +108,15 @@ module Naaf
           status: @procfs.self_status,
           cpu_time: process_cpu_seconds,
           clients: rows,
+          sites: @db[:sites].order(:name).all,
+          site_networks: @db[:site_networks].order(:cidr).all.group_by { |n| n[:site_id] },
           counts: policy_counts,
           dns: @dns_stats.rotate!(elapsed: elapsed, names: names)
         }
       end
 
       def build(at, elapsed, mono, raw)
-        peers, wg = peer_sections(raw)
+        peers, wg, talkers = peer_sections(raw)
         interfaces = interface_section(raw, elapsed)
         udp = udp_section(raw, elapsed)
         Snapshot.new(
@@ -125,6 +127,7 @@ module Naaf
           udp: udp,
           pipeline: pipeline_section(raw, interfaces, udp, wg, elapsed),
           peers: peers,
+          talkers: talkers,
           wg: wg,
           dns: dns_section(raw),
           app: app_section(raw, elapsed, mono),
@@ -289,42 +292,29 @@ module Naaf
         # lie the rest of this file goes out of its way to avoid.
         total_rx = nil
         total_tx = nil
-        online = 0
+        networks = raw[:site_networks] || {}
 
-        peers = raw[:clients].map { |c|
-          m = sample[c[:pubkey]]
-          rx = m&.dig(:rx_bps)
-          tx = m&.dig(:tx_bps)
-          if fresh
-            push(:"peer.#{c[:pubkey]}.rx", rx)
-            push(:"peer.#{c[:pubkey]}.tx", tx)
-          end
-          handshake = c[:last_handshake_at]
-          up = c[:enabled] && handshake && (now - handshake.to_time) <= ONLINE_WITHIN
-          online += 1 if up
-          total_rx = total_rx.to_f + rx if rx
-          total_tx = total_tx.to_f + tx if tx
-          {
-            id: c[:id], name: c[:name], hostname: c[:hostname], wg_ip: c[:wg_ip],
-            enabled: c[:enabled], online: up,
-            last_handshake_at: handshake,
-            # The sink carries the kernel's view from the poll that measured
-            # the rate; the row is the same value once it has been written.
-            # Preferring the sink keeps the two columns consistent with each
-            # other even on the tick where a peer first appears.
-            endpoint: m&.dig(:endpoint) || c[:endpoint],
-            rx_bytes: c[:rx_bytes], tx_bytes: c[:tx_bytes],
-            rx_bps: rx, tx_bps: tx,
-            rx_series: tail(:"peer.#{c[:pubkey]}.rx"),
-            tx_series: tail(:"peer.#{c[:pubkey]}.tx")
-          }.freeze
-        }.freeze
+        clients = raw[:clients].map { |c|
+          peer_entry(c, sample, fresh, now, kind: :client)
+        }
+        sites = (raw[:sites] || []).map { |site|
+          cidrs = (networks[site[:id]] || []).map { |n| n[:cidr] }
+          peer_entry(site, sample, fresh, now, kind: :site,
+            hostname: nil, wg_ip: site[:address], cidrs: cidrs,
+            endpoint: site[:observed_endpoint], installed: !cidrs.empty?)
+        }
 
-        # Busiest first, then offline/idle, then by address. The operator's
-        # first question is "what is moving traffic", and a table ordered by IP
-        # answers it only by accident.
-        peers = peers.sort_by { |p|
-          [-(p[:rx_bps].to_f + p[:tx_bps].to_f), p[:online] ? 0 : 1, p[:wg_ip].to_s]
+        client_online = clients.count { |p| p[:online] }
+        site_online = sites.count { |p| p[:online] }
+        (clients + sites).each do |p|
+          total_rx = total_rx.to_f + p[:rx_bps] if p[:rx_bps]
+          total_tx = total_tx.to_f + p[:tx_bps] if p[:tx_bps]
+        end
+
+        # Busiest first, then offline/idle, then by address, then name. A site
+        # has no wg_ip, so name is the tiebreak that keeps the order stable.
+        peers = (clients + sites).sort_by { |p|
+          [-(p[:rx_bps].to_f + p[:tx_bps].to_f), p[:online] ? 0 : 1, p[:wg_ip].to_s, p[:name].to_s]
         }.freeze
 
         if fresh
@@ -334,9 +324,12 @@ module Naaf
         retain_series!(raw)
 
         wg = {
-          total: peers.size,
-          enabled: peers.count { |p| p[:enabled] },
-          online: online,
+          total: clients.size,
+          enabled: clients.count { |p| p[:enabled] },
+          online: client_online,
+          sites_total: sites.size,
+          sites_enabled: sites.count { |p| p[:enabled] },
+          sites_online: site_online,
           listen_port: @settings[:listen_port],
           rx_bps: total_rx, tx_bps: total_tx,
           rx_series: tail(:"wg.rx"), tx_series: tail(:"wg.tx"),
@@ -345,7 +338,41 @@ module Naaf
           measured_at: @peers&.at, interval: @peers&.interval
         }.freeze
 
-        [peers, wg]
+        [peers, wg, rank_talkers(peers)]
+      end
+
+      def peer_entry(row, sample, fresh, now, kind:, hostname: row[:hostname],
+        wg_ip: row[:wg_ip], cidrs: nil, endpoint: row[:endpoint], installed: true)
+        m = sample[row[:pubkey]]
+        rx = m&.dig(:rx_bps)
+        tx = m&.dig(:tx_bps)
+        if fresh
+          push(:"peer.#{row[:pubkey]}.rx", rx)
+          push(:"peer.#{row[:pubkey]}.tx", tx)
+        end
+        handshake = row[:last_handshake_at]
+        up = installed && row[:enabled] && handshake && (now - handshake.to_time) <= ONLINE_WITHIN
+        {
+          id: row[:id], name: row[:name], hostname: hostname, wg_ip: wg_ip,
+          kind: kind, cidrs: cidrs, enabled: row[:enabled], online: up,
+          last_handshake_at: handshake,
+          endpoint: m&.dig(:endpoint) || endpoint,
+          rx_bytes: row[:rx_bytes], tx_bytes: row[:tx_bytes],
+          rx_bps: rx, tx_bps: tx,
+          rx_series: tail(:"peer.#{row[:pubkey]}.rx"),
+          tx_series: tail(:"peer.#{row[:pubkey]}.tx")
+        }.freeze
+      end
+
+      def rank_talkers(peers)
+        measured = peers.reject { |e| e[:rx_bps].nil? && e[:tx_bps].nil? }
+        total = measured.sum { |e| e[:rx_bps].to_f + e[:tx_bps].to_f }
+        measured
+          .map { |e| e.merge(total_bps: e[:rx_bps].to_f + e[:tx_bps].to_f) }
+          .sort_by { |e| -e[:total_bps] }
+          .first(8)
+          .map { |e| e.merge(share: Num.pct(e[:total_bps], total)).freeze }
+          .freeze
       end
 
       def dns_section(raw)
@@ -426,6 +453,9 @@ module Naaf
         live = [:cpu, :mem, :conntrack, :udp, :dns, :"wg.rx", :"wg.tx"]
         raw[:clients].each do |c|
           live << :"peer.#{c[:pubkey]}.rx" << :"peer.#{c[:pubkey]}.tx"
+        end
+        (raw[:sites] || []).each do |s|
+          live << :"peer.#{s[:pubkey]}.rx" << :"peer.#{s[:pubkey]}.tx"
         end
         (@interface_keys || []).each { |n| live << :"if.#{n}.rx" << :"if.#{n}.tx" }
         @series.retain!(live)

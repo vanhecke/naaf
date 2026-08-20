@@ -64,24 +64,28 @@
       </div>
     </div>
     <div class="column is-half">
-      <div id="m-interfaces" <%= panel.call("interfaces") %>>
-        <%= render("metrics/interfaces", locals: {s: s}) %>
+      <div id="m-talkers" <%= panel.call("talkers") %>>
+        <%= render("metrics/talkers", locals: {s: s}) %>
       </div>
     </div>
   </div>
 
   <div class="columns">
     <div class="column is-half">
+      <div id="m-interfaces" <%= panel.call("interfaces") %>>
+        <%= render("metrics/interfaces", locals: {s: s}) %>
+      </div>
+    </div>
+    <div class="column is-half">
       <%# Configuration, not telemetry: rendered once, never swapped. %>
       <div id="m-policy" <%= sse ? "" : panel.call("policy") %>>
         <%= render("metrics/policy", locals: {s: s}) %>
       </div>
     </div>
-    <div class="column is-half">
-      <div id="m-app" <%= panel.call("app") %>>
-        <%= render("metrics/app", locals: {s: s}) %>
-      </div>
-    </div>
+  </div>
+
+  <div id="m-app" <%= panel.call("app") %>>
+    <%= render("metrics/app", locals: {s: s}) %>
   </div>
 
   <% if sse %>

@@ -282,6 +282,102 @@ describe Naaf::Metrics::Collector do
     end
   end
 
+  describe "sites as peers and top talkers" do
+    def publish_both!
+      @peers.publish({
+        "PEERPUB" => Naaf::Metrics::PeerStats.entry(
+          previous_rx: 1000, previous_tx: 2000, rx: 4000, tx: 5000,
+          handshake: Time.now.to_i, endpoint: "1.2.3.4:51820", interval: 30.0
+        ),
+        "SITEPUB" => Naaf::Metrics::PeerStats.entry(
+          previous_rx: 0, previous_tx: 0, rx: 9000, tx: 3000,
+          handshake: Time.now.to_i, endpoint: "9.9.9.9:51820", interval: 30.0
+        )
+      }, at: Time.now, interval: 30.0)
+    end
+
+    it "lists a site beside a client without counting it as an online client" do
+      make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB",
+        last_handshake_at: Time.now, rx_bytes: 1000, tx_bytes: 2000)
+      sid = make_site(@db, name: "room", pubkey: "SITEPUB", address: "10.9.0.1",
+        networks: ["192.168.1.0/24"])
+      @db[:sites].where(id: sid).update(last_handshake_at: Time.now)
+      publish_both!
+
+      s = collector.tick!
+      expect(s.peers.size).to be == 2
+      site = s.peers.find { |p| p[:kind] == :site }
+      expect(site[:name]).to be == "room"
+      expect(site[:cidrs]).to be == ["192.168.1.0/24"]
+      expect(s.wg[:online]).to be == 1
+      expect(s.wg[:total]).to be == 1
+      expect(s.wg[:sites_online]).to be == 1
+      expect(decimals(s.wg[:rx_bps], 0)).to be == "400"
+    end
+
+    it "lists a site with no networks as not online" do
+      make_site(@db, name: "empty", pubkey: "EMPTY", networks: [])
+      s = collector.tick!
+      site = s.peers.find { |p| p[:name] == "empty" }
+      expect(site[:kind]).to be == :site
+      expect(site[:online]).to be == false
+      expect(site[:cidrs]).to be == []
+    end
+
+    it "ranks talkers busiest-first, caps at 8, and leaves share unknown until measured" do
+      expect(collector.tick!.talkers).to be(:empty?)
+
+      make_client(@db, name: "laptop", wg_ip: "10.8.0.2", pubkey: "PEERPUB",
+        last_handshake_at: Time.now)
+      sid = make_site(@db, name: "room", pubkey: "SITEPUB",
+        networks: ["192.168.1.0/24"])
+      @db[:sites].where(id: sid).update(last_handshake_at: Time.now)
+      8.times do |i|
+        make_client(@db, name: "c#{i}", wg_ip: "10.8.0.#{10 + i}", pubkey: "P#{i}")
+      end
+      sample = {
+        "PEERPUB" => Naaf::Metrics::PeerStats.entry(
+          previous_rx: 0, previous_tx: 0, rx: 3000, tx: 0,
+          handshake: Time.now.to_i, endpoint: nil, interval: 30.0
+        ),
+        "SITEPUB" => Naaf::Metrics::PeerStats.entry(
+          previous_rx: 0, previous_tx: 0, rx: 9000, tx: 0,
+          handshake: Time.now.to_i, endpoint: nil, interval: 30.0
+        )
+      }
+      8.times do |i|
+        sample["P#{i}"] = Naaf::Metrics::PeerStats.entry(
+          previous_rx: 0, previous_tx: 0, rx: 30 * (i + 1), tx: 0,
+          handshake: 0, endpoint: nil, interval: 30.0
+        )
+      end
+      @peers.publish(sample, at: Time.now, interval: 30.0)
+
+      talkers = collector.tick!.talkers
+      expect(talkers.size).to be == 8
+      expect(talkers.map { |t| t[:name] }.first(2)).to be == ["room", "laptop"]
+      expect(talkers.first[:share].nil?).to be == false
+    end
+
+    it "frees the series of a site that has been deleted" do
+      sid = make_site(@db, name: "room", pubkey: "SITEPUB",
+        networks: ["192.168.1.0/24"])
+      @peers.publish({"SITEPUB" => Naaf::Metrics::PeerStats.entry(
+        previous_rx: 0, previous_tx: 0, rx: 10, tx: 10,
+        handshake: 0, endpoint: nil, interval: 30.0
+      )}, at: Time.now, interval: 30.0)
+      c = collector
+      c.tick!
+      expect(c.series.keys).to be(:include?, :"peer.SITEPUB.rx")
+
+      @db[:site_networks].where(site_id: sid).delete
+      @db[:sites].where(id: sid).delete
+      advance(2)
+      c.tick!
+      expect(c.series.keys).not.to be(:include?, :"peer.SITEPUB.rx")
+    end
+  end
+
   describe "what the snapshot carries" do
     it "counts the policy tables and names the network" do
       id = make_client(@db, name: "laptop", wg_ip: "10.8.0.2")

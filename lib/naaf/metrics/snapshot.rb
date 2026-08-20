@@ -11,7 +11,7 @@ module Naaf
     # and any number of SSE fibers read it. Nothing mutable may cross that line
     # (see DNSStats for what happens when something does).
     Snapshot = Data.define(:at, :interval, :system, :interfaces, :udp,
-      :pipeline, :peers, :wg, :dns, :app, :policy) do
+      :pipeline, :peers, :talkers, :wg, :dns, :app, :policy) do
       # The state the page is in before the collector has ever ticked, and the
       # state every panel falls back to on a machine with no /proc.
       #
@@ -27,6 +27,7 @@ module Naaf
           udp: EMPTY_UDP,
           pipeline: EMPTY_PIPELINE,
           peers: [].freeze,
+          talkers: EMPTY_TALKERS,
           wg: EMPTY_WG,
           dns: EMPTY_DNS,
           app: EMPTY_APP,
@@ -59,8 +60,11 @@ module Naaf
       verdict: :unknown, message: nil
     }.freeze
 
+    EMPTY_TALKERS = [].freeze
+
     EMPTY_WG = {
-      total: 0, enabled: 0, online: 0, listen_port: nil,
+      total: 0, enabled: 0, online: 0,
+      sites_total: 0, sites_enabled: 0, sites_online: 0, listen_port: nil,
       rx_bps: nil, tx_bps: nil, rx_series: [].freeze, tx_series: [].freeze,
       rx_bytes: 0, tx_bytes: 0, measured_at: nil, interval: nil
     }.freeze
