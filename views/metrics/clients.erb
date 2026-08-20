@@ -2,7 +2,8 @@
   <div class="level is-mobile mb-2">
     <div class="level-left"><h2 class="title is-6 level-item mb-0">Peers</h2></div>
     <div class="level-right">
-      <a class="level-item is-size-7" href="/clients">manage →</a>
+      <a class="level-item is-size-7" href="/clients">clients →</a>
+      <a class="level-item is-size-7" href="/sites">sites →</a>
     </div>
   </div>
 
@@ -15,7 +16,7 @@
       <table class="table is-fullwidth is-narrow is-hoverable">
         <thead>
           <tr>
-            <th>Name</th><th>VPN IP</th><th>Status</th><th>Last handshake</th>
+            <th>Name</th><th>Type</th><th>VPN IP</th><th>Status</th><th>Last handshake</th>
             <th>Endpoint</th>
             <th class="has-text-right" title="traffic from the peer to this server">In</th>
             <th class="has-text-right" title="traffic from this server to the peer">Out</th>
@@ -27,9 +28,21 @@
           <% s.peers.each do |p| %>
             <tr>
               <td><%= h(p[:name]) %></td>
-              <td><code class="naaf-num"><%= h(p[:wg_ip]) %></code></td>
+              <td><span class="tag is-light"><%= (p[:kind] == :site) ? "site" : "client" %></span></td>
               <td>
-                <% if !p[:enabled] %>
+                <% if p[:kind] == :site %>
+                  <code class="naaf-num"><%= h(fmt.dash(p[:wg_ip])) %></code>
+                  <% Array(p[:cidrs]).each do |cidr| %>
+                    <code class="naaf-num"><%= h(cidr) %></code>
+                  <% end %>
+                <% else %>
+                  <code class="naaf-num"><%= h(p[:wg_ip]) %></code>
+                <% end %>
+              </td>
+              <td>
+                <% if p[:kind] == :site && Array(p[:cidrs]).empty? %>
+                  <span class="tag is-warning">not installed — no networks</span>
+                <% elsif !p[:enabled] %>
                   <span class="tag naaf-chip">disabled</span>
                 <% elsif p[:online] %>
                   <span class="tag naaf-chip has-text-success-on-scheme">online</span>

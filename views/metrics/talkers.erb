@@ -1,0 +1,50 @@
+<div class="box naaf-tile">
+  <h2 class="title is-6">Top talkers</h2>
+  <p class="is-size-7 has-text-grey mb-3">
+    Per peer, refreshed every reconcile (30s). This box cannot break traffic down
+    by external destination — per-flow byte counts need
+    <code>/proc/net/nf_conntrack</code> (root-only) or <code>nft</code> counters
+    (<code>CAP_NET_ADMIN</code>), and an <code>nft</code> counter would reset on
+    every apply.
+  </p>
+
+  <% if s.talkers.empty? %>
+    <p class="has-text-grey">No throughput measured yet.</p>
+  <% else %>
+    <table class="table is-fullwidth is-narrow is-hoverable">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th class="has-text-right">In</th>
+          <th class="has-text-right">Out</th>
+          <th>Share</th>
+          <th class="has-text-right">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% s.talkers.each do |t| %>
+          <tr>
+            <td><%= h(t[:name]) %></td>
+            <td><span class="tag is-light"><%= (t[:kind] == :site) ? "site" : "client" %></span></td>
+            <td class="has-text-right naaf-num"><%= fmt.bps(t[:rx_bps]) %></td>
+            <td class="has-text-right naaf-num"><%= fmt.bps(t[:tx_bps]) %></td>
+            <td>
+              <% if t[:share] %>
+                <progress class="progress is-small" value="<%= [t[:share].round, 1].max %>" max="100"
+                          aria-label="share of measured throughput">
+                  <%= fmt.pct(t[:share]) %>
+                </progress>
+              <% else %>
+                <%= fmt.dash(t[:share]) %>
+              <% end %>
+            </td>
+            <td class="has-text-right naaf-num has-text-grey">
+              <%= fmt.bytes(t[:rx_bytes].to_i + t[:tx_bytes].to_i) %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+</div>

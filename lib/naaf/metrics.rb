@@ -22,7 +22,7 @@ module Naaf
   # whitelist for GET /metrics/<name> — without it that route is a template
   # path traversal — and as the list of SSE event names.
   module Metrics
-    FRAGMENTS = %w[health kpis pipeline clients dns interfaces policy app].freeze
+    FRAGMENTS = %w[health kpis pipeline clients talkers dns interfaces policy app].freeze
 
     # `policy` is the network's configuration — subnet, endpoint, rule counts —
     # and changes only when the admin changes it, so it is rendered once with

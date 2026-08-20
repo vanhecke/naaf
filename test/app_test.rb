@@ -416,14 +416,15 @@ describe "Naaf::App integration" do
     def chips_by_name(body)
       body.scan(%r{<tr>(.*?)</tr>}m).flatten.filter_map { |row|
         name = row[%r{<td>([^<]*)</td>}, 1]
-        name && [name.strip, row[%r{<span class="tag[^"]*">([a-z]+)</span>}, 1]]
+        chip = row[%r{<span class="tag(?: naaf-chip[^"]*| is-warning)">([a-z]+)</span>}, 1]
+        name && chip && [name.strip, chip]
       }.to_h
     end
 
     it "gives every peer the status chip it has earned" do
       login!
       Naaf::App.metrics = StubMetrics.new(peers: [
-        peer(name: "nas", id: 1, wg_ip: "10.8.0.2", online: true,
+        peer(name: "nas", id: 1, wg_ip: "10.8.0.2", kind: :client, online: true,
           last_handshake_at: Time.now - 30, endpoint: "81.82.83.84:51820",
           rx_bps: 2048.0, tx_bps: 512.0, rx_series: [1024.0, 2048.0]),
         peer(name: "laptop", id: 2, wg_ip: "10.8.0.3", last_handshake_at: Time.now - 7200),
@@ -437,6 +438,18 @@ describe "Naaf::App integration" do
         "nas" => "online", "laptop" => "idle", "old-phone" => "disabled"
       }
       expect(body.include?("No clients yet")).to be == false
+    end
+
+    it "lists a site among the peers" do
+      login!
+      Naaf::App.metrics = StubMetrics.new(peers: [
+        peer(name: "nas", id: 1, wg_ip: "10.8.0.2"),
+        peer(name: "room", id: 2, kind: :site, wg_ip: nil, cidrs: ["192.168.1.0/24"])
+      ])
+      body = get("/metrics/clients").body
+      expect(body).to be(:include?, "room")
+      expect(body).to be(:include?, "site")
+      expect(body).to be(:include?, "192.168.1.0/24")
     end
 
     # An operator reading "976.6 KB" beside a peer that has moved a megabyte
