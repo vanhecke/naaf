@@ -10,9 +10,14 @@
   config already routes everything). A <em>global</em> route applies to every
   client; a route bound to a client applies to that client only. The VPN subnet
   itself is always included, so you only list networks <em>behind</em> the tunnel.
-  Networks of a <a href="/sites">site</a> are folded into split configs
-  automatically and listed below so the split-tunnel set is visible in one place —
-  do not add them here as well.
+  <% if @site_routes.any? %>
+    Networks of a <a href="/sites">site</a> are folded into split configs
+    automatically and listed below so the split-tunnel set is visible in one place —
+    do not add them here as well.
+  <% else %>
+    Networks of a <a href="/sites">site</a> are folded into split configs
+    automatically; add them on the site, not here.
+  <% end %>
 </p>
 
 <% unless @site_routes.empty? %>

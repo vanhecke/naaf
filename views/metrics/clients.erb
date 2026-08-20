@@ -8,7 +8,7 @@
   </div>
 
   <% if s.peers.empty? %>
-    <p class="has-text-grey">No clients yet. <a href="/clients">Add the first one.</a></p>
+    <p class="has-text-grey">No peers yet. Add a <a href="/clients">client</a> or a <a href="/sites">site</a>.</p>
   <% else %>
     <div class="naaf-scroll">
       <%# This table is also the table view for the per-peer sparklines beside
@@ -40,10 +40,13 @@
                 <% end %>
               </td>
               <td>
-                <% if p[:kind] == :site && Array(p[:cidrs]).empty? %>
-                  <span class="tag is-warning">not installed — no networks</span>
-                <% elsif !p[:enabled] %>
+                <%# Disabled first: a site the admin switched off AND left
+                    without networks would otherwise report the renderer's
+                    reason and hide their own action. %>
+                <% if !p[:enabled] %>
                   <span class="tag naaf-chip">disabled</span>
+                <% elsif p[:kind] == :site && Array(p[:cidrs]).empty? %>
+                  <span class="tag is-warning">not installed — no networks</span>
                 <% elsif p[:online] %>
                   <span class="tag naaf-chip has-text-success-on-scheme">online</span>
                 <% else %>

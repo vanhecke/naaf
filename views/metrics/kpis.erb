@@ -25,7 +25,8 @@
         <%= svg.throughput(down: s.wg[:rx_series], up: s.wg[:tx_series], height: 64,
                            label: "tunnel throughput, in above the line and out below") %>
         <p class="is-size-7 has-text-grey mt-2">
-          <%= s.wg[:online] %> of <%= s.wg[:enabled] %> peers up<%=
+          <%= s.wg[:online] %> of <%= s.wg[:enabled] %> clients up<%=
+            s.wg[:sites_total].to_i.positive? ? " · #{s.wg[:sites_online]} of #{s.wg[:sites_enabled]} sites up" : "" %><%=
             s.wg[:interval] ? " · refreshed every #{fmt.duration(s.wg[:interval])}" : "" %>
         </p>
       <% else %>

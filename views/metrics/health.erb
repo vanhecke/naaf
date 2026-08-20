@@ -3,8 +3,18 @@
 <div class="level is-mobile is-flex-wrap-wrap mb-4">
   <div class="level-left is-flex-wrap-wrap">
     <span class="level-item tag <%= (s.wg[:online]).positive? ? "is-success" : "naaf-chip" %>">
-      <strong class="mr-1"><%= s.wg[:online] %>/<%= s.wg[:enabled] %></strong> peers up
+      <strong class="mr-1"><%= s.wg[:online] %>/<%= s.wg[:enabled] %></strong> clients up
     </span>
+
+    <%# Counted apart from clients on purpose: Collector#judge reads wg[:online]
+        for the stall detector, and one online site would mask a total client
+        outage — the exact case it exists to catch. Kept visible here so this
+        strip cannot contradict the Peers panel below it, which lists both. %>
+    <% if s.wg[:sites_total].to_i.positive? %>
+      <span class="level-item tag <%= s.wg[:sites_online].to_i.positive? ? "is-success" : "naaf-chip" %>">
+        <strong class="mr-1"><%= s.wg[:sites_online] %>/<%= s.wg[:sites_enabled] %></strong> sites up
+      </span>
+    <% end %>
 
     <span class="level-item tag naaf-chip">
       DNS <span class="naaf-num ml-1"><%= fmt.per_sec(s.dns[:qps]) %></span>

@@ -312,7 +312,48 @@ describe Naaf::Metrics::Collector do
       expect(s.wg[:online]).to be == 1
       expect(s.wg[:total]).to be == 1
       expect(s.wg[:sites_online]).to be == 1
+      expect(s.wg[:sites_total]).to be == 1
+      expect(s.wg[:sites_enabled]).to be == 1
+      # Site rates ARE tunnel throughput, so they belong in the hero tile...
       expect(decimals(s.wg[:rx_bps], 0)).to be == "400"
+      # ...and so do their lifetime counters. The client alone is 1000/2000.
+      expect(s.wg[:rx_bytes]).to be == 1000
+      expect(s.wg[:tx_bytes]).to be == 2000
+    end
+
+    it "keeps a disabled site out of sites_enabled but still lists it" do
+      make_site(@db, name: "off", pubkey: "OFFPUB", enabled: false,
+        networks: ["192.168.5.0/24"])
+      s = collector.tick!
+      expect(s.wg[:sites_total]).to be == 1
+      expect(s.wg[:sites_enabled]).to be == 0
+      expect(s.wg[:sites_online]).to be == 0
+      expect(s.peers.map { |x| x[:name] }).to be(:include?, "off")
+    end
+
+    # Num.pct returns nil rather than dividing by zero, and the panel renders
+    # that as an em dash. A measured peer that moved nothing while another
+    # carried the traffic gets a real 0.0, which is not the same thing.
+    it "gives an idle-but-measured peer a zero share, not a nil one" do
+      make_client(@db, name: "busy", wg_ip: "10.8.0.2", pubkey: "PEERPUB",
+        last_handshake_at: Time.now)
+      make_client(@db, name: "quiet", wg_ip: "10.8.0.3", pubkey: "QUIET",
+        last_handshake_at: Time.now)
+      @peers.publish({
+        "PEERPUB" => Naaf::Metrics::PeerStats.entry(
+          previous_rx: 0, previous_tx: 0, rx: 3000, tx: 0,
+          handshake: Time.now.to_i, endpoint: nil, interval: 30.0
+        ),
+        "QUIET" => Naaf::Metrics::PeerStats.entry(
+          previous_rx: 0, previous_tx: 0, rx: 0, tx: 0,
+          handshake: Time.now.to_i, endpoint: nil, interval: 30.0
+        )
+      }, at: Time.now, interval: 30.0)
+
+      talkers = collector.tick!.talkers
+      quiet = talkers.find { |t| t[:name] == "quiet" }
+      expect(decimals(quiet[:share], 1)).to be == "0.0"
+      expect(decimals(talkers.first[:share], 1)).to be == "100.0"
     end
 
     it "lists a site with no networks as not online" do

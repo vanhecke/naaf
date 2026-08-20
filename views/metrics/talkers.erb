@@ -31,10 +31,19 @@
             <td class="has-text-right naaf-num"><%= fmt.bps(t[:tx_bps]) %></td>
             <td>
               <% if t[:share] %>
-                <progress class="progress is-small" value="<%= [t[:share].round, 1].max %>" max="100"
-                          aria-label="share of measured throughput">
-                  <%= fmt.pct(t[:share]) %>
-                </progress>
+                <%# The number goes beside the bar, not inside it: <progress>
+                    treats its children as fallback for browsers without the
+                    element, so the percentage was never rendered at all.
+                    The 1% floor is the meter idiom from kpis.erb — a sliver
+                    beats a bar pinned at zero — but only above zero. A peer
+                    that was measured at 0 B/s while another carried the
+                    traffic has a real 0% share, and drawing 1% for it would
+                    claim an idle tunnel, which is what the nil handling in
+                    Collector#rank_talkers exists to avoid. %>
+                <progress class="progress is-small"
+                          value="<%= t[:share].positive? ? [t[:share].round, 1].max : 0 %>" max="100"
+                          aria-label="share of measured throughput"></progress>
+                <span class="is-size-7 has-text-grey naaf-num"><%= fmt.pct(t[:share]) %></span>
               <% else %>
                 <%= fmt.dash(t[:share]) %>
               <% end %>

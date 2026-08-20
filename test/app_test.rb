@@ -1087,18 +1087,63 @@ describe "Naaf::App integration" do
       "client_id" => nas, "proto" => "tcp", "port" => "8000-8100")
 
     body = get("/exposed-ports").body
-    idle_at = body.index("idle")
-    nas_at = body.index("<h2 class=\"title is-5 mb-0\">nas</h2>")
-    pi_at = body.index("<h2 class=\"title is-5 mb-0\">pi</h2>")
-    expect(idle_at).not.to be_nil
-    expect(nas_at).not.to be_nil
-    expect(pi_at).not.to be_nil
+    # Anchored needles throughout. "22" as a bare substring is satisfied by any
+    # of the base64 CSRF tokens the delete forms carry, and String#index with an
+    # offset returns an ABSOLUTE index — so `index(x, at) > at` can only fail by
+    # raising on nil, which makes it a presence check wearing an ordering hat.
+    heading = ->(name) { body.index(%(<h2 class="title is-5 mb-0">#{name}</h2>)) }
+    port_cell = ->(text) { body.index("<td><code>#{text}</code></td>") }
+    idle_at, nas_at, pi_at = heading["idle"], heading["nas"], heading["pi"]
+    expect([idle_at, nas_at, pi_at]).not.to be(:include?, nil)
+    expect(idle_at).to be < nas_at   # clients.order(:name)
     expect(nas_at).to be < pi_at
-    expect(body.index("22", nas_at)).to be < pi_at
-    expect(body.index("8000-8100", nas_at)).to be < pi_at
-    expect(body.index(">53<", pi_at)).to be > pi_at
+
+    # nas's two rows sit between nas's heading and pi's; pi's single row sits
+    # after pi's. A flat interleave puts udp/53 first and fails here.
+    expect(port_cell["22"]).to be > nas_at
+    expect(port_cell["22"]).to be < pi_at
+    expect(port_cell["8000-8100"]).to be > nas_at
+    expect(port_cell["8000-8100"]).to be < pi_at
+    expect(port_cell["53"]).to be > pi_at
+
+    empty_at = body.index("No ports exposed. Other spokes cannot reach this client.")
+    expect(empty_at).to be > idle_at
+    expect(empty_at).to be < nas_at
+  end
+
+  # The page is opened to answer "what can reach this machine". A client that is
+  # absent from it reads as "I have not looked yet" rather than as "nothing", so
+  # the global empty state is additional to the per-client boxes, not instead.
+  it "still lists every client when nothing at all is exposed" do
+    login!
+    add_client("nas")
+    add_client("pi")
+
+    body = get("/exposed-ports").body
+    expect(body).to be(:include?, "No exposed ports. Spoke-to-spoke traffic is fully denied.")
+    expect(body).to be(:include?, %(<h2 class="title is-5 mb-0">nas</h2>))
+    expect(body).to be(:include?, %(<h2 class="title is-5 mb-0">pi</h2>))
     expect(body).to be(:include?, "No ports exposed. Other spokes cannot reach this client.")
-    expect(body.index("No ports exposed. Other spokes cannot reach this client.")).to be > idle_at
+  end
+
+  # The FK cascade should make this unreachable; the point of the block is that a
+  # grouped view never silently drops a row, so drive it the only way there is.
+  it "surfaces a port whose client is gone instead of dropping it" do
+    login!
+    nas = add_client("nas")
+    post_form("/exposed-ports", "/exposed-ports",
+      "client_id" => nas, "proto" => "tcp", "port" => "22")
+    Naaf.db.run("PRAGMA foreign_keys = OFF")
+    begin
+      Naaf.db[:exposed_ports].update(client_id: 4242)
+    ensure
+      Naaf.db.run("PRAGMA foreign_keys = ON")
+    end
+
+    body = get("/exposed-ports").body
+    expect(body).to be(:include?, "Orphaned ports")
+    expect(body).to be(:include?, "box naaf-warn")
+    expect(body).to be(:include?, "<td><code>22</code></td>")
   end
 
   it "rejects an exposed port for an unknown client" do
@@ -1362,8 +1407,12 @@ describe "Naaf::App integration" do
     expect(body).to be(:include?, "managed on Sites")
     expect(body).to be(:include?, "also routed by site room")
     expect(body).not.to be(:include?, "also routed by site off")
-    expect(body).to be(:include?, "disabled")
-    expect(body).not.to be(:include?, "/site_networks/")
+    room_net = Naaf.db[:site_networks].where(cidr: "192.168.1.0/24").first
+    expect(body).to be(:include?, %(<span class="tag naaf-chip">disabled</span>))
+    # The read-only contract, asserted against the URL a Remove button would
+    # really carry (/site_networks/ is a shape this app has never emitted, so
+    # the assertion it replaces could not fail).
+    expect(body).not.to be(:include?, "/networks/#{room_net[:id]}/delete")
     extra = Naaf.db[:extra_routes].where(cidr: "192.168.1.0/24").first
     expect(body).to be(:include?, "/extra-routes/#{extra[:id]}/delete")
   end

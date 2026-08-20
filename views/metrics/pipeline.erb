@@ -9,11 +9,11 @@
     <div class="level-right">
       <% case s.pipeline[:verdict] %>
       <% when :stalled %>
-        <span class="level-item tag is-danger">✕ no peer connected</span>
+        <span class="level-item tag is-danger">✕ no client connected</span>
       <% when :ok %>
-        <span class="level-item tag naaf-chip has-text-success-on-scheme">✓ <%= s.wg[:online] %> connected</span>
+        <span class="level-item tag naaf-chip has-text-success-on-scheme">✓ <%= s.wg[:online] %> clients connected</span>
       <% when :idle %>
-        <span class="level-item tag naaf-chip">no peers configured</span>
+        <span class="level-item tag naaf-chip">no clients configured</span>
       <% else %>
         <span class="level-item tag naaf-chip">— no reading yet</span>
       <% end %>
