@@ -13,6 +13,7 @@ require_relative "format"
 require_relative "ipam"
 require_relative "reconciler"
 require_relative "config_builder"
+require_relative "flow"
 require_relative "zone"
 require_relative "metrics"
 require_relative "renderers/svg"
@@ -554,6 +555,29 @@ module Naaf
       end
     end
 
+    FLOW_PROTOS = %w[tcp udp icmp].freeze
+
+    # param_ipv4's message is written for a form field that names itself; here
+    # two addresses share a page, so say which one.
+    def param_flow_addr(raw, label)
+      param_ipv4(raw)
+    rescue ValidationError
+      raise ValidationError, "#{label} must be an IPv4 address."
+    end
+
+    def flow_args(params)
+      proto = params["proto"].to_s.downcase
+      unless FLOW_PROTOS.include?(proto)
+        raise ValidationError, "Protocol must be tcp, udp or icmp."
+      end
+      {
+        src: param_flow_addr(params["src"], "Source"),
+        dst: param_flow_addr(params["dst"], "Destination"),
+        proto: proto,
+        dport: (proto == "icmp") ? nil : param_port(params["dport"])
+      }
+    end
+
     def param_mtu(raw)
       n = Integer(raw.to_s, exception: false)
       raise ValidationError, "MTU must be between 1280 and 1500." unless n && (1280..1500).cover?(n)
@@ -1062,6 +1086,32 @@ module Naaf
         r.on Integer do |id|
           r.post "delete" do
             submit("/extra-routes") { Naaf.db[:extra_routes].where(id: id).delete }
+          end
+        end
+      end
+
+      r.on "troubleshoot" do
+        r.get true do
+          @settings = Naaf.settings
+          view("troubleshoot")
+        end
+
+        # GET, not POST: this reads the database and changes nothing, so the
+        # result is bookmarkable and no CSRF token is involved. The form carries
+        # both `action` and `hx-get`, so it answers with the whole page when
+        # JavaScript is off and swaps the fragment in place when it is not —
+        # the same degradation contract the dashboard has with SSE.
+        r.get "flow" do
+          begin
+            @report = Flow.analyze(Naaf.db, **flow_args(r.params))
+          rescue ValidationError => e
+            @flow_error = e.message
+          end
+          if r.env["HTTP_HX_REQUEST"]
+            render("troubleshoot/flow", locals: {report: @report, error: @flow_error})
+          else
+            @settings = Naaf.settings
+            view("troubleshoot")
           end
         end
       end

@@ -1738,6 +1738,94 @@ describe "Naaf::App integration" do
     expect(res.headers["location"]).to be == "/"
   end
 
+  describe "the troubleshoot page" do
+    def flow(params)
+      get("/troubleshoot/flow?" + URI.encode_www_form(params))
+    end
+
+    def hx_flow(params)
+      res = mr.get("/troubleshoot/flow?" + URI.encode_www_form(params),
+        cookie_env.merge("HTTP_HX_REQUEST" => "true"))
+      remember_cookie(res)
+      res
+    end
+
+    it "is behind the session like every other page" do
+      expect(get("/troubleshoot").headers["location"]).to be == "/login"
+      expect(get("/troubleshoot/flow?src=10.8.0.2&dst=10.8.0.3&proto=tcp&dport=22")
+        .headers["location"]).to be == "/login"
+    end
+
+    it "renders the flow tester with no result until one is asked for" do
+      login!
+      body = get("/troubleshoot").body
+      expect(body).to be(:include?, "Flow tester")
+      expect(body).to be(:include?, %(action="/troubleshoot/flow"))
+      expect(body).not.to be(:include?, "REACHABLE")
+      expect(body).not.to be(:include?, "BLOCKED")
+    end
+
+    it "answers a blocked flow, and the same flow once the port is exposed" do
+      login!
+      nas = add_client("nas")
+      add_client("pi")
+      params = {"src" => "10.8.0.3", "dst" => "10.8.0.2", "proto" => "tcp", "dport" => "22"}
+
+      body = flow(params).body
+      expect(body).to be(:include?, "BLOCKED")
+      expect(body).to be(:include?, "counter drop")
+
+      post_form("/exposed-ports", "/exposed-ports",
+        "client_id" => nas, "proto" => "tcp", "port" => "22")
+      body = flow(params).body
+      expect(body).to be(:include?, "REACHABLE")
+      expect(body).to be(:include?, "@vpn_tcp_allow")
+    end
+
+    # GET and no CSRF token: it is a pure read, so it must be bookmarkable.
+    it "renders the whole page without htmx and the bare fragment with it" do
+      login!
+      add_client("nas")
+      add_client("pi")
+      params = {"src" => "10.8.0.3", "dst" => "10.8.0.2", "proto" => "tcp", "dport" => "22"}
+
+      whole = flow(params).body
+      expect(whole).to be(:include?, "<nav")
+      expect(whole).to be(:include?, "BLOCKED")
+
+      fragment = hx_flow(params).body
+      expect(fragment).to be(:include?, "BLOCKED")
+      expect(fragment).not.to be(:include?, "<nav")
+      expect(fragment).not.to be(:include?, "<!DOCTYPE")
+    end
+
+    it "names which address was wrong instead of failing the request" do
+      login!
+      body = flow("src" => "nonsense", "dst" => "10.8.0.2", "proto" => "tcp", "dport" => "22").body
+      expect(body).to be(:include?, "Source must be an IPv4 address")
+
+      body = flow("src" => "10.8.0.2", "dst" => "10.8.0.3", "proto" => "sctp", "dport" => "22").body
+      expect(body).to be(:include?, "tcp, udp or icmp")
+    end
+
+    it "does not need a port for ICMP" do
+      login!
+      add_client("nas")
+      add_client("pi")
+      body = flow("src" => "10.8.0.3", "dst" => "10.8.0.2", "proto" => "icmp", "dport" => "").body
+      expect(body).to be(:include?, "REACHABLE")
+      expect(body).to be(:include?, "echo-request accept")
+    end
+
+    it "does not apply, because it writes nothing" do
+      login!
+      add_client("nas")
+      expect(Naaf::App.reconciler.applies).to be == 1
+      flow("src" => "10.8.0.2", "dst" => "8.8.8.8", "proto" => "tcp", "dport" => "443")
+      expect(Naaf::App.reconciler.applies).to be == 1
+    end
+  end
+
   describe "conditional DNS forwarding" do
     def forward(**over)
       post_form("/dns-records", "/dns-forwarders",

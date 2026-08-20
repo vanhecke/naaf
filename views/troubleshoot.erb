@@ -1,0 +1,61 @@
+<div class="level">
+  <div class="level-left">
+    <h1 class="title level-item">Troubleshoot</h1>
+  </div>
+</div>
+
+<p class="content">
+  The first steps of <code>docs/TROUBLESHOOTING.md</code>, without the
+  <code>ssh</code>. The flow tester answers <em>should this work</em> from the
+  configuration; it does not send a packet.
+</p>
+
+<h2 class="title is-5">Flow tester</h2>
+<p class="content is-small has-text-grey">
+  Walks a packet through the same rules the renderers emit — client
+  <code>AllowedIPs</code>, cryptokey routing, the proto-158 routes, and the
+  <code>inet naaf</code> forward chain — and reports which line decided it.
+</p>
+
+<form method="get" action="/troubleshoot/flow"
+      hx-get="/troubleshoot/flow" hx-target="#flow-result" hx-swap="innerHTML"
+      hx-disabled-elt="find button">
+  <div class="field is-grouped is-grouped-multiline">
+    <div class="control">
+      <label class="label">From</label>
+      <input class="input" type="text" name="src" value="<%= h(request.params["src"].to_s) %>"
+             placeholder="<%= h(@settings[:server_ip].to_s.sub(/\.1\z/, ".2")) %>" required>
+    </div>
+    <div class="control">
+      <label class="label">To</label>
+      <input class="input" type="text" name="dst" value="<%= h(request.params["dst"].to_s) %>"
+             placeholder="192.168.1.10" required>
+    </div>
+    <div class="control">
+      <label class="label">Protocol</label>
+      <div class="select">
+        <select name="proto">
+          <% Naaf::App::FLOW_PROTOS.each do |proto| %>
+            <option value="<%= proto %>"<%= " selected" if request.params["proto"] == proto %>><%= proto %></option>
+          <% end %>
+        </select>
+      </div>
+    </div>
+    <div class="control">
+      <label class="label">Port</label>
+      <input class="input" type="number" name="dport" min="1" max="65535"
+             value="<%= h(request.params["dport"].to_s) %>" placeholder="443">
+      <p class="help">Ignored for ICMP.</p>
+    </div>
+  </div>
+  <div class="field">
+    <div class="control">
+      <button class="button is-primary" type="submit">Trace</button>
+      <span class="naaf-busy ml-2 is-size-7 has-text-grey">working…</span>
+    </div>
+  </div>
+</form>
+
+<div id="flow-result" class="mt-4">
+  <%= render("troubleshoot/flow", locals: {report: @report, error: @flow_error}) %>
+</div>
