@@ -1826,6 +1826,189 @@ describe "Naaf::App integration" do
     end
   end
 
+  # The one place this process spawns anything. Every example here asserts
+  # against a stubbed Diagnostics, so the suite never puts a packet on the wire
+  # and never depends on which of the three binaries the host happens to have.
+  describe "the diagnostics tools" do
+    def stub_diagnostics!
+      @spawned = []
+      spawned = @spawned
+      original = Naaf::Diagnostics.method(:run)
+      Naaf::Diagnostics.define_singleton_method(:run) do |tool, argv|
+        spawned << [tool, argv]
+        Naaf::Diagnostics::Result.new(argv: [tool.to_s, *argv], output: "STUB OUTPUT",
+          status: nil, seconds: 0.1, timed_out: false, unavailable: false)
+      end
+      original
+    end
+
+    def with_stub
+      original = stub_diagnostics!
+      yield
+    ensure
+      Naaf::Diagnostics.define_singleton_method(:run, original)
+    end
+
+    def diag(tool, params)
+      post_form("/troubleshoot", "/troubleshoot/#{tool}", params)
+    end
+
+    it "is behind the session and behind CSRF" do
+      expect(post("/troubleshoot/ping", "host" => "1.1.1.1").headers["location"]).to be == "/login"
+      login!
+      with_stub do
+        # check_csrf! runs before any route body, so the tool never starts. The
+        # 500 is this application's existing answer to an invalid token
+        # everywhere, not something these routes decide.
+        res = post("/troubleshoot/ping", "host" => "1.1.1.1")
+        expect(res.status).to be == 500
+        expect(@spawned).to be(:empty?)
+      end
+    end
+
+    it "runs ping and renders its output" do
+      login!
+      with_stub do
+        body = diag("ping", "host" => "192.168.1.1").body
+        expect(@spawned).to be == [[:ping, ["-n", "-c", "3", "-W", "2", "-w", "8", "192.168.1.1"]]]
+        expect(body).to be(:include?, "STUB OUTPUT")
+      end
+    end
+
+    it "runs traceroute with one probe per hop" do
+      login!
+      with_stub do
+        diag("traceroute", "host" => "1.1.1.1")
+        expect(@spawned.first.first).to be == :traceroute
+        expect(@spawned.first.last).to be(:include?, "-q")
+      end
+    end
+
+    # The URL is assembled here from the validated parts, never taken as a
+    # string: the parts are what were checked.
+    it "composes the curl URL server-side, per scheme" do
+      login!
+      with_stub do
+        diag("curl", "host" => "10.8.0.2", "scheme" => "tcp", "port" => "443")
+        expect(@spawned.first.last.last).to be == "telnet://10.8.0.2:443"
+
+        @spawned.clear
+        diag("curl", "host" => "10.8.0.2", "scheme" => "https", "port" => "", "path" => "/health")
+        expect(@spawned.first.last.last).to be == "https://10.8.0.2:443/health"
+      end
+    end
+
+    # Anchored whitelists, and the FIRST character matters: a host that begins
+    # with a dash would otherwise reach the child as an argv flag.
+    it "refuses a host that could become an argv flag, and never spawns" do
+      login!
+      with_stub do
+        last = nil
+        ["-o/tmp/x", "1.1.1.1 --output /tmp/x", "a;b", "~root"].each do |host|
+          last = diag("ping", "host" => host)
+        end
+        expect(@spawned).to be(:empty?)
+        expect(last.body).to be(:include?, "hostname or an IPv4 address")
+        expect(diag("ping", "host" => "").body).to be(:include?, "Host is required")
+      end
+    end
+
+    it "refuses a scheme and a path outside their whitelists" do
+      login!
+      with_stub do
+        diag("curl", "host" => "h", "scheme" => "file", "port" => "80")
+        diag("curl", "host" => "h", "scheme" => "http", "port" => "80", "path" => "no-leading-slash")
+        diag("curl", "host" => "h", "scheme" => "http", "port" => "80", "path" => "/a b")
+        expect(@spawned).to be(:empty?)
+      end
+    end
+
+    # A GET of 169.254.169.254 is how a cloud instance's credentials leave it.
+    # ping and traceroute cannot carry a body, so they are not refused.
+    it "refuses the cloud metadata range for curl only" do
+      login!
+      with_stub do
+        res = diag("curl", "host" => "169.254.169.254", "scheme" => "http", "port" => "80")
+        expect(@spawned).to be(:empty?)
+        expect(res.body).to be(:include?, "cloud metadata range")
+
+        diag("ping", "host" => "169.254.169.254")
+        expect(@spawned.first.first).to be == :ping
+      end
+    end
+
+    it "swaps a bare fragment for htmx and a whole page without it" do
+      login!
+      with_stub do
+        body = get("/troubleshoot").body
+        token = csrf_for(body, "/troubleshoot/ping")
+        res = mr.post("/troubleshoot/ping",
+          cookie_env.merge(:params => {"host" => "1.1.1.1", "_csrf" => token},
+            "HTTP_HX_REQUEST" => "true"))
+        expect(res.body).to be(:include?, "STUB OUTPUT")
+        expect(res.body).not.to be(:include?, "<nav")
+      end
+    end
+
+    it "does not apply, because it writes nothing" do
+      login!
+      with_stub do
+        diag("ping", "host" => "1.1.1.1")
+        expect(Naaf::App.reconciler.applies).to be == 0
+      end
+    end
+
+    it "404s every tool, and hides the panels, when diagnostics are off" do
+      login!
+      # Lift the tokens while the forms still exist: they are bound to the path
+      # and the session, not to a particular render, so the 404 below is the
+      # route refusing and not the CSRF check firing first.
+      body = get("/troubleshoot").body
+      tokens = %w[ping traceroute curl]
+        .to_h { |tool| [tool, csrf_for(body, "/troubleshoot/#{tool}")] }
+      expect(tokens.values).not.to be(:include?, nil)
+
+      prev = ENV["NAAF_DIAG_ENABLED"]
+      ENV["NAAF_DIAG_ENABLED"] = "0"
+      Naaf::Config.reset!
+      begin
+        page = get("/troubleshoot").body
+        expect(page).not.to be(:include?, "/troubleshoot/ping")
+        # The flow tester reads the database only, so it stays either way.
+        expect(page).to be(:include?, "Flow tester")
+
+        tokens.each do |tool, token|
+          res = post("/troubleshoot/#{tool}", "host" => "1.1.1.1", "_csrf" => token)
+          expect(res.status).to be == 404
+        end
+      ensure
+        ENV["NAAF_DIAG_ENABLED"] = prev
+        Naaf::Config.reset!
+      end
+    end
+
+    it "reports a missing binary as a sentence rather than a 500" do
+      login!
+      original = Naaf::Diagnostics.method(:resolve)
+      Naaf::Diagnostics.define_singleton_method(:resolve) { |_tool| nil }
+      begin
+        body = diag("traceroute", "host" => "1.1.1.1").body
+        expect(body).to be(:include?, "not installed on this box")
+        expect(body).to be(:include?, "./deploy.sh")
+      ensure
+        Naaf::Diagnostics.define_singleton_method(:resolve, original)
+      end
+    end
+
+    it "shows all four headings on the page" do
+      login!
+      body = get("/troubleshoot").body
+      ["Ping", "Traceroute", "Curl", "Flow tester"].each do |heading|
+        expect(body).to be(:include?, heading)
+      end
+    end
+  end
+
   describe "conditional DNS forwarding" do
     def forward(**over)
       post_form("/dns-records", "/dns-forwarders",

@@ -1,0 +1,32 @@
+<% if error %>
+  <div class="notification is-danger"><%= h(error) %></div>
+<% elsif result %>
+  <% if result.unavailable %>
+    <div class="notification is-warning">
+      <code><%= h(tool) %></code> is not installed on this box — re-run
+      <code>./deploy.sh</code>, which installs it.
+    </div>
+  <% else %>
+    <div class="box <%= "naaf-warn" if result.timed_out %>">
+      <div class="level is-mobile is-flex-wrap-wrap mb-2">
+        <div class="level-left">
+          <span class="level-item tag <%= result.timed_out ? "is-warning" : (result.status&.success? ? "is-success" : "is-danger") %>">
+            <% if result.timed_out %>
+              stopped after <%= result.seconds.round %>s
+            <% else %>
+              exit <%= result.status&.exitstatus %>
+            <% end %>
+          </span>
+          <code class="level-item is-size-7"><%= h(result.argv.join(" ")) %></code>
+        </div>
+        <div class="level-right">
+          <span class="level-item is-size-7 has-text-grey"><%= result.seconds.round(1) %>s</span>
+        </div>
+      </div>
+      <%# Remote text on its way to a browser: scrubbed to UTF-8 and capped in
+          Diagnostics, escaped here. There is no download route on purpose --
+          copy-paste out of this block is the supported path. %>
+      <pre class="naaf-log is-size-7"><%= h(result.output.empty? ? "(no output)" : result.output) %></pre>
+    </div>
+  <% end %>
+<% end %>

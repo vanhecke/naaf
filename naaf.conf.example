@@ -68,6 +68,20 @@ NAAF_METRICS_POLL_INTERVAL=5
 # nothing that could identify what anyone looked up.
 NAAF_METRICS_DNS_NAMES=1
 
+# ───────────────────────────────────────────────────── troubleshoot page
+# ping, traceroute and curl, runnable from the admin UI. They run as the naaf
+# user in the web process — unprivileged, absolute-path, argv-array, never a
+# shell string — and are the ONLY commands this process spawns. The root helper
+# vocabulary is unchanged. Set to 0 to remove the three routes and their panels
+# entirely; the flow tester reads the database only and stays either way.
+NAAF_DIAG_ENABLED=1
+# Hard deadline per run, seconds. Each tool also carries its own shorter
+# deadline; this is the backstop that kills a tool ignoring its own.
+NAAF_DIAG_TIMEOUT=10
+# How many may run at once, process-wide. A retrying browser tab must not be
+# able to fork a box that also routes everyone's traffic.
+NAAF_DIAG_CONCURRENCY=2
+
 # ──────────────────────────────────────────── first-boot seeds (the DB wins)
 # These seed the single-row `settings` table on FIRST boot only. After that the
 # database is authoritative and the admin UI edits it — changing a value here

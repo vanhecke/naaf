@@ -10,6 +10,101 @@
   configuration; it does not send a packet.
 </p>
 
+<% if Naaf::Diagnostics.enabled? %>
+  <h2 class="title is-5">Reachability</h2>
+  <p class="content is-small has-text-grey">
+    The first three steps of the playbook, run from this box as the
+    <code>naaf</code> user. They put real packets on the wire, so they answer a
+    different question from the flow tester below: what the kernel does, not
+    what the configuration says it should.
+  </p>
+
+  <div class="columns is-multiline">
+    <div class="column is-one-third">
+      <div class="box naaf-tile">
+        <h3 class="title is-6">Ping</h3>
+        <p class="is-size-7 has-text-grey mb-3">Three echoes, 8-second deadline.</p>
+        <form method="post" action="/troubleshoot/ping"
+              hx-post="/troubleshoot/ping" hx-target="#diag-result" hx-swap="innerHTML"
+              hx-disabled-elt="find button">
+          <%= csrf_tag("/troubleshoot/ping") %>
+          <div class="field">
+            <input class="input is-small" type="text" name="host" placeholder="192.168.1.1" required>
+          </div>
+          <button class="button is-small is-primary" type="submit">Ping</button>
+          <span class="naaf-busy ml-2 is-size-7 has-text-grey">running…</span>
+        </form>
+      </div>
+    </div>
+
+    <div class="column is-one-third">
+      <div class="box naaf-tile">
+        <h3 class="title is-6">Traceroute</h3>
+        <p class="is-size-7 has-text-grey mb-3">One probe per hop, 12 hops.</p>
+        <form method="post" action="/troubleshoot/traceroute"
+              hx-post="/troubleshoot/traceroute" hx-target="#diag-result" hx-swap="innerHTML"
+              hx-disabled-elt="find button">
+          <%= csrf_tag("/troubleshoot/traceroute") %>
+          <div class="field">
+            <input class="input is-small" type="text" name="host" placeholder="1.1.1.1" required>
+          </div>
+          <button class="button is-small is-primary" type="submit">Trace</button>
+          <span class="naaf-busy ml-2 is-size-7 has-text-grey">running…</span>
+        </form>
+      </div>
+    </div>
+
+    <div class="column is-one-third">
+      <div class="box naaf-tile">
+        <h3 class="title is-6">Curl</h3>
+        <p class="is-size-7 has-text-grey mb-3">
+          <code>tcp</code> is a bare connect — use it to ask whether a port
+          answers at all.
+        </p>
+        <form method="post" action="/troubleshoot/curl"
+              hx-post="/troubleshoot/curl" hx-target="#diag-result" hx-swap="innerHTML"
+              hx-disabled-elt="find button">
+          <%= csrf_tag("/troubleshoot/curl") %>
+          <div class="field is-grouped">
+            <div class="control is-expanded">
+              <input class="input is-small" type="text" name="host" placeholder="192.168.1.10" required>
+            </div>
+            <div class="control">
+              <div class="select is-small">
+                <select name="scheme">
+                  <option value="tcp">tcp</option>
+                  <option value="http">http</option>
+                  <option value="https">https</option>
+                </select>
+              </div>
+            </div>
+            <div class="control">
+              <input class="input is-small" type="number" name="port" min="1" max="65535" placeholder="443" style="width: 6rem">
+            </div>
+          </div>
+          <div class="field">
+            <input class="input is-small" type="text" name="path" placeholder="/">
+          </div>
+          <div class="field">
+            <label class="checkbox is-size-7">
+              <input type="checkbox" name="insecure"> Skip TLS verification (https only)
+            </label>
+          </div>
+          <button class="button is-small is-primary" type="submit">Request</button>
+          <span class="naaf-busy ml-2 is-size-7 has-text-grey">running…</span>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="diag-result" class="mb-5">
+    <%= render("troubleshoot/output",
+               locals: {tool: @diag_tool, result: @diag_result, error: @diag_error}) %>
+  </div>
+
+  <hr>
+<% end %>
+
 <h2 class="title is-5">Flow tester</h2>
 <p class="content is-small has-text-grey">
   Walks a packet through the same rules the renderers emit — client

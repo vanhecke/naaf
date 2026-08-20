@@ -85,6 +85,24 @@ ck "admin UI NOT on 0.0.0.0" "0" "$(printf '%s' "$binds" | grep -c "0\.0\.0\.0:$
 ck "admin UI NOT on [::]" "0" "$(printf '%s' "$binds" | grep -c '\[::\]')"
 has "DNS on the WireGuard IP" "$SERVER_IP:53" "$(ss -lunH '( sport = :53 )')"
 
+# The Troubleshoot page shells out to these three as the naaf user. Missing, the
+# failure surfaces as an opaque exit code inside a web page; ping without
+# cap_net_raw is the same story with a different message.
+if [ "${NAAF_DIAG_ENABLED:-1}" = "1" ]; then
+  for bin in ping traceroute curl; do
+    path=$(command -v "$bin" 2>/dev/null || true)
+    if [ -n "$path" ]; then ok "diagnostics: $bin" "$path"; else no "diagnostics: $bin" "not installed"; fi
+  done
+  caps=$(getcap "$(command -v ping 2>/dev/null || echo /usr/bin/ping)" 2>/dev/null || true)
+  if [ -n "$caps" ]; then
+    ok "ping has cap_net_raw" "$caps"
+  else
+    note "ping has no capabilities" "unprivileged ping needs cap_net_raw+ep"
+  fi
+else
+  note "diagnostics disabled" "NAAF_DIAG_ENABLED=0"
+fi
+
 echo
 echo "── 3. firewall ──"
 tables=$(nft list tables | awk '{print $2" "$3}' | sort | paste -sd, -)
