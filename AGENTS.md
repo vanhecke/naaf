@@ -45,8 +45,23 @@
 - Never build shell strings. Always argv arrays via IO.popen(array).
 - New long-running work is an `Async` task on the existing reactor, not a
   new process and not a Thread. Privileged work stays in the helper — no
-  `wg` / `nft` / `system` on the web or DNS path. `HelperClient#call` opens a
-  fresh socket under a mutex; a slow helper call runs on the calling fiber.
+  **privileged** command on the web or DNS path, and never a shell string.
+  `HelperClient#call` opens a fresh socket under a mutex; a slow helper call
+  runs on the calling fiber.
+- The ONE exception is `lib/naaf/diagnostics.rb`: `ping`, `traceroute` and
+  `curl`, spawned by the web process for the Troubleshoot page. They are
+  unprivileged (Debian ships `ping` with `cap_net_raw+ep`, traceroute's default
+  UDP mode needs no privilege, curl needs none), reached by ABSOLUTE path from a
+  candidate list rather than through `PATH`, invoked as an argv array, bounded
+  by `Async::Semaphore`, hard-killed on `NAAF_DIAG_TIMEOUT` (TERM to the process
+  group, then KILL, then always reaped), and removable with
+  `NAAF_DIAG_ENABLED=0`. Putting them behind the helper socket would be strictly
+  worse — it would widen a four-command root vocabulary to gain nothing. **The
+  helper's vocabulary is UNCHANGED at genkeys/apply/dump/ping; the privilege
+  boundary has not moved.** A FOURTH binary here is an "Ask first".
+- Every wait in that runner is a fiber wait — `readpartial` through the
+  scheduler's IO hook, `wait2` through `process_wait`. A blocking ten-second
+  read would freeze the admin UI, the resolver and the reconciler together.
 - Reconcile and backup loops must rescue and continue (`Reconciler.tick!`,
   `Backup.tick!`). A raised task must not tear down the reactor. `Zone#reload!`
   swaps whole hashes.
@@ -64,6 +79,29 @@
 - IPAM never hands out the network, broadcast, or server address, and reuses
   freed ones. Enabled clients, and sites that have networks, are kernel peers;
   disabled ones are absent.
+
+## DNS
+- `Zone` holds the A/PTR hashes AND the conditional-forwarding map, all rebuilt
+  only in `reload!` and installed by whole-object swap — the same fiber-safety
+  reason `DNSStats` rotates by swap. `reload!` is reached only through
+  `Reconciler#apply!`; do NOT add a second invalidation seam.
+- Forwarding is dnsmasq-style suffix match, longest wins, and the local zone
+  always runs first, so a `.vpn` name is never forwarded. A DISABLED site
+  contributes no rule: it is not a kernel peer and its route is not installed,
+  so keeping the rule would turn an ordinary upstream answer into a hang.
+- async-dns 1.4.1 has NO timeout anywhere on the upstream path —
+  `try_datagram_server` does a bare `recvfrom` and `Resolver#query` adds no
+  deadline of its own. An unreachable upstream parks the query fiber and its
+  UDP socket forever. `DNSServer` wraps `passthrough!` in
+  `Fiber.scheduler#with_timeout(NAAF_DNS_UPSTREAM_TIMEOUT)` for exactly that
+  reason, and `Async::TimeoutError` must be rescued ABOVE the method's bare
+  `rescue => e` so a slow resolver is filed as `upstream_fail` and not as a bug
+  in this process. Do not remove that wrapper because "one upstream has always
+  worked" — one site with a down tunnel makes it routine.
+- A site's resolver must sit inside one of THAT site's own `site_networks`.
+  Those are the only CIDRs `Renderers::Routes.desired` installs a proto-158
+  route for, so anything else is configured-but-unreachable, and the symptom is
+  an unexplained timeout rather than a refusal.
 
 ## Sites
 - A site is a remote WireGuard *server* this hub dials, not a client: no IPAM
@@ -314,7 +352,14 @@
 - NEVER add a metrics table. Dashboard history lives in in-memory ring buffers
   and resets on restart, deliberately: naaf.db is configuration truth, and a
   high-frequency table in it would multiply the WAL churn Litestream replicates
-  to the object store.
+  to the object store. The same reasoning is why "Top talkers" ranks PEERS and
+  not destinations, and says so in its own copy rather than implying it measured
+  something it did not: per-flow byte counts need `/proc/net/nf_conntrack`
+  (`0440 root:root`) or `nft` counters (`CAP_NET_ADMIN`), an `nft` counter would
+  reset on every apply — which deletes and recreates `table inet naaf` — and
+  conntrack holds LIVE flows, so its byte counts vanish when a connection
+  closes. Both a `conntrack` helper command and a `nf_conntrack_acct` sysctl are
+  separate "Ask first" items.
 - NEVER read `wg show dump` anywhere but `Reconciler#poll!`. Line 1 field 0 of
   that output is the server private key and every peer line's field 1 is that
   peer's PSK, so a second parser feeding anything the browser renders puts both

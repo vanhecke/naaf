@@ -3,6 +3,12 @@
 Practical knowledge for running Naaf on a real Debian 13 host. Pairs with
 `deploy/DEPLOY.md` (the deploy runbook) and `AGENTS.md` (conventions/boundaries).
 
+**From the UI, start at Troubleshoot.** `/troubleshoot` runs the first three
+steps of the playbooks below — `ping`, `traceroute`, `curl` — from the box
+itself, and its flow tester answers *should this work* from the database,
+naming the exact rule that decided it. It reads configuration, not the kernel,
+so when the two disagree the shell sessions below are what settle it.
+
 ---
 
 ## 0. The layered-firewall gotcha (read this first)
@@ -449,6 +455,38 @@ to Naaf. Full-tunnel clients already send everything.
 # on the laptop
 ip route get 192.168.1.50        # must be dev <naaf wg>
 ```
+
+**7. A site DNS forwarder that times out is steps 2–4, not a DNS problem.**
+A forwarded query is an ordinary packet from `settings.server_ip` to an address
+inside that site's LAN, sent over the same tunnel. If the LAN is unreachable the
+query is unreachable, and the only visible symptom is `SERVFAIL` after
+`NAAF_DNS_UPSTREAM_TIMEOUT` seconds. Work steps 2–4 first, then come back.
+
+```bash
+# split DNS, from a client: the answer must come from the site's resolver
+dig @10.8.0.1 foo.roomkoetje.be
+
+# from the box: the same question asked of the site resolver directly
+dig @192.168.1.53 foo.roomkoetje.be
+
+sudo sqlite3 /var/lib/naaf/naaf.db \
+  'select suffix,server,port,site_id from dns_forwarders order by suffix;'
+```
+
+Three things that look like DNS and are not:
+
+- **The resolver must sit inside one of that site's own `site_networks`.** Those
+  are the only CIDRs that get a proto-158 route. The Sites form refuses anything
+  else, so a row that predates the check is the only way to have one.
+- **The remote must accept the query's source.** It arrives from
+  `settings.server_ip`, so the remote needs `wg_subnet` in its `AllowedIPs` — or
+  Masquerade on for the site, in which case it arrives from that site's assigned
+  address instead. Exactly the condition for reaching the LAN at all.
+- **A disabled site forwards nothing.** `Zone#reload!` drops its rules on
+  purpose: with no peer and no route, keeping them would turn an ordinary
+  upstream answer into a guaranteed hang. Re-enabling the site restores them.
+
+`split·nodns` clients never use this resolver and are unaffected by any of it.
 
 ---
 

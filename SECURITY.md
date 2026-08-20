@@ -21,6 +21,34 @@ separate helper daemon on a unix socket, which accepts exactly four commands —
 widens the privilege boundary. The helper never builds a shell string; every
 invocation is an argv array.
 
+**The admin UI spawns three unprivileged binaries, and nothing else.** The
+Troubleshoot page runs `ping`, `traceroute` and `curl` in the web process, as the
+service user. That is the one exception to "no command on the web path", and the
+helper's four-command vocabulary is unchanged by it — putting them behind the
+socket would widen a root boundary to gain nothing, since none of the three needs
+privilege (Debian ships `ping` with `cap_net_raw+ep`; traceroute's default UDP
+mode and curl need none). The constraints on that surface:
+
+- Resolved to an **absolute path** from a fixed candidate list, never through
+  `PATH`, and invoked as an **argv array** — never a shell string.
+- Every user-supplied part goes through an **anchored whitelist** before it
+  becomes an argument: the host must match the same hostname class the rest of
+  the app uses (which starts `[a-z0-9]`, so a value beginning `-` cannot become
+  an argv flag), the scheme is one of `tcp`/`http`/`https`, the port is 1–65535,
+  and the path must start with `/` and hold no spaces or control characters.
+- The curl URL is **composed server-side from those validated parts**, never
+  accepted as a free-form string, and `--proto` pins what curl may speak.
+- `169.254.0.0/16` is **refused for curl**, which is how a cloud instance's
+  credentials would otherwise leave it. Ping and traceroute cannot carry a
+  response body and are not restricted.
+- Bounded by a process-wide semaphore (`NAAF_DIAG_CONCURRENCY`, default 2) and a
+  hard deadline (`NAAF_DIAG_TIMEOUT`, default 10s) that kills the whole process
+  group and always reaps it.
+- Output is scrubbed to valid UTF-8, capped at 64 KiB, and HTML-escaped: it is
+  remote text on its way to an admin's browser.
+- **Kill switch:** `NAAF_DIAG_ENABLED=0` removes the three routes and their
+  panels entirely. The flow tester reads only the database and is unaffected.
+
 **Access to the helper socket is access to root-level `wg` and `nft`.** The
 socket is mode 0660, owned `root:<service group>`. Anything running as that group
 can drive it. There is no second layer of authentication, by design — the group

@@ -45,13 +45,14 @@ change something.
 
 | Page | What it does |
 |---|---|
-| **Dashboard** (`/`) | Live single pane of glass: tunnel throughput, peers up, DNS rate and top names, CPU/memory/conntrack, per-interface counters, and a packet-pipeline strip that makes the "a second firewall is eating WireGuard" failure visible at a glance. Pushed over one SSE stream. |
+| **Dashboard** (`/`) | Live single pane of glass: tunnel throughput, every peer (clients **and** sites) with its own sparkline, top talkers by peer, DNS rate and top names, CPU/memory/conntrack, per-interface counters, and a packet-pipeline strip that makes the "a second firewall is eating WireGuard" failure visible at a glance. Pushed over one SSE stream. |
 | **Clients** (`/clients`) | Add a client (server generates keys, or paste your own pubkey), enable/disable, delete, and download the config in up to five flavors, or as a QR (the three plain flavors only). IPAM assigns the next free VPN IP. |
 | **Exposed ports** | Which ports a spoke may accept **from other spokes** — a single port or a range like `8000-8100` (default-deny spoke-to-spoke, allow-list via an nftables interval set). |
 | **Port forwards** | Inbound DNAT from the public interface to a client's port, with an enable toggle. |
 | **Sites** | Remote WireGuard servers this hub dials (site-to-site). Naaf holds the session; clients reach those LANs without connecting to the remote themselves. |
 | **Routes** | Extra split-tunnel subnets folded into a client's `AllowedIPs` (global, or per-client). |
-| **DNS** | Static `A` records in the internal `.vpn` zone, layered over the automatic per-client `<hostname>.vpn` records. |
+| **DNS** | Static `A` records in the internal `.vpn` zone, layered over the automatic per-client `<hostname>.vpn` records — **and** per-domain upstreams: send `*.example.com` to a resolver of your choosing, or let a site answer for its own domains over the tunnel. |
+| **Troubleshoot** | `ping`, `traceroute` and `curl` run from the box, plus a flow tester that walks a packet through the rules the renderers emit and names the line that decided it. |
 | **Settings** | Edit endpoint host/IPs, DNS upstream + internal domain, MTU, WAN interface; change the admin password. Structural values (subnet, gateway, listen port, keys) are read-only. |
 
 ## Config flavors
@@ -91,12 +92,13 @@ bin/naaf-helper         privileged root helper (separate systemd unit)
 bin/bootstrap.rb        one-time: server keys + admin pw + endpoint; --refresh-network
 bin/ci                  standardrb + sus + shellcheck + config lint + nft render check
 lib/naaf/               app, config, backup, renderers (pure), reconciler, zone,
-                        ipam, helper client, config_builder, bootstrap, format
+                        ipam, helper client, config_builder, bootstrap, format,
+                        flow (pure reachability analysis), diagnostics
 lib/naaf/metrics/       ring buffers, /proc samplers, DNS counters, SSE hub,
                         collector — all in memory, never persisted
 db/schema.rb            idempotent SQLite schema (settings, clients, exposed_ports,
-                        port_forwards, dns_records, extra_routes, sites,
-                        site_networks), run on boot
+                        port_forwards, dns_records, dns_forwarders, extra_routes,
+                        sites, site_networks), run on boot
 views/                  ERB templates (Bulma markup; plain form POST + redirect)
 views/metrics/          dashboard fragments (also served as GET /metrics/<name>)
 vendor/                 bulma.min.css, htmx.min.js, htmx-ext-sse.min.js,
