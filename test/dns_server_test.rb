@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "helper"
+require "sus/fixtures/async"
+require "socket"
 require "naaf/dns_server"
 require "naaf/metrics/dns_stats"
 
@@ -40,6 +42,17 @@ class StubTransaction
   def passthrough!(resolver)
     @resolver = resolver
     raise @raise_with if @raise_with
+    @passed = true
+    :passed
+  end
+end
+
+# Unlike StubTransaction, this one really dials. That is the only way to find
+# out whether a deadline survives async-dns's own dispatch path.
+class QueryingTransaction < StubTransaction
+  def passthrough!(resolver)
+    @resolver = resolver
+    resolver.query("roomkoetje.be")
     @passed = true
     :passed
   end
@@ -229,7 +242,7 @@ describe Naaf::DNSServer do
       stats = Naaf::Metrics::DNSStats.new
       server = Naaf::DNSServer.new(zone: @zone, upstream: "1.1.1.1",
         endpoint: nil, stats: stats)
-      tx = StubTransaction.new(raise_with: Async::TimeoutError.new("timeout"))
+      tx = StubTransaction.new(raise_with: Naaf::DNSServer::UpstreamTimeout.new("timeout"))
       server.process("roomkoetje.be", in_class(:A), tx)
 
       expect(tx.failed).to be == :ServFail
@@ -297,6 +310,57 @@ describe Naaf::DNSServer do
 
       expect(tx.responded).to be == ["10.8.0.5"]
       expect(outcomes[:local_a]).to be == 1
+    end
+  end
+
+  # The example that would have caught the deadline being swallowed. Every
+  # example above drives the branch with a stubbed transaction, which proves the
+  # rescue is wired up but says nothing about whether the deadline actually
+  # FIRES through async-dns -- and it did not. Resolver#dispatch_request wraps
+  # each endpoint attempt in a bare `rescue => error  # Try the next server.`,
+  # so a StandardError deadline abandoned the UDP attempt and left the TCP one
+  # running with no deadline at all: a 2s budget measured 8s and was still going.
+  describe "a forwarder that accepts and never answers" do
+    include Sus::Fixtures::Async::ReactorContext
+
+    # UDP and TCP on the SAME port, both accepting, neither ever replying --
+    # what a site resolver behind a down tunnel looks like from this box. No
+    # network is involved, so this cannot flake on a runner's egress.
+    def blackhole
+      udp = UDPSocket.new
+      udp.bind("127.0.0.1", 0)
+      tcp = TCPServer.new("127.0.0.1", udp.addr[1])
+      accepter = Async { loop { tcp.accept } }
+      yield udp.addr[1]
+    ensure
+      accepter&.stop
+      tcp&.close
+      udp&.close
+    end
+
+    it "gives up inside NAAF_DNS_UPSTREAM_TIMEOUT instead of parking the fiber" do
+      budget = Naaf::DNSServer::UPSTREAM_TIMEOUT
+      blackhole do |port|
+        zone = StubZone.new(forwarders: {"roomkoetje.be" => ["127.0.0.1", port].freeze})
+        stats = Naaf::Metrics::DNSStats.new
+        server = Naaf::DNSServer.new(zone: zone, upstream: "127.0.0.1",
+          endpoint: nil, stats: stats)
+        tx = QueryingTransaction.new
+        began = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+        # An outer guard so a regression fails loudly instead of wedging bin/ci.
+        Async::Task.current.with_timeout(budget * 4) do
+          server.process("roomkoetje.be", in_class(:A), tx)
+        end
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - began
+
+        expect(elapsed < budget + 1).to be == true
+        expect(tx.failed).to be == :ServFail
+        out = stats.rotate!(elapsed: 1.0)[:outcomes]
+        expect(out[:upstream_fail]).to be == 1
+        # Not a bug in this process, so not :servfail.
+        expect(out[:servfail].to_i).to be == 0
+      end
     end
   end
 end

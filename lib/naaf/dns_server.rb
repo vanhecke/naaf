@@ -35,6 +35,21 @@ module Naaf
               3 => :NXDomain, 4 => :NotImp, 5 => :Refused}.freeze
     UPSTREAM_TIMEOUT = Config.int("NAAF_DNS_UPSTREAM_TIMEOUT")
 
+    # Deliberately NOT a StandardError, and this is load-bearing rather than
+    # taste. async-dns's Resolver#dispatch_request walks the endpoints of a
+    # CompositeEndpoint (Endpoint.for builds one datagram and one stream
+    # endpoint over the same host:port) and wraps each attempt in a bare
+    # `rescue => error  # Try the next server.` — so a StandardError deadline is
+    # caught there, the UDP attempt is abandoned, and the TCP attempt that
+    # follows runs with NO deadline at all, because Scheduler#with_timeout fires
+    # its timer exactly once. Against a resolver that accepts and never answers
+    # — a site behind a down tunnel — a 2s budget measured 8s and was still
+    # going; it only stopped because the probe had an outer guard. Production
+    # has none, so the fiber and its socket park for good, which is the whole
+    # hang this class exists to prevent. An Exception passes straight through
+    # that rescue. It never escapes #process, which names it below.
+    class UpstreamTimeout < Exception; end # standard:disable Lint/InheritException
+
     # `stats` is optional and every call to it is guarded, because answering
     # queries must never depend on the dashboard existing.
     def initialize(zone:, upstream:, endpoint:, stats: nil)
@@ -71,9 +86,12 @@ module Naaf
         Async::DNS::Resolver.new(Async::DNS::Endpoint.for(spec[0], port: spec[1]))
     end
 
+    # Fiber.scheduler#with_timeout only fires while blocked on IO, which is
+    # exactly the bare recvfrom in try_datagram_server, and it is nil outside a
+    # reactor so the stub-driven tests still run.
     def with_upstream_timeout
       scheduler = Fiber.scheduler or return yield
-      scheduler.with_timeout(UPSTREAM_TIMEOUT) { yield }
+      scheduler.with_timeout(UPSTREAM_TIMEOUT, UpstreamTimeout) { yield }
     end
 
     def process(name, resource_class, transaction)
@@ -106,7 +124,10 @@ module Naaf
       began = @stats && Process.clock_gettime(Process::CLOCK_MONOTONIC)
       begin
         result = with_upstream_timeout { transaction.passthrough!(resolver_for(spec)) }
-      rescue Async::TimeoutError
+      rescue UpstreamTimeout
+        # Named here, above the method's bare `rescue => e`, so a slow or
+        # unreachable resolver is filed as an upstream failure rather than as a
+        # bug in this process.
         @stats&.record(:upstream_fail, name: name, remote: remote, ms: UPSTREAM_TIMEOUT * 1000.0)
         return transaction.fail!(:ServFail)
       end

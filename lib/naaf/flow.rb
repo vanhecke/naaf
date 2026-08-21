@@ -162,24 +162,61 @@ module Naaf
                 "Troubleshoot page. The `output` chain is `policy accept`, so what decides it " \
                 "is routing and the far end, not this box's filter.",
         rule: "chain output { policy accept; }", fix: nil)]
-      if dst.kind == :site
-        return steps.concat(to_site(db, s, Endpoint.new(kind: :hub, ip: s[:server_ip],
-          label: "this hub", row: nil, enabled: true), dst))
-      end
+      hub = Endpoint.new(kind: :hub, ip: s[:server_ip], label: "this hub", row: nil,
+        enabled: true)
+      return steps.concat(to_site(db, s, hub, dst)) if dst.kind == :site
+      return steps.concat(hub_to_client(s, dst)) if dst.kind == :client
+
+      # Everything else — the internet, and an extra route, which installs no
+      # hub route of its own — leaves the same way.
       steps << Step.new(stage: "Delivery", verdict: :info,
-        detail: "#{dst.label} is not behind a site tunnel, so this leaves by the ordinary " \
-                "default route on #{s[:wan_interface]}.", rule: nil, fix: nil)
+        detail: "#{dst.label} is not behind a site tunnel and the hub has no proto-158 route " \
+                "for it, so this leaves by the ordinary default route on " \
+                "#{s[:wan_interface]}.", rule: nil, fix: nil)
+    end
+
+    # The Troubleshoot page's own ping runs from here, so this is a path an
+    # operator reaches by accident as much as on purpose. It goes over the
+    # tunnel, not the WAN, and a disabled client is not there to receive it.
+    def self.hub_to_client(s, dst)
+      row = dst.row
+      unless row[:enabled]
+        return [Step.new(stage: "Cryptokey routing", verdict: :fail,
+          detail: "Client #{row[:name]} is disabled, so Renderers::WireGuard omits it from " \
+                  "#{s[:wg_interface]}. Nothing on this box has a route to #{dst.ip}.",
+          rule: "[Peer] AllowedIPs = #{row[:wg_ip]}/32", fix: "/clients")]
+      end
+      [Step.new(stage: "Cryptokey routing", verdict: :pass,
+        detail: "#{dst.ip} is client #{row[:name]}'s AllowedIPs, and the interface address " \
+                "makes #{s[:wg_subnet]} a connected route — so this goes over the tunnel, " \
+                "not the WAN.",
+        rule: "[Peer] AllowedIPs = #{row[:wg_ip]}/32", fix: nil),
+        Step.new(stage: "Forward chain", verdict: :info,
+          detail: "Traffic the hub originates does not traverse the forward hook, so neither " \
+                  "the exposed-port sets nor the spoke-to-spoke drop apply. Whether the " \
+                  "client answers is up to the client.",
+          rule: nil, fix: nil)]
     end
 
     # --- leaving a client --------------------------------------------------
 
+    # Whether the SOURCE is a peer at all. Every destination branch runs after
+    # this one, so the check lives here rather than in each of them — which is
+    # how a disabled site came to be reported as reachable in the first place.
     def self.egress(db, s, src)
-      return [] unless src.kind == :client
-      row = src.row
+      case src.kind
+      when :client then client_egress(s, src.row)
+      when :site then site_egress(db, s, src.row)
+      else []
+      end
+    end
+
+    def self.client_egress(s, row)
       unless row[:enabled]
         return [Step.new(stage: "Source peer", verdict: :fail,
           detail: "Client #{row[:name]} is disabled, so Renderers::WireGuard omits it from " \
-                  "wg0 entirely — the hub has no key for it and never decrypts its packets.",
+                  "#{s[:wg_interface]} entirely — the hub has no key for it and never " \
+                  "decrypts its packets.",
           rule: "[Peer] AllowedIPs = #{row[:wg_ip]}/32", fix: "/clients")]
       end
 
@@ -189,17 +226,42 @@ module Naaf
         rule: "[Peer] AllowedIPs = #{row[:wg_ip]}/32", fix: nil)]
     end
 
+    # A disabled site is absent from wg0 AND from @site_nets, so nothing it
+    # sends is decrypted and nothing it sends would be accepted if it were.
+    def self.site_egress(db, s, row)
+      cidrs = db[:site_networks].where(site_id: row[:id]).order(:cidr).select_map(:cidr)
+      unless row[:enabled]
+        return [Step.new(stage: "Source peer", verdict: :fail,
+          detail: "Site #{row[:name]} is disabled, so it is not a peer on " \
+                  "#{s[:wg_interface]}: the hub never decrypts anything from it, and its " \
+                  "networks are not in @site_nets either.",
+          rule: "[Peer] # #{row[:name]} (site)", fix: "/sites")]
+      end
+
+      [Step.new(stage: "Source peer", verdict: :pass,
+        detail: "Site #{row[:name]} is enabled and installed on #{s[:wg_interface]} with its " \
+                "LANs as AllowedIPs.",
+        rule: "AllowedIPs = #{cidrs.join(", ")}", fix: nil)]
+    end
+
     # Which client configs send this destination to the hub at all. A route the
     # config does not carry is a blackhole on the laptop, not a firewall verdict
     # here — the packet never arrives.
+    #
+    # These steps are :info, NEVER :pass or :fail, and that is the whole point.
+    # The report has one source address but no way to know which of five configs
+    # is installed on it, so a per-flavor answer is context and not a verdict.
+    # Scoring a miss as :fail made `analyze` — which takes the worst step — call
+    # every ordinary client-to-internet query BLOCKED, because `split` correctly
+    # does not route 0.0.0.0/0. Whether ANY flavor carries it is the decidable
+    # question, and routed_by_any? is where it is asked.
     def self.client_routes(db, src, dst)
       return [] unless src.kind == :client
       addr = IPAM.parse_v4(dst.ip)
       builder = ConfigBuilder.new(db, src.row)
       REPORTED_FLAVORS.map { |flavor|
-        routes = builder.allowed_ips(flavor).split(", ")
-        hit = routes.find { |c| IPAM.parse_v4(c)&.include?(addr) }
-        verdict = hit ? :pass : :fail
+        allowed = builder.allowed_ips(flavor)
+        hit = allowed.split(", ").find { |c| IPAM.parse_v4(c)&.include?(addr) }
         detail = if hit
           "The `#{flavor}` config routes #{dst.ip} to the hub via `#{hit}`."
         else
@@ -207,9 +269,8 @@ module Naaf
             "sends the packet to the hub — it follows its own default route instead. That " \
             "is a blackhole on the laptop, not a rule on this box."
         end
-        Step.new(stage: "Client AllowedIPs (#{flavor})", verdict: verdict, detail: detail,
-          rule: "AllowedIPs = #{builder.allowed_ips(flavor)}",
-          fix: hit ? nil : "/extra-routes")
+        Step.new(stage: "Client AllowedIPs (#{flavor})", verdict: :info, detail: detail,
+          rule: "AllowedIPs = #{allowed}", fix: hit ? nil : "/extra-routes")
       }
     rescue ArgumentError => e
       # audit_transport_capture refuses a route set that would capture a ws
@@ -219,10 +280,12 @@ module Naaf
         rule: nil, fix: "/clients")]
     end
 
-    # A flavor step set where none passed means no config carries the route.
+    # True when at least one reported flavor carries the route. An empty set
+    # means the source is not a client, so there is no config to consult and
+    # nothing to hold against it.
     def self.routed_by_any?(steps)
-      flavor = steps.select { |s| s.stage.start_with?("Client AllowedIPs") }
-      flavor.empty? || flavor.any? { |s| s.verdict == :pass }
+      flavor = steps.select { |step| step.stage.start_with?("Client AllowedIPs") }
+      flavor.empty? || flavor.any? { |step| step.detail.include?("routes ") }
     end
 
     # --- spoke to spoke ----------------------------------------------------
@@ -242,6 +305,15 @@ module Naaf
         rule: "[Peer] AllowedIPs = #{row[:wg_ip]}/32", fix: nil)
 
       if src.kind == :site
+        # Nftables.site_forwarding builds @site_nets from ENABLED sites only, so
+        # a disabled source is not in the set and falls through to the drop.
+        unless src.enabled
+          return steps << Step.new(stage: "Forward chain", verdict: :fail,
+            detail: "Site #{src.row[:name]} is disabled, so its networks are absent from " \
+                    "@site_nets and nothing from them matches the saddr accept.",
+            rule: "iifname \"#{wg}\" oifname \"#{wg}\" counter drop", fix: "/sites")
+        end
+
         return steps << Step.new(stage: "Forward chain", verdict: :pass,
           detail: "The source sits in an enabled site's LAN, and site traffic is accepted " \
                   "wholesale in both directions — the exposed-port sets do not apply to it.",
