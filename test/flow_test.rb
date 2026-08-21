@@ -141,8 +141,13 @@ describe Naaf::Flow do
 
     it "reports both route sets, because which config was installed decides it" do
       report = run("10.8.0.3", "192.168.1.5")
-      expect(stage(report, "Client AllowedIPs (split)").verdict).to be == :pass
-      expect(stage(report, "Client AllowedIPs (full)").verdict).to be == :pass
+      %w[split full].each do |flavor|
+        step = stage(report, "Client AllowedIPs (#{flavor})")
+        expect(step.detail).to be(:include?, "routes 192.168.1.5 to the hub")
+        # Context, not a verdict: one report has a single source address and no
+        # way to know which of five configs is on it.
+        expect(step.verdict).to be == :info
+      end
     end
 
     it "fails on a disabled site before it looks at anything else" do
@@ -197,10 +202,20 @@ describe Naaf::Flow do
   describe "client to the internet" do
     it "says full routes it and split does not" do
       report = run("10.8.0.3", "8.8.8.8")
-      expect(stage(report, "Client AllowedIPs (full)").verdict).to be == :pass
-      split = stage(report, "Client AllowedIPs (split)")
-      expect(split.verdict).to be == :fail
-      expect(split.detail).to be(:include?, "blackhole on the laptop")
+      expect(stage(report, "Client AllowedIPs (full)").detail)
+        .to be(:include?, "routes 8.8.8.8 to the hub")
+      expect(stage(report, "Client AllowedIPs (split)").detail)
+        .to be(:include?, "blackhole on the laptop")
+    end
+
+    # `split` correctly does not route 0.0.0.0/0, and analyze takes the worst
+    # step -- so scoring that miss as :fail called every ordinary client query
+    # for a public address BLOCKED.
+    it "is not BLOCKED just because one flavor does not route it" do
+      report = run("10.8.0.3", "8.8.8.8")
+      expect(report.verdict).to be == :pass
+      expect(stage(report, "Egress").verdict).to be == :pass
+      expect(Naaf::Flow::CHIP[report.verdict]).to be == "REACHABLE"
     end
   end
 
@@ -252,6 +267,60 @@ describe Naaf::Flow do
       expect(stage(report, "Hub route")).not.to be_nil
       expect(stage(report, "Forward chain").detail)
         .to be(:include?, "does not traverse the forward hook")
+    end
+  end
+
+  # The Troubleshoot page's own ping originates here, so this path is reached by
+  # accident as much as on purpose. It goes over the tunnel; reporting it as WAN
+  # egress -- and never reading the client's enabled flag -- was wrong twice.
+  describe "the hub reaching a client" do
+    it "routes over the tunnel, not out of the WAN" do
+      report = run("10.8.0.1", "10.8.0.2", "icmp", nil)
+      expect(report.verdict).to be == :pass
+      expect(stage(report, "Cryptokey routing").rule)
+        .to be == "[Peer] AllowedIPs = 10.8.0.2/32"
+      expect(stage(report, "Delivery")).to be_nil
+      expect(rules(report)).not.to be(:include?, "eth0")
+      # The hub originates it, so the forward hook never sees it.
+      expect(stage(report, "Forward chain").detail)
+        .to be(:include?, "does not traverse the forward hook")
+    end
+
+    it "fails when the client is disabled, instead of claiming WAN egress" do
+      report = run("10.8.0.1", "10.8.0.4", "icmp", nil)
+      expect(report.verdict).to be == :fail
+      expect(stage(report, "Cryptokey routing").detail).to be(:include?, "is disabled")
+    end
+
+    it "still leaves by the WAN for an address nothing routes" do
+      report = run("10.8.0.1", "8.8.8.8", "tcp", 443)
+      expect(stage(report, "Delivery").detail).to be(:include?, "eth0")
+    end
+  end
+
+  # @site_nets holds ENABLED sites' networks only, so a disabled site's LAN
+  # matches neither the saddr accept nor anything else above the drop.
+  describe "a disabled site as the source" do
+    it "is not a peer, and does not reach a client" do
+      report = run("192.168.9.5", "10.8.0.2", "tcp", 22)
+      expect(report.verdict).to be == :fail
+      expect(stage(report, "Source peer").detail).to be(:include?, "is disabled")
+      expect(stage(report, "Forward chain").rule)
+        .to be == %(iifname "wg0" oifname "wg0" counter drop)
+    end
+
+    it "does not reach another site's LAN either" do
+      other = make_site(@db, name: "other", pubkey: "SITE-other",
+        networks: ["172.20.0.0/24"])
+      expect(other).not.to be_nil
+      report = run("192.168.9.5", "172.20.0.5", "tcp", 443)
+      expect(report.verdict).to be == :fail
+      expect(stage(report, "Source peer").detail).to be(:include?, "is disabled")
+    end
+
+    # The enabled site is the control: the same shape must still pass.
+    it "still passes from an enabled site" do
+      expect(run("192.168.1.5", "10.8.0.2", "tcp", 22).verdict).to be == :pass
     end
   end
 end

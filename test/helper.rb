@@ -31,6 +31,9 @@ ENV["NAAF_BACKUP_ENABLED"] = "0"
 # killed has to wait it out, so ten seconds here would be ten seconds of bin/ci
 # spent watching a `sleep`. ||= so a run can put the production value back.
 ENV["NAAF_DIAG_TIMEOUT"] ||= "1"
+# Same reasoning for the DNS upstream deadline: the example that proves an
+# unreachable forwarder is bounded has to wait it out.
+ENV["NAAF_DNS_UPSTREAM_TIMEOUT"] ||= "1"
 ENV["NAAF_SESSION_SECRET"] ||= SecureRandom.hex(32)
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))

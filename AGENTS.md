@@ -93,11 +93,23 @@
   `try_datagram_server` does a bare `recvfrom` and `Resolver#query` adds no
   deadline of its own. An unreachable upstream parks the query fiber and its
   UDP socket forever. `DNSServer` wraps `passthrough!` in
-  `Fiber.scheduler#with_timeout(NAAF_DNS_UPSTREAM_TIMEOUT)` for exactly that
-  reason, and `Async::TimeoutError` must be rescued ABOVE the method's bare
-  `rescue => e` so a slow resolver is filed as `upstream_fail` and not as a bug
-  in this process. Do not remove that wrapper because "one upstream has always
-  worked" — one site with a down tunnel makes it routine.
+  `Fiber.scheduler#with_timeout(NAAF_DNS_UPSTREAM_TIMEOUT, UpstreamTimeout)` for
+  exactly that reason, and `UpstreamTimeout` must be rescued ABOVE the method's
+  bare `rescue => e` so a slow resolver is filed as `upstream_fail` and not as a
+  bug in this process. Do not remove that wrapper because "one upstream has
+  always worked" — one site with a down tunnel makes it routine.
+- **`DNSServer::UpstreamTimeout` inherits from `Exception`, not
+  `StandardError`, and that is load-bearing.** `Endpoint.for` builds a
+  CompositeEndpoint of one datagram and one stream endpoint, and
+  `Resolver#dispatch_request` wraps each attempt in a bare
+  `rescue => error  # Try the next server.`. A StandardError deadline is caught
+  THERE: the UDP attempt is abandoned, and the TCP attempt that follows runs
+  with no deadline at all, because `with_timeout` fires its timer once. Measured
+  against a resolver that accepts and never answers, a 2s budget ran 8s and was
+  still going. The failure is silent in the counters too — whatever the TCP
+  attempt eventually raises is filed as `servfail`, not `upstream_fail`. Do not
+  "tidy" that class into a StandardError; `test/dns_server_test.rb` pins it with
+  a real socket that accepts and never replies.
 - A site's resolver must sit inside one of THAT site's own `site_networks`.
   Those are the only CIDRs `Renderers::Routes.desired` installs a proto-158
   route for, so anything else is configured-but-unreachable, and the symptom is
