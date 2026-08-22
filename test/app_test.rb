@@ -1585,6 +1585,27 @@ describe "Naaf::App integration" do
     expect(body).to be(:include?, "Sites")
   end
 
+  # Bulma's .level-item is flex-shrink: 0, so a wide panel inside the header row
+  # widens the row rather than wrapping, and the box runs off the right of the
+  # screen -- taking Delete and half the fields with it. The edit panel has to
+  # sit outside the level, below the summary line whose values it edits.
+  it "keeps the site edit panel out of the header level row" do
+    login!
+    add_site
+    id = Naaf.db[:sites].first[:id]
+    body = get("/sites").body
+    header = body[/<div class="level mb-2.*?<p class="is-size-7 mb-3">/m]
+    expect(header).not.to be(:nil?)
+    # The row keeps only the two narrow controls.
+    expect(header).to be(:include?, %(action="/sites/#{id}/toggle"))
+    expect(header).to be(:include?, %(action="/sites/#{id}/delete"))
+    expect(header).not.to be(:include?, %(action="/sites/#{id}"))
+    expect(header).not.to be(:include?, %(name="endpoint_host"))
+    # And the panel is still rendered, further down the box.
+    expect(body).to be(:include?, %(<form method="post" action="/sites/#{id}" class=))
+    expect(body).to be(:include?, %(name="endpoint_host"))
+  end
+
   it "edits an existing site's endpoint, key, keepalive and masquerade" do
     login!
     add_site
