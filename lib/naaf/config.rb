@@ -56,6 +56,10 @@ module Naaf
 
       # first-boot seeds for the settings table (the DB wins after first boot)
       "NAAF_WG_INTERFACE" => "wg0",
+      # Second WireGuard iface for the internet exit. Not a settings column:
+      # the helper loads this file as root and the app must not be able to
+      # disagree, and nothing in the UI should rename it.
+      "NAAF_EXIT_INTERFACE" => "wg-exit",
       "NAAF_WG_SUBNET" => "10.8.0.0/24",
       "NAAF_SERVER_IP" => "10.8.0.1",
       "NAAF_LISTEN_PORT" => "51820",

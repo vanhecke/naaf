@@ -127,6 +127,29 @@ module Naaf
         unique [:suffix]
       end
 
+      # At most one row, enforced in the route. A second WireGuard identity
+      # toward a WARP-like peer: privkey is OURS, pubkey is THEIRS. Not a
+      # client key and not a site — see plan/exit.md and Renderers::Exit.
+      db.create_table?(:exits) do
+        primary_key :id
+        String :name, null: false, default: "Internet exit"
+        String :provider, null: false, default: "manual"  # manual | warp
+        String :privkey, null: false   # OURS toward the remote
+        String :pubkey, null: false    # THEIRS
+        String :psk
+        String :endpoint, null: false  # host:port
+        String :address, null: false   # assigned IPv4 host, no prefix
+        Integer :keepalive, null: false, default: 25
+        Integer :mtu, null: false, default: 1280
+        TrueClass :enabled, null: false, default: true
+        String :notes
+        DateTime :created_at
+        DateTime :last_handshake_at
+        String :observed_endpoint
+        Bignum :rx_bytes, default: 0
+        Bignum :tx_bytes, default: 0
+      end
+
       alter_existing!(db)
     end
 

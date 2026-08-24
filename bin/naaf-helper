@@ -20,6 +20,7 @@ require_relative "../lib/naaf/config"
 
 SOCKET_PATH = Naaf::Config["NAAF_HELPER_SOCKET"]
 WG_IF = Naaf::Config["NAAF_WG_INTERFACE"]
+EXIT_IF = Naaf::Config["NAAF_EXIT_INTERFACE"]
 WG_CONF = File.join(Naaf::Config["NAAF_WG_CONF_DIR"], "#{WG_IF}.conf")
 SOCKET_GID = begin
   Etc.getgrnam(Naaf::Config["NAAF_GROUP"]).gid
@@ -58,11 +59,17 @@ end
 
 # Site routes are tagged proto 158 so apply can diff them without touching
 # the kernel connected route on wg0 (proto kernel) or anything the operator
-# added by hand. 158 is otherwise unused on this box.
+# added by hand. 158 is otherwise unused on this box. Table 159 is the
+# internet-exit routing table — a different number on purpose, and never a
+# default in main.
 SITE_ROUTE_PROTO = "158"
+EXIT_TABLE = "159"
+EXIT_RULE_PREFS = [15800, 15850, 15900].freeze
+EXIT_CONF_BANNED = /\A\s*(Address|DNS|MTU|Table|ListenPort|PreUp|PostUp|PreDown|PostDown|FwMark)\s*=/i
 IFACE_NAME = /\A[a-zA-Z0-9._-]{1,15}\z/
 V4_DOT = /\A\d{1,3}(\.\d{1,3}){3}\z/
 V4_CIDR = /\A\d{1,3}(\.\d{1,3}){3}\/\d{1,2}\z/
+RULE_TOKEN = /\A[a-zA-Z0-9.\/:_-]+\z/
 
 def v4_octets?(addr)
   addr.split(".").all? { |o| o.to_i.between?(0, 255) }
@@ -96,13 +103,16 @@ def default_gateway_v4
   nil
 end
 
-# Addresses on every interface except wg0. A site dest that covers one of
-# these (or the default gateway) would steal SSH and WAN egress.
+# Addresses on every interface except wg0 and the exit iface. A site dest
+# that covers one of these (or the default gateway) would steal SSH and WAN
+# egress. Skipping $EXIT_IF is load-bearing: the moment the exit address is
+# on wg-exit it would otherwise join steal_targets and the next apply's
+# raise_if_steals!("exit address") would match the exit's own address.
 def local_v4_except_wg
   run!("ip", "-4", "-o", "addr", "show").each_line.filter_map do |line|
     f = line.split
     next unless f[2] == "inet"
-    next if f[1] == WG_IF
+    next if f[1] == WG_IF || f[1] == EXIT_IF
     f[3].to_s.split("/", 2).first
   end
 end
@@ -144,8 +154,11 @@ def cmd_apply(req)
 
   # Extra fields are optional so an older helper still answers apply. Routes
   # and addresses are IPv4 on WG_IF only — never another interface, never /0.
+  # `exit` is the same contract: a missing key is a no-op (older app); null
+  # tears the iface down; an object brings it up.
   sync_site_addrs(req["addresses"] || [])
   sync_site_routes(req["routes"] || [])
+  sync_exit(req["exit"]) if req.key?("exit")
 
   {ok: true}
 end
@@ -208,7 +221,176 @@ def sync_site_routes(list)
 end
 
 def cmd_dump
-  {dump: run!("wg", "show", WG_IF, "dump")}
+  out = {dump: run!("wg", "show", WG_IF, "dump")}
+  if EXIT_IF != WG_IF && iface_exists?(EXIT_IF)
+    out[:exit_dump] = run!("wg", "show", EXIT_IF, "dump")
+  end
+  out
+end
+
+def assert_exit_if!
+  raise "invalid exit interface #{EXIT_IF}" unless IFACE_NAME.match?(EXIT_IF)
+  raise "exit interface must not be #{WG_IF}" if EXIT_IF == WG_IF
+end
+
+def iface_exists?(name)
+  run!("ip", "link", "show", "dev", name)
+  true
+rescue
+  false
+end
+
+def sync_exit(payload)
+  assert_exit_if!
+  case payload
+  when nil then sync_exit_down
+  when Hash then sync_exit_up(payload)
+  else raise "exit must be an object or null"
+  end
+end
+
+def sync_exit_up(payload)
+  conf = payload["conf"].to_s
+  raise "exit conf too large" if conf.bytesize > 1_000_000
+  raise "exit conf is not wg-setconf grammar" if conf.each_line.any? { |l| EXIT_CONF_BANNED.match?(l) }
+
+  dev = payload["dev"].to_s
+  raise "exit dev must be #{EXIT_IF}" unless dev == EXIT_IF && IFACE_NAME.match?(dev)
+
+  addr = payload["address"].to_s
+  raise "invalid exit address" unless valid_v4?(addr)
+
+  mtu = Integer(payload["mtu"].to_s, exception: false)
+  raise "invalid exit mtu" unless mtu&.between?(1280, 1500)
+
+  table = payload["table"].to_s
+  mark = payload["mark"].to_s
+  raise "exit table must be #{EXIT_TABLE}" unless table == EXIT_TABLE
+  raise "exit mark must be #{EXIT_TABLE}" unless mark == EXIT_TABLE
+
+  desired_routes = exit_routes(payload["routes"] || [])
+  desired_rules = exit_rules(payload["rules"] || [])
+
+  raise_if_steals!("exit address", addr)
+
+  run!("ip", "link", "add", EXIT_IF, "type", "wireguard") unless iface_exists?(EXIT_IF)
+
+  Tempfile.create(["naaf-exit", ".conf"]) do |f|
+    File.chmod(0o600, f.path)
+    f.write(conf)
+    f.flush
+    run!("wg", "syncconf", EXIT_IF, f.path)
+  end
+
+  run!("ip", "addr", "replace", "#{addr}/32", "dev", EXIT_IF)
+  run!("ip", "link", "set", EXIT_IF, "up", "mtu", mtu.to_s)
+
+  sync_exit_routes(desired_routes)
+  sync_exit_rules(desired_rules)
+end
+
+def exit_routes(list)
+  raise "exit routes must be an array" unless list.is_a?(Array)
+  list.each_with_object({}) { |item, acc|
+    raise "exit route entry must be an object" unless item.is_a?(Hash)
+    dst = item["dst"].to_s
+    dev = item["dev"].to_s
+    raise "invalid exit route device" unless IFACE_NAME.match?(dev)
+    if dst == "default"
+      raise "default route must be on #{EXIT_IF}" unless dev == EXIT_IF
+    else
+      raise "exit site route must be on #{WG_IF}" unless dev == WG_IF
+      raise "invalid site route" unless valid_v4_cidr?(dst)
+      raise_if_steals!("exit site route", dst)
+    end
+    acc[norm_dst(dst)] = dev
+  }
+end
+
+def exit_rules(list)
+  raise "exit rules must be an array" unless list.is_a?(Array)
+  desired = list.each_with_object({}) { |item, acc|
+    raise "exit rule entry must be an object" unless item.is_a?(Hash)
+    pref = Integer(item["pref"].to_s, exception: false)
+    spec = item["spec"]
+    raise "invalid exit rule pref" unless pref && EXIT_RULE_PREFS.include?(pref)
+    raise "exit rule spec must be an array" unless spec.is_a?(Array) && spec.any?
+    spec = spec.map { |t|
+      s = t.to_s
+      raise "invalid exit rule token" unless RULE_TOKEN.match?(s)
+      s
+    }
+    acc[pref] = spec
+  }
+  raise "exit rules must be prefs 15800/15850/15900" unless desired.keys.sort == EXIT_RULE_PREFS
+  desired
+end
+
+def norm_dst(dst)
+  return "default" if dst == "default"
+  return "#{dst}/32" if valid_v4?(dst)
+  dst
+end
+
+def sync_exit_routes(desired)
+  current = {}
+  run!("ip", "-4", "route", "show", "table", EXIT_TABLE).each_line do |line|
+    f = line.split
+    next if f.empty?
+    i = f.index("dev")
+    next unless i
+    current[norm_dst(f[0])] = f[i + 1]
+  end
+
+  current.each_key do |dst|
+    next if desired[dst]
+    run!("ip", "route", "del", dst, "table", EXIT_TABLE)
+  end
+  desired.each do |dst, dev|
+    next if current[dst] == dev
+    run!("ip", "route", "replace", dst, "dev", dev, "table", EXIT_TABLE)
+  end
+end
+
+def parse_rule_line(line)
+  m = /\A(\d+):\s*(.*)\z/.match(line.strip)
+  return unless m
+  pref = Integer(m[1], 10)
+  tokens = m[2].split
+  tokens.each_with_index do |tok, i|
+    next unless tok == "fwmark" && tokens[i + 1]
+    raw = tokens[i + 1].split("/", 2).first
+    tokens[i + 1] = raw.start_with?("0x", "0X") ? raw.to_i(16).to_s : Integer(raw, 10).to_s
+  end
+  tokens.shift(2) if tokens[0] == "from" && tokens[1] == "all"
+  [pref, tokens]
+end
+
+def current_rules
+  run!("ip", "-4", "rule", "show").each_line.with_object({}) do |line, acc|
+    pref, spec = parse_rule_line(line)
+    acc[pref] = spec if pref
+  end
+end
+
+def delete_rule_pref(pref)
+  return unless current_rules.key?(pref)
+  run!("ip", "-4", "rule", "del", "pref", pref.to_s)
+end
+
+def sync_exit_rules(desired)
+  current = current_rules
+  desired.each do |pref, spec|
+    next if current[pref] == spec
+    delete_rule_pref(pref) if current[pref]
+    run!("ip", "-4", "rule", "add", *spec, "pref", pref.to_s)
+  end
+end
+
+def sync_exit_down
+  EXIT_RULE_PREFS.each { |pref| delete_rule_pref(pref) }
+  run!("ip", "route", "flush", "table", EXIT_TABLE)
+  run!("ip", "link", "del", EXIT_IF) if iface_exists?(EXIT_IF)
 end
 
 def handle(line)

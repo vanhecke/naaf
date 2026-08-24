@@ -43,7 +43,7 @@ require "naaf/db"
 # Returns the shared Naaf.db handle.
 def reset_db!(**settings)
   db = Naaf.db
-  [:dns_forwarders, :site_networks, :sites, :extra_routes, :dns_records, :port_forwards, :exposed_ports, :clients, :settings].each do |t|
+  [:dns_forwarders, :site_networks, :sites, :exits, :extra_routes, :dns_records, :port_forwards, :exposed_ports, :clients, :settings].each do |t|
     db[t].delete
   end
   # clients.id is AUTOINCREMENT, whose counter survives a plain delete via
@@ -86,6 +86,19 @@ def make_site(db, name:, pubkey: "SITE-#{name}", endpoint: "203.0.113.9:51820",
     end
   end
   id
+end
+
+# An internet exit is a second WireGuard identity this hub dials; not a site
+# and not a client. privkey is OURS toward the remote.
+def make_exit(db, name: "Internet exit", provider: "manual",
+  privkey: "EXITPRIV", pubkey: "EXITPUB", psk: nil,
+  endpoint: "engage.cloudflareclient.com:2408", address: "172.16.0.2",
+  keepalive: 25, mtu: 1280, enabled: true, notes: nil)
+  db[:exits].insert(
+    name: name, provider: provider, privkey: privkey, pubkey: pubkey, psk: psk,
+    endpoint: endpoint, address: address, keepalive: keepalive, mtu: mtu,
+    enabled: enabled, notes: notes, created_at: Time.now
+  )
 end
 
 # Run the block with wstunnel switched on. Naaf::Config re-reads ENV on every

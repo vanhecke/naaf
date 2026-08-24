@@ -91,6 +91,10 @@ NAAF_DIAG_CONCURRENCY=2
 # Structural — read-only in the UI. Changing them needs a re-provision: they
 # re-bind listeners and invalidate every issued client config.
 NAAF_WG_INTERFACE=wg0
+# Second WireGuard interface used only when an Internet exit is configured.
+# Not a settings column: the helper and the app must not disagree, and the UI
+# must not rename it.
+NAAF_EXIT_INTERFACE=wg-exit
 NAAF_WG_SUBNET=10.8.0.0/24
 NAAF_SERVER_IP=10.8.0.1
 NAAF_LISTEN_PORT=51820
