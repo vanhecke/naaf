@@ -17,3 +17,7 @@ deploy/logs/
 # editor / tooling caches
 .DS_Store
 .ruby-lsp/
+
+# Local ruby-lsp + Standard wiring (`rvx`). Machine-specific; see AGENTS.md.
+.grok/lsp.json
+

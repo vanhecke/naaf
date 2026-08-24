@@ -162,6 +162,17 @@
 - standardrb is the single authority. No .rubocop.yml, no arguing with it.
 - Run `bundle exec standardrb --fix` before declaring a task done.
 
+## Agent tools
+- Ruby intelligence is ruby-lsp. Use the `lsp` tool on `.rb` files
+  (`workspaceSymbol`, `documentSymbol`, `goToDefinition`, `findReferences`,
+  `hover`) before grepping the tree for a constant, method, or call site.
+- ruby-lsp is started from gitignored `.grok/lsp.json` (`rvx ruby-lsp`) with
+  `formatter` and `linters` both set to Standard. Do not add a second
+  formatter, a `.rubocop.yml`, or a committed copy of that file.
+- After editing Ruby, run `bundle exec standardrb --fix` on the changed files
+  so Standard rewrites them. ruby-lsp is for symbols; `standardrb --fix` is
+  still how formatting lands in the working tree.
+
 ## Secrets / env
 - ONE config file: `naaf.conf` (template `naaf.conf.example`, gitignored),
   installed to `/etc/naaf/naaf.conf` mode 0640 root:naaf. Plain `KEY=value` — the
