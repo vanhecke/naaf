@@ -1429,7 +1429,7 @@ describe "Naaf::App integration" do
   # --- extra (split-tunnel) routes ---
 
   it "redirects the new pages to /login when unauthenticated" do
-    %w[/extra-routes /sites /settings].each do |path|
+    %w[/extra-routes /sites /exit /settings].each do |path|
       res = get(path)
       expect(res.status).to be == 302
       expect(res.headers["location"]).to be == "/login"
@@ -2384,6 +2384,124 @@ describe "Naaf::App integration" do
       login!
       post_form("/settings", "/settings/password", "password" => "newsecret123")
       expect(applies).to be == 0
+    end
+  end
+
+  describe "internet exit" do
+    def exit_pub = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCQ="
+    def exit_priv = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDQ="
+
+    def add_exit(name: "Internet exit", pubkey: exit_pub, privkey: exit_priv,
+      host: "engage.cloudflareclient.com", port: "2408", address: "172.16.0.2", **extra)
+      fields = {
+        "name" => name, "pubkey" => pubkey, "privkey" => privkey,
+        "endpoint_host" => host, "endpoint_port" => port,
+        "address" => address, "keepalive" => "25", "mtu" => "1280", "psk" => ""
+      }.merge(extra.transform_keys(&:to_s))
+      post_form("/exit", "/exit", fields)
+    end
+
+    def stub_warp
+      original = Naaf::Warp.method(:register)
+      Naaf::Warp.define_singleton_method(:register) do |_key|
+        Naaf::Warp::Result.new(
+          pubkey: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0KeGh6gWfdRcDsY=",
+          endpoint: "engage.cloudflareclient.com:2408",
+          address: "172.16.0.2"
+        )
+      end
+      yield
+    ensure
+      Naaf::Warp.define_singleton_method(:register) { |*a, **k, &b| original.call(*a, **k, &b) }
+    end
+
+    it "renders the empty state with the WARP button and the manual form" do
+      login!
+      body = get("/exit").body
+      expect(body).to be(:include?, "Internet exit")
+      expect(body).to be(:include?, "Register with Cloudflare WARP")
+      expect(body).to be(:include?, %(action="/exit/warp"))
+      expect(body).to be(:include?, %(action="/exit"))
+      expect(body).to be(:include?, "Full-tunnel clients leave via this peer")
+    end
+
+    it "adds a manual exit, refuses a second insert, toggles and deletes with apply!" do
+      login!
+      expect(Naaf::App.reconciler.applies).to be == 0
+      add_exit
+      expect(Naaf.db[:exits].count).to be == 1
+      row = Naaf.db[:exits].first
+      expect(row[:privkey]).to be == exit_priv
+      expect(row[:pubkey]).to be == exit_pub
+      expect(row[:provider]).to be == "manual"
+      expect(Naaf::App.reconciler.applies).to be == 1
+
+      body = get("/exit").body
+      expect(body.include?(exit_priv)).to be == false
+      expect(body.include?('name="privkey"')).to be == false
+
+      add_exit(pubkey: site_pub2, privkey: site_pub)
+      expect(Naaf.db[:exits].count).to be == 1
+
+      post_form("/exit", "/exit/#{row[:id]}/toggle", {})
+      expect(Naaf.db[:exits][id: row[:id]][:enabled]).to be == false
+      post_form("/exit", "/exit/#{row[:id]}/delete", {})
+      expect(Naaf.db[:exits].count).to be == 0
+      expect(Naaf::App.reconciler.applies).to be == 3
+    end
+
+    it "registers with WARP, persists the privkey, and never puts it in the body" do
+      login!
+      stub_warp do
+        post_form("/exit", "/exit/warp", {})
+      end
+      row = Naaf.db[:exits].first
+      expect(row.nil?).to be == false
+      expect(row[:provider]).to be == "warp"
+      expect(row[:privkey]).to be == "PRIV1"
+      expect(row[:pubkey]).to be == "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0KeGh6gWfdRcDsY="
+      expect(row[:address]).to be == "172.16.0.2"
+      body = get("/exit").body
+      expect(body.include?("PRIV1")).to be == false
+      expect(body).to be(:include?, "warp")
+      expect(body.include?("TOKEN")).to be == false
+    end
+
+    it "refuses a client or site that reuses the exit pubkey" do
+      login!
+      add_exit
+      add_client("nas", pubkey: exit_pub)
+      expect(Naaf.db[:clients].where(name: "nas").count).to be == 0
+      add_site(pubkey: exit_pub)
+      expect(Naaf.db[:sites].count).to be == 0
+    end
+
+    it "refuses an exit address inside a site network, and the converse" do
+      login!
+      add_site(cidr: "172.16.0.0/24")
+      expect(Naaf.db[:sites].count).to be == 1
+      add_exit(address: "172.16.0.2")
+      expect(Naaf.db[:exits].count).to be == 0
+
+      post_form("/sites", "/sites/#{Naaf.db[:sites].first[:id]}/delete", {})
+      add_exit(address: "172.16.0.2")
+      expect(Naaf.db[:exits].count).to be == 1
+      add_site(name: "overlap", pubkey: site_pub2, cidr: "172.16.0.0/24")
+      expect(Naaf.db[:sites].where(name: "overlap").count).to be == 0
+    end
+
+    it "answers an exit action for a row that has since been removed with 404" do
+      login!
+      ["", "/toggle", "/delete"].each do |suffix|
+        add_exit
+        id = Naaf.db[:exits].first[:id]
+        res = post_stale("/exit", "/exit/#{id}#{suffix}", :exits, id, {
+          "name" => "Internet exit", "pubkey" => exit_pub,
+          "endpoint_host" => "engage.cloudflareclient.com", "endpoint_port" => "2408",
+          "address" => "172.16.0.2", "keepalive" => "25", "mtu" => "1280", "psk" => ""
+        })
+        expect(res.status).to be == 404
+      end
     end
   end
 end

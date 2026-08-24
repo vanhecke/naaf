@@ -77,6 +77,15 @@ describe Naaf::ConfigBuilder do
     expect(c.include?("0.0.0.0/0")).to be == false
   end
 
+  it "does not fold an exit into split AllowedIPs, and still refuses ws /0" do
+    make_exit(@db)
+    expect(build("split")[/^AllowedIPs = .*/]).to be == "AllowedIPs = 10.8.0.0/24"
+    @db[:extra_routes].insert(client_id: nil, cidr: "0.0.0.0/0")
+    with_wstunnel do
+      expect(render_error("split-ws")).to be =~ /default route/
+    end
+  end
+
   it "split-nodns is split without the DNS line" do
     c = build("split-nodns")
     expect(c.include?("DNS =")).to be == false

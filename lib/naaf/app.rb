@@ -14,6 +14,7 @@ require_relative "ipam"
 require_relative "reconciler"
 require_relative "config_builder"
 require_relative "flow"
+require_relative "warp"
 require_relative "diagnostics"
 require_relative "zone"
 require_relative "metrics"
@@ -340,6 +341,9 @@ module Naaf
       if IPAM.parse_v4(Naaf.settings[:wg_subnet])&.include?(IPAddr.new(ip))
         raise ValidationError, "Site address must not be inside the VPN subnet."
       end
+      if Naaf.db[:exits].where(address: ip).count > 0
+        raise ValidationError, "That address is already used by the internet exit."
+      end
       ip
     end
 
@@ -370,6 +374,11 @@ module Naaf
         raise ValidationError,
           "Site network #{cidr} contains this box's endpoint address, which would steal WAN reachability."
       end
+      exit_addr = Naaf.db[:exits].get(:address)
+      if exit_addr && ip.include?(IPAddr.new(exit_addr))
+        raise ValidationError,
+          "Site network #{cidr} contains the internet exit address #{exit_addr}."
+      end
       clash = Naaf.db[:site_networks].all.find { |row|
         next if except_id && row[:id] == except_id
         IPAM.overlap?(cidr, row[:cidr])
@@ -380,7 +389,7 @@ module Naaf
       cidr
     end
 
-    def assert_unused_pubkey!(key, except_site_id: nil)
+    def assert_unused_pubkey!(key, except_site_id: nil, except_exit_id: nil)
       if key == Naaf.settings[:server_pubkey]
         raise ValidationError,
           "That public key is this box's own server key — the remote must have a different identity."
@@ -393,6 +402,64 @@ module Naaf
       if q.count > 0
         raise ValidationError, "That public key already belongs to a site."
       end
+      eq = Naaf.db[:exits].where(pubkey: key)
+      eq = eq.exclude(id: except_exit_id) if except_exit_id
+      if eq.count > 0
+        raise ValidationError, "That public key already belongs to the internet exit."
+      end
+    end
+
+    def param_exit_address(raw)
+      s = raw.to_s.strip
+      raise ValidationError, "Address is required." if s.empty?
+      if s.include?("/")
+        raise ValidationError, "Exit address must be an IPv4 host, not a CIDR."
+      end
+      ip = param_ipv4(s)
+      if IPAM.parse_v4(Naaf.settings[:wg_subnet])&.include?(IPAddr.new(ip))
+        raise ValidationError, "Exit address must not be inside the VPN subnet."
+      end
+      if Naaf.db[:sites].where(address: ip).count > 0
+        raise ValidationError, "Exit address #{ip} is already a site address."
+      end
+      addr = IPAddr.new(ip)
+      clash = Naaf.db[:site_networks].all.find { |row|
+        IPAM.parse_v4(row[:cidr])&.include?(addr)
+      }
+      if clash
+        raise ValidationError, "Exit address #{ip} sits inside site network #{clash[:cidr]}."
+      end
+      hub = IPAM.parse_v4(Naaf.settings[:endpoint_v4])
+      if hub && hub.to_s == ip
+        raise ValidationError, "Exit address must not be this box's endpoint address."
+      end
+      ip
+    end
+
+    def param_exit_mtu(raw)
+      s = raw.to_s.strip
+      return 1280 if s.empty?
+      param_mtu(s)
+    end
+
+    def assert_exit_slot_free!
+      return if Naaf.db[:exits].count.zero?
+      raise ValidationError, "An internet exit already exists. Disable, replace, or delete it."
+    end
+
+    def exit_attrs(params, except_exit_id: nil)
+      pubkey = param_wg_key(params["pubkey"])
+      assert_unused_pubkey!(pubkey, except_exit_id: except_exit_id)
+      {
+        name: param_label(params["name"]),
+        pubkey: pubkey,
+        psk: optional_wg_key(params["psk"]),
+        endpoint: param_site_endpoint(params["endpoint_host"], params["endpoint_port"]),
+        keepalive: param_keepalive(params["keepalive"]),
+        address: param_exit_address(params["address"]),
+        mtu: param_exit_mtu(params["mtu"]),
+        notes: presence(params["notes"])
+      }
     end
 
     # Shared by add and edit so a new field cannot land on only one form.
@@ -823,6 +890,7 @@ module Naaf
           keys = reconciler.helper.genkeys
           supplied = r.params["pubkey"].to_s.strip
           pubkey = supplied.empty? ? keys[:public_key] : supplied
+          assert_unused_pubkey!(pubkey)
 
           id = Naaf.db[:clients].insert(
             name: param_label(r.params["name"]),
@@ -1113,6 +1181,80 @@ module Naaf
                 submit("/sites") { Naaf.db[:dns_forwarders].where(id: fid, site_id: id).delete }
               end
             end
+          end
+        end
+      end
+
+      r.on "exit" do
+        r.get true do
+          @exit = Naaf.db[:exits].first
+          @exit_if = Config["NAAF_EXIT_INTERFACE"]
+          @settings = Naaf.settings
+          view("exit")
+        end
+
+        r.post "warp" do
+          submit("/exit") do
+            assert_exit_slot_free!
+            keys = reconciler.helper.genkeys
+            begin
+              result = Warp.register(keys[:public_key])
+            rescue Warp::Error => e
+              raise ValidationError, e.message
+            end
+            Naaf.db[:exits].insert(
+              name: "Internet exit",
+              provider: "warp",
+              privkey: keys[:private_key],
+              pubkey: result.pubkey,
+              endpoint: result.endpoint,
+              address: result.address,
+              keepalive: 25,
+              mtu: 1280,
+              created_at: Time.now
+            )
+            flash["notice"] = "Registered with Cloudflare WARP."
+          end
+        end
+
+        r.post true do
+          submit("/exit") do
+            assert_exit_slot_free!
+            attrs = exit_attrs(r.params)
+            priv = presence(r.params["privkey"])
+            generated = nil
+            if priv
+              attrs[:privkey] = param_wg_key(priv, label: "Private key")
+            else
+              keys = reconciler.helper.genkeys
+              attrs[:privkey] = keys[:private_key]
+              generated = keys[:public_key]
+            end
+            attrs[:provider] = "manual"
+            attrs[:created_at] = Time.now
+            Naaf.db[:exits].insert(attrs)
+            if generated
+              flash["notice"] =
+                "Internet exit added. This box's public key is #{generated} — configure that on the remote."
+            end
+          end
+        end
+
+        r.on Integer do |id|
+          row = Naaf.db[:exits][id: id] || r.halt(404)
+
+          r.post true do
+            submit("/exit") do
+              Naaf.db[:exits].where(id: id).update(exit_attrs(r.params, except_exit_id: id))
+            end
+          end
+
+          r.post "toggle" do
+            submit("/exit") { Naaf.db[:exits].where(id: id).update(enabled: !row[:enabled]) }
+          end
+
+          r.post "delete" do
+            submit("/exit") { Naaf.db[:exits].where(id: id).delete }
           end
         end
       end
