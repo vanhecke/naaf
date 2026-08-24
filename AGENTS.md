@@ -16,7 +16,7 @@
 - Lint/format: `bundle exec standardrb --fix`
 - Full gate: `bin/ci`
 - Apply state by hand: POST /apply, or `Reconciler#apply!` in a console
-- Inspect live: `sudo wg show wg0`, `sudo nft list table inet naaf`, `ip -4 route show proto 158`
+- Inspect live: `sudo wg show wg0`, `sudo wg show wg-exit`, `sudo nft list table inet naaf`, `ip -4 route show proto 158`, `ip -4 route show table 159`, `ip -4 rule show`
 - Deploy: `./deploy.sh` (one command, idempotent); `deploy/DEPLOY.md`
 - Troubleshoot a live box: `docs/TROUBLESHOOTING.md`
 
@@ -25,7 +25,7 @@
   the kernel is a projection. Only handshake/traffic stats flow inward.
 - All mutations follow: write DB -> Reconciler#apply! -> helper -> kernel.
 - Renderers are pure functions of the DB. No side effects in a renderer.
-  There are four: WireGuard, nftables, Routes, and ConfigBuilder.
+  There are five: WireGuard, nftables, Routes, ConfigBuilder, and Exit.
 - `ConfigBuilder` is a renderer that also VALIDATES before it composes. Every
   value reaching a wg-quick hook runs as ROOT on a client's machine, so each one
   goes through an anchored whitelist (a leading `-` is an argv flag, a leading
@@ -36,12 +36,14 @@
   A refusal is an `ArgumentError` → 500, never a config that silently cannot work.
 - The helper's command vocabulary is fixed (genkeys/apply/dump/ping). Adding a
   command requires explicit approval — it widens the privilege boundary.
-  `apply` projects three things from the DB: the WireGuard conf (`wg syncconf`),
-  the entire `inet naaf` table (`nft -f`), and site extras (`ip route` proto 158
-  + extra `/32`s on wg0). Widening what apply writes to the kernel is the same
-  "Ask first" as a new command. Extra apply fields are optional so an older
-  helper still answers; a box whose helper predates a new side effect will
-  silently skip it.
+  `apply` projects four things from the DB: the WireGuard conf (`wg syncconf` on
+  wg0), the entire `inet naaf` table (`nft -f`), site extras (`ip route` proto 158
+  + extra `/32`s on wg0), and the optional internet exit (`wg syncconf` on
+  `NAAF_EXIT_INTERFACE`, `ip rule`, routing table 159). Widening what apply
+  writes to the kernel is the same "Ask first" as a new command. Extra apply
+  fields are optional so an older helper still answers; a box whose helper
+  predates a new side effect will silently skip it. An older helper that does
+  not understand `exit` leaves client internet on WAN masquerade.
 - Never build shell strings. Always argv arrays via IO.popen(array).
 - New long-running work is an `Async` task on the existing reactor, not a
   new process and not a Thread. Privileged work stays in the helper — no
@@ -75,7 +77,9 @@
 - Port forwards DNAT on the WAN iface and need
   `oifname <wg> ct status dnat masquerade` (hairpin). Disabled forwards must
   not appear. `ip saddr <wg_subnet> oifname <wan> masquerade` stays for
-  full-tunnel egress.
+  full-tunnel egress (and for hub-originated traffic even when an internet
+  exit is up). Enabled-exit full-tunnel client traffic masquerades onto
+  `NAAF_EXIT_INTERFACE` instead.
 - IPAM never hands out the network, broadcast, or server address, and reuses
   freed ones. Enabled clients, and sites that have networks, are kernel peers;
   disabled ones are absent.
@@ -199,7 +203,9 @@
   INCOMING file only and would drop then regenerate it — silently invalidating
   every ws config ever issued; and the ACME token, above.
 - The WireGuard server private key lives in the `settings` table. Never log it,
-  never render it into a view, never put it in an error message.
+  never render it into a view, never put it in an error message. `exits.privkey`
+  is the same class — hub identity toward the remote, not a client key — and
+  the same rule applies.
 - Client keys are generated server-side by the helper, rendered ONCE into the
   download/QR, and never persisted. `clients` has NO private key column. This
   is deliberate and structural. Do not add one, and do not "cache" a private
@@ -221,9 +227,12 @@
   `config.rb`, vendored script digests, `nft -c -f` including a non-empty
   `site_nets`).
 - Apply-path or firewall change: `sudo nft list table inet naaf`,
-  `sudo wg show wg0`, `ip -4 route show proto 158`, and a continuous ping
+  `sudo wg show wg0`, `sudo wg show wg-exit`, `ip -4 route show proto 158`,
+  `ip -4 route show table 159`, and a continuous ping
   between two spokes across `apply!`. A dropped packet means something used
-  `wg-quick down/up` instead of `wg syncconf`.
+  `wg-quick down/up` instead of `wg syncconf`. An internet-exit change must
+  also survive `apply!` twice (the steal-check self-collision on wg-exit's own
+  address only shows up on the second pass).
 - Client or key handling: `.schema clients` has no priv column; no
   `PrivateKey` in logs.
 - Bind check: `ss -ltnp | grep ':8080'` is exactly two rows — the wg IP and
@@ -231,7 +240,8 @@
 
 ## Backups
 - Snapshots are `VACUUM INTO` on the app's own connection, written to a `.tmp`
-  name then renamed, `chmod 0600` (they contain `server_privkey`).
+  name then renamed, `chmod 0600` (they contain `server_privkey` and, when an
+  internet exit is configured, `exits.privkey`).
 - NEVER bare `VACUUM`, NEVER `PRAGMA wal_checkpoint`, NEVER `cp` the live `.db`:
   the first invalidates Litestream's tracking, the second fights it for
   checkpoint ownership, the third is a torn read without the `-wal`.
@@ -325,6 +335,12 @@
 ### Never
 - NEVER run the web app as root or grant it CAP_NET_ADMIN.
 - NEVER use `wg-quick down/up` to apply a peer change — it drops every session.
+  NEVER run `wg-quick` on the internet-exit interface. `AllowedIPs = 0.0.0.0/0`
+  would install a default route in **main** and steal SSH. `wg setconf` /
+  `syncconf` only, from a `Tempfile.create` that does not outlive the call.
+- NEVER put an `MTU =` (or `Address =`, `Table =`, `DNS =`, `PreUp`/`PostUp`)
+  line in an exit conf. `wg setconf` rejects the whole file on any of them, and
+  there is no `wg-quick strip` on that path. MTU is applied with `ip link`.
 - NEVER write nftables rules outside table `inet naaf`, and never modify
   /etc/nftables.conf from APPLICATION code. That file is what keeps SSH alive.
   Deliberate, reviewed exception: `deploy/provision/20-system.sh` renders it once
@@ -386,10 +402,13 @@
 - NEVER read `wg show dump` anywhere but `Reconciler#poll!`. Line 1 field 0 of
   that output is the server private key and every peer line's field 1 is that
   peer's PSK, so a second parser feeding anything the browser renders puts both
-  one bug away from the page. Peer telemetry reaches the dashboard through
-  `Metrics::PeerStats`, published by that one reader. Never put a helper
-  exception message (or any other dump field) into a view or SSE fragment —
-  `Reconciler#failed!` keeps the class name only.
+  one bug away from the page. The same is true of `exit_dump` (line 1 is
+  `exits.privkey`). `HelperClient#dump` returns the whole response hash;
+  `poll!` is the only caller. Peer telemetry reaches the dashboard through
+  `Metrics::PeerStats`, published by that one reader. The internet exit is
+  shown on `/exit` from the row `poll!` writes, not via PeerStats. Never put a
+  helper exception message (or any other dump field) into a view or SSE
+  fragment — `Reconciler#failed!` keeps the class name only.
 - NEVER install a site dest or extra `/32` that covers the default gateway or
   a non-wg local address. The form refuses those; the helper refuses them
   again as root. A `/0` site dest is the same class of bug.

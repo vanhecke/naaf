@@ -1,7 +1,8 @@
 # Naaf — backup, restore, and box migration
 
 The SQLite database at `/var/lib/naaf/naaf.db` is the whole system. It holds the
-**server private key**, every peer, every firewall rule, and the admin password
+**server private key**, the internet-exit private key when one is configured
+(`exits.privkey`), every peer, every firewall rule, and the admin password
 hash. Losing it means regenerating the server key and re-enrolling every client —
 which, for a phone provisioned by QR code, means physically handling the device.
 
@@ -37,8 +38,10 @@ two layers compose rather than fight.
 
 Each snapshot is written to a `.tmp` name and renamed into place, so no reader
 ever sees a partial file, and it is `chmod 0600` before it becomes reachable
-under its final name. **A snapshot contains the server private key.** Treat a
-copy of one exactly as you would treat the key itself.
+under its final name. **A snapshot contains the server private key**, and when
+an internet exit is configured it also contains `exits.privkey` — a second
+private key of the same class, sitting next to `server_privkey`. Treat a copy
+of one exactly as you would treat those keys.
 
 `NAAF_BACKUP_KEEP` is a hard ceiling, not a high-water mark: rotation runs before
 each write, so a nearly-full volume gets a slot freed before another file is
@@ -137,7 +140,8 @@ extending `deploy/provision/45-litestream.sh`.
 
 > **The replica is not encrypted.** Litestream removed age encryption in v0.5.0
 > and since v0.5.1 refuses to start if an `age:` block is configured, so a
-> `type: s3` replica puts `server_privkey` and `admin_pw_hash` at rest with your
+> `type: s3` replica puts `server_privkey`, `exits.privkey` (when an internet
+> exit is configured) and `admin_pw_hash` at rest with your
 > object-store provider **in plaintext**, protected only by the bucket being
 > private and by the keys in `/etc/naaf/litestream.env`. Use a bucket dedicated to
 > this, keep it private, and treat its credentials exactly as you would treat the

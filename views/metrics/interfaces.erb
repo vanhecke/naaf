@@ -21,7 +21,7 @@
               <td>
                 <code><%= h(i[:name]) %></code>
                 <% if i[:role] %>
-                  <span class="tag naaf-chip ml-1"><%= (i[:role] == :wan) ? "wan" : "tunnel" %></span>
+                  <span class="tag naaf-chip ml-1"><%= {wan: "wan", wg: "tunnel", exit: "exit"}[i[:role]] %></span>
                 <% end %>
               </td>
               <td class="has-text-right naaf-num"><%= fmt.bps(i[:rx_bps]) %></td>

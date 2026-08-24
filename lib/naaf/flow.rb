@@ -9,9 +9,10 @@ module Naaf
   # A static reachability analysis: given a source address, a destination and a
   # protocol, what would this box do with the packet?
   #
-  # Deliberately NOT under renderers/ — AGENTS.md names exactly four renderers
-  # and this emits nothing the kernel ever sees. It is an analyzer over the same
-  # rows, and it is pure: no writes, no helper call, no kernel read.
+  # Deliberately NOT under renderers/ — AGENTS.md names the renderers that
+  # emit kernel state, and this emits nothing the kernel ever sees. It is an
+  # analyzer over the same rows, and it is pure: no writes, no helper call,
+  # no kernel read.
   #
   # Every step quotes the line a renderer actually emits or calls the renderer
   # itself, so the tester cannot drift away from the box without a renderer test
@@ -447,25 +448,54 @@ module Naaf
     # which almost always means straight back out of the WAN interface.
     def self.to_extra(db, s, src, dst)
       steps = client_routes(db, src, dst)
-      steps << Step.new(stage: "Hub route", verdict: :warn,
-        detail: "#{dst.ip} is covered by the extra route #{dst.row[:cidr]}, which is folded " \
-                "into client AllowedIPs but installs nothing on the hub — Routes.desired " \
-                "only emits site networks. The packet reaches the hub and then follows its " \
-                "default route out of #{s[:wan_interface]}, masqueraded. That is rarely what " \
-                "an extra route was added for: if the network lives behind a tunnel, it " \
-                "belongs to a site.",
-        rule: "ip saddr #{s[:wg_subnet]} oifname \"#{s[:wan_interface]}\" masquerade",
-        fix: "/sites")
+      exit_if = enabled_exit_if(db)
+      steps << if exit_if
+        Step.new(stage: "Hub route", verdict: :warn,
+          detail: "#{dst.ip} is covered by the extra route #{dst.row[:cidr]}, which is folded " \
+                  "into client AllowedIPs but installs nothing on the hub — Routes.desired " \
+                  "only emits site networks. A global /0 extra route turns split into full, " \
+                  "and those packets take the same iif #{s[:wg_interface]} path as a full " \
+                  "client and leave via the internet exit (#{exit_if}), masqueraded. If the " \
+                  "network lives behind a tunnel, it belongs to a site.",
+          rule: "ip saddr #{s[:wg_subnet]} oifname \"#{exit_if}\" masquerade",
+          fix: "/sites")
+      else
+        Step.new(stage: "Hub route", verdict: :warn,
+          detail: "#{dst.ip} is covered by the extra route #{dst.row[:cidr]}, which is folded " \
+                  "into client AllowedIPs but installs nothing on the hub — Routes.desired " \
+                  "only emits site networks. The packet reaches the hub and then follows its " \
+                  "default route out of #{s[:wan_interface]}, masqueraded. That is rarely what " \
+                  "an extra route was added for: if the network lives behind a tunnel, it " \
+                  "belongs to a site.",
+          rule: "ip saddr #{s[:wg_subnet]} oifname \"#{s[:wan_interface]}\" masquerade",
+          fix: "/sites")
+      end
     end
 
     def self.to_internet(db, s, src, dst)
       steps = client_routes(db, src, dst)
-      steps << Step.new(stage: "Egress", verdict: routed_by_any?(steps) ? :pass : :fail,
-        detail: "Full-tunnel clients send everything here and leave masqueraded behind the " \
-                "hub's public address. A split client reaches #{dst.ip} over its own " \
-                "connection instead, without involving this box at all.",
-        rule: "ip saddr #{s[:wg_subnet]} oifname \"#{s[:wan_interface]}\" masquerade", fix: nil)
+      exit_if = enabled_exit_if(db)
+      steps << if exit_if
+        Step.new(stage: "Egress", verdict: routed_by_any?(steps) ? :pass : :fail,
+          detail: "Full-tunnel clients send everything here and leave masqueraded behind the " \
+                  "internet exit (#{exit_if}), not this box's public address. A split client " \
+                  "reaches #{dst.ip} over its own connection instead, without involving this " \
+                  "box at all.",
+          rule: "ip saddr #{s[:wg_subnet]} oifname \"#{exit_if}\" masquerade", fix: "/exit")
+      else
+        Step.new(stage: "Egress", verdict: routed_by_any?(steps) ? :pass : :fail,
+          detail: "Full-tunnel clients send everything here and leave masqueraded behind the " \
+                  "hub's public address. A split client reaches #{dst.ip} over its own " \
+                  "connection instead, without involving this box at all.",
+          rule: "ip saddr #{s[:wg_subnet]} oifname \"#{s[:wan_interface]}\" masquerade", fix: nil)
+      end
     end
+
+    def self.enabled_exit_if(db)
+      return unless db[:exits].where(enabled: true).first
+      Config["NAAF_EXIT_INTERFACE"]
+    end
+    private_class_method :enabled_exit_if
 
     # --- arriving from the public side --------------------------------------
 

@@ -208,6 +208,7 @@ module Naaf
       def role_of(name, wan, wg)
         return :wan if name == wan
         return :wg if name == wg
+        return :exit if name == Config["NAAF_EXIT_INTERFACE"]
         nil
       end
 

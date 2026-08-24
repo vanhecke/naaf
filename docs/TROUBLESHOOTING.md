@@ -490,6 +490,66 @@ Three things that look like DNS and are not:
 
 ---
 
+## 1c. Playbook: client internet is dead with the internet exit enabled
+
+Full-tunnel clients (and split clients with a global `/0` extra route) leave
+through `wg-exit` instead of WAN masquerade. A down peer **blackholes** that
+traffic on purpose — a silent leak of the VPS IP would be worse. Disable the
+exit on `/exit` to restore WAN masquerade.
+
+This is not a site. Do not install `/0` as a proto-158 dest, a `site_networks`
+row, or an element of `site_nets`.
+
+**1. Is the exit a live peer on its own interface?**
+```bash
+sudo wg show wg-exit             # handshake? transfer? endpoint?
+sudo sqlite3 /var/lib/naaf/naaf.db \
+  'select name,enabled,endpoint,address,substr(pubkey,1,12) from exits;'
+```
+No iface → the row is disabled, apply did not run, or the helper on the box
+predates this feature (an older helper silently ignores the `exit` field and
+client internet stays on WAN). Peer present, no handshake → this box cannot
+reach the remote (WAN firewall, DNS for `engage.cloudflareclient.com`, or a
+stale WARP registration). Hub-originated traffic — SSH, the WARP handshake
+itself, Troubleshoot ping/curl — still uses the VPS WAN; that is intended.
+
+**2. Are the policy rules and table 159 installed?**
+```bash
+ip -4 rule show                  # prefs 15800 (fwmark 159), 15850 (iif wg0 to $wg_subnet), 15900 (iif wg0 lookup 159)
+ip -4 route show table 159       # site CIDRs and site /32s via wg0, default via wg-exit
+ip route get 1.1.1.1 from 10.8.0.2 iif wg0
+# must come back `dev wg-exit`, not the WAN default
+```
+`Reconciler#poll!` does **not** detect a missing `wg-exit`. It re-applies only
+on wg0 peer-set drift, and treating "an enabled exit with no `exit_dump`" as
+drift cannot tell a deleted interface from an older helper that never sends
+the key — it would `apply!` forever on exactly the box that is supposed to
+degrade silently. Recovery is `POST /apply` (navbar **Re-apply state**) or
+`systemctl restart naaf` (`bin/naaf` applies at startup).
+
+**3. Is nft masquerading onto wg-exit?**
+```bash
+sudo nft list table inet naaf
+# `ip saddr <wg_subnet> oifname "wg-exit" masquerade`
+# both-directions MSS clamp at mtu-40
+# mangle_prerouting marking WAN-inbound connections 159 (port-forward replies)
+```
+WAN masquerade stays even when the exit is up: hub traffic and the disable
+path both need it. Spoke `counter drop` is unchanged; the exit is not a
+site net.
+
+**4. Apply twice after enabling.** The first apply puts the assigned `/32` on
+`wg-exit`. The second must not then refuse that address as a steal of a local
+IP. If the second apply surfaces as a bare `HelperClient::Error` on the
+dashboard (`failed!` keeps the class only), the helper on the box is older
+than this check — redeploy.
+
+**5. Confirm the leak is not happening.** From a full client, `curl -4
+https://ifconfig.me` should show the WARP (or other upstream) address. From
+the hub itself, the same `curl` should still show the VPS IP.
+
+---
+
 ## 2. In-box reproduction: a real client without touching the server firewall
 
 The most reliable end-to-end test — a genuine WireGuard client in a netns, which

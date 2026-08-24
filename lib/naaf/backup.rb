@@ -8,8 +8,9 @@ module Naaf
   # Point-in-time snapshots of the SQLite database, taken in-process on the
   # shared reactor.
   #
-  # The database is the whole system: it holds the server private key, every
-  # peer, and every firewall rule. Losing it means re-enrolling every client by
+  # The database is the whole system: it holds the server private key, the
+  # internet-exit private key when one is configured, every peer, and every
+  # firewall rule. Losing it means re-enrolling every client by
   # hand, which for a QR-provisioned phone means physically handling the device.
   #
   # VACUUM INTO is read-only with respect to the source — it runs in a read

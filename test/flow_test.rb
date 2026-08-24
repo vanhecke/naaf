@@ -217,6 +217,34 @@ describe Naaf::Flow do
       expect(stage(report, "Egress").verdict).to be == :pass
       expect(Naaf::Flow::CHIP[report.verdict]).to be == "REACHABLE"
     end
+
+    it "quotes WAN masquerade when no exit is enabled, and wg-exit when one is" do
+      report = run("10.8.0.3", "8.8.8.8")
+      expect(stage(report, "Egress").rule)
+        .to be == %(ip saddr 10.8.0.0/24 oifname "eth0" masquerade)
+      make_exit(@db)
+      on = run("10.8.0.3", "8.8.8.8")
+      expect(stage(on, "Egress").rule)
+        .to be == %(ip saddr 10.8.0.0/24 oifname "wg-exit" masquerade)
+      expect(stage(on, "Egress").detail).to be(:include?, "internet exit")
+      @db[:exits].update(enabled: false)
+      off = run("10.8.0.3", "8.8.8.8")
+      expect(stage(off, "Egress").rule)
+        .to be == %(ip saddr 10.8.0.0/24 oifname "eth0" masquerade)
+    end
+  end
+
+  describe "client to an extra route" do
+    it "quotes WAN masquerade when no exit is enabled, and wg-exit when one is" do
+      report = run("10.8.0.3", "10.50.0.9")
+      expect(stage(report, "Hub route").rule)
+        .to be == %(ip saddr 10.8.0.0/24 oifname "eth0" masquerade)
+      make_exit(@db)
+      on = run("10.8.0.3", "10.50.0.9")
+      expect(stage(on, "Hub route").rule)
+        .to be == %(ip saddr 10.8.0.0/24 oifname "wg-exit" masquerade)
+      expect(stage(on, "Hub route").detail).to be(:include?, "internet exit")
+    end
   end
 
   describe "internet to a client" do

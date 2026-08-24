@@ -141,6 +141,23 @@ describe Naaf::Metrics::Collector do
       expect(s.interfaces.map { |i| i[:name] }).not.to be(:include?, "lo")
     end
 
+    it "labels NAAF_EXIT_INTERFACE as :exit" do
+      class << @procfs
+        alias_method :net_dev_without_exit, :net_dev
+        def net_dev
+          devs = net_dev_without_exit
+          return devs unless devs
+          sample = devs["wg0"] || devs["eth0"]
+          return devs unless sample
+          devs.merge("wg-exit" => sample)
+        end
+      end
+      s = collector.tick!
+      row = s.interfaces.find { |i| i[:name] == "wg-exit" }
+      expect(row.nil?).to be == false
+      expect(row[:role]).to be == :exit
+    end
+
     it "appends each sample to its series so a sparkline has a shape" do
       c = collector
       c.tick!
