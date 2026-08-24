@@ -217,4 +217,68 @@ describe Naaf::Renderers::Nftables do
     expect(out).to be(:include?, %(oifname "wg0" ct status dnat masquerade))
     expect(out).to be(:include?, "ip saddr 10.8.0.0/24 oifname \"eth0\" masquerade")
   end
+
+  describe "internet exit" do
+    def with_exit(**extra)
+      make_exit(@db, **extra)
+      Naaf::Renderers::Nftables.render(@db)
+    end
+
+    it "keeps the spoke counter drop and never puts /0 in site_nets" do
+      out = with_exit
+      expect(out).to be(:include?, %(iifname "wg0" oifname "wg0" counter drop))
+      set = out[/set site_nets.*?\}/m]
+      expect(set.include?("0.0.0.0/0")).to be == false
+      expect(out.include?("policy drop")).to be == false
+    end
+
+    it "masquerades onto the exit iface only when enabled, and keeps WAN masquerade" do
+      out = with_exit
+      expect(out).to be(:include?, %(ip saddr 10.8.0.0/24 oifname "wg-exit" masquerade))
+      expect(out).to be(:include?, %(ip saddr 10.8.0.0/24 oifname "eth0" masquerade))
+      @db[:exits].update(enabled: false)
+      off = Naaf::Renderers::Nftables.render(@db)
+      expect(off.include?(%(oifname "wg-exit" masquerade))).to be == false
+    end
+
+    it "emits the mangle mark 159 only when the exit is enabled" do
+      out = with_exit
+      expect(out).to be(:include?, "chain mangle_prerouting")
+      expect(out).to be(:include?, %(iifname "eth0" ct mark set 159))
+      expect(out).to be(:include?, "ct mark 159 meta mark set 159")
+      expect(out).to be(:include?, "priority mangle; policy accept;")
+      off = Naaf::Renderers::Nftables.render(reset_db!(wg_interface: "wg0", wan_interface: "eth0",
+        wg_subnet: "10.8.0.0/24"))
+      expect(off.include?("mangle_prerouting")).to be == false
+    end
+
+    it "clamps MSS both directions at mtu - 40 with the syn/syn,rst mask" do
+      out = with_exit(mtu: 1280)
+      expect(out).to be(:include?,
+        %(iifname "wg0" oifname "wg-exit" tcp flags syn / syn,rst tcp option maxseg size set 1240))
+      expect(out).to be(:include?,
+        %(iifname "wg-exit" oifname "wg0" tcp flags syn / syn,rst tcp option maxseg size set 1240))
+      expect(out).to be(:include?, %(iifname "wg0" oifname "wg-exit" accept))
+    end
+
+    it "interpolates every iface name from settings or Config, never a literal eth0 in source" do
+      src = File.read(File.expand_path("../lib/naaf/renderers/nftables.rb", __dir__))
+      expect(src.include?("eth0")).to be == false
+      reset_db!(wg_interface: "wg0", wan_interface: "ens3", wg_subnet: "10.8.0.0/24")
+      make_exit(@db)
+      out = Naaf::Renderers::Nftables.render(@db)
+      expect(out).to be(:include?, %(iifname "ens3" ct mark set 159))
+      expect(out).to be(:include?, %(ip saddr 10.8.0.0/24 oifname "ens3" masquerade))
+      expect(out.include?('"eth0"')).to be == false
+    end
+
+    it "does not put the exit in site_nets even when a site is present" do
+      make_site(@db, name: "unifi", networks: ["192.168.1.0/24"])
+      out = with_exit
+      set = out[/set site_nets.*?\}/m]
+      expect(set).to be(:include?, "192.168.1.0/24")
+      expect(set.include?("0.0.0.0/0")).to be == false
+      expect(set.include?("172.16.0.2")).to be == false
+    end
+  end
 end

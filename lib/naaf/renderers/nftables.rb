@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../ipam"
+require_relative "../config"
 
 module Naaf
   module Renderers
@@ -14,6 +15,7 @@ module Naaf
         enabled = db[:clients].where(enabled: true).to_a
         by_id = enabled.to_h { |c| [c[:id], c] }
         site_nets, site_nat = site_forwarding(db, wg, net)
+        exit_forward, exit_nat, mangle = exit_forwarding(db, wg, wan, net)
 
         tcp_allow = []
         udp_allow = []
@@ -73,26 +75,57 @@ module Naaf
               # --- inbound DNAT traffic from the public side ---
               iifname "#{wan}" oifname "#{wg}" ct state established,related accept
               iifname "#{wan}" oifname "#{wg}" ct status dnat accept
+          #{exit_forward}
             }
 
             chain prerouting {
               type nat hook prerouting priority dstnat; policy accept;
           #{dnat.join("\n")}
             }
-
+          #{mangle}
             chain postrouting {
               type nat hook postrouting priority srcnat; policy accept;
 
-              # full-tunnel egress to the internet
+              # full-tunnel egress to the internet (stays for hub traffic and
+              # the disable path even when an exit is up)
               ip saddr #{net} oifname "#{wan}" masquerade
 
               # DNAT hairpin: make the client reply via the hub, not its own
               # default route (critical for split-tunnel clients)
               oifname "#{wg}" ct status dnat masquerade
+          #{exit_nat}
           #{site_nat}
             }
           }
         NFT
+      end
+
+      # Forward accepts, postrouting SNAT, and the mangle mark that keeps
+      # port-forward replies on main instead of following pref 15900 into the
+      # exit. iifname/oifname match by name, so this ruleset is valid while
+      # wg-exit does not yet exist — which is what makes nft -f before
+      # sync_exit safe. Empty when no enabled exit row.
+      def self.exit_forwarding(db, wg, wan, net)
+        row = db[:exits].where(enabled: true).first
+        return ["", "", ""] unless row
+
+        exit_if = Config["NAAF_EXIT_INTERFACE"]
+        mss = row[:mtu].to_i - 40
+        forward = <<~RULES.chomp
+          iifname "#{wg}" oifname "#{exit_if}" tcp flags syn / syn,rst tcp option maxseg size set #{mss}
+          iifname "#{exit_if}" oifname "#{wg}" tcp flags syn / syn,rst tcp option maxseg size set #{mss}
+          iifname "#{wg}" oifname "#{exit_if}" accept
+        RULES
+        nat = %(    ip saddr #{net} oifname "#{exit_if}" masquerade)
+        mangle = <<~CHAIN
+
+          chain mangle_prerouting {
+            type filter hook prerouting priority mangle; policy accept;
+            iifname "#{wan}" ct mark set 159
+            ct mark 159 meta mark set 159
+          }
+        CHAIN
+        [forward, nat, mangle]
       end
 
       # Enabled sites' CIDRs (merged so the interval set cannot reject them)

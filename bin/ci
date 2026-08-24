@@ -142,6 +142,10 @@ NAAF_DB="$tmpdir/ci.db" NAAF_CONF=/dev/null CI_NFT="$tmpdir/ci.nft" bundle exec 
     keepalive: 25, address: "192.168.2.2", masquerade: true)
   db[:site_networks].insert(site_id: sid, cidr: "192.168.1.0/24")
   File.write(ENV.fetch("CI_NFT"), Naaf::Renderers::Nftables.render(db))
+  db[:exits].insert(name: "ci", provider: "manual", privkey: "X", pubkey: "Y",
+    endpoint: "engage.cloudflareclient.com:2408", address: "172.16.0.2",
+    keepalive: 25, mtu: 1280, enabled: true)
+  File.write(ENV.fetch("CI_NFT") + ".exit", Naaf::Renderers::Nftables.render(db))
 '
 echo "clients schema has no private-key column"
 # The base firewall ships as a template, rendered at provisioning time by
@@ -195,6 +199,7 @@ nft_check() { # <label> <file>
 }
 if need_cmd nft "nft syntax checks"; then
   nft_check "nft check" "$tmpdir/ci.nft"
+  nft_check "nft check (internet exit)" "$tmpdir/ci.nft.exit"
   nft_check "base firewall template check (wstunnel off)" "$tmpdir/base-off.nft"
   nft_check "base firewall template check (wstunnel on)" "$tmpdir/base-on.nft"
 fi
