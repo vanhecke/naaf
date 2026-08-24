@@ -22,7 +22,16 @@ describe "bin/naaf-helper" do
     return @addr_show.to_s if argv == ["ip", "-4", "-o", "addr", "show", "dev", WG_IF]
     return @all_addr_show.to_s if argv == ["ip", "-4", "-o", "addr", "show"]
     return @route_show.to_s if argv == ["ip", "-4", "route", "show", "proto", SITE_ROUTE_PROTO, "dev", WG_IF]
-    return @table159.to_s if argv == ["ip", "-4", "route", "show", "table", "159"]
+    if argv == ["ip", "-4", "route", "show", "table", "159"]
+      if @missing_table159
+        raise "ip failed (2): Error: ipv4: FIB table does not exist.\nDump terminated"
+      end
+      return @table159.to_s
+    end
+    if argv == ["ip", "route", "flush", "table", "159"]
+      raise "ip failed (2): Flush terminated" if @missing_table159
+      return ""
+    end
     return @rules.to_s if argv == ["ip", "-4", "rule", "show"]
     return @default_route.to_s if argv == ["ip", "-4", "route", "show", "default"]
     if argv[0, 4] == ["ip", "link", "show", "dev"]
@@ -309,6 +318,21 @@ describe "bin/naaf-helper" do
       expect(rule_writes).to be(:include?, ["ip", "-4", "rule", "del", "pref", "15850"])
       expect(rule_writes).to be(:include?, ["ip", "-4", "rule", "del", "pref", "15900"])
       expect(@links.include?(EXIT_IF)).to be == false
+    end
+
+    it "still brings the exit up when table 159 has never been created" do
+      @all_addr_show = addr_line_on("eth0", "203.0.113.5/24")
+      @missing_table159 = true
+      expect(handle(apply_line(exit: exit_payload))).to be == {ok: true}
+      expect(ip_calls).to be(:include?,
+        ["ip", "route", "replace", "default", "dev", EXIT_IF, "table", "159"])
+    end
+
+    it "still tears the exit down when flushing a table that does not exist" do
+      @links << EXIT_IF
+      @missing_table159 = true
+      expect(handle(apply_line(exit: nil))).to be == {ok: true}
+      expect(ip_calls).to be(:include?, ["ip", "link", "del", EXIT_IF])
     end
 
     it "omits exit_dump when the iface is absent and includes it when present" do

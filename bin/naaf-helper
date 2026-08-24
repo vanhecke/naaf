@@ -332,9 +332,33 @@ def norm_dst(dst)
   dst
 end
 
+# iproute2 6.x exits 2 with "FIB table does not exist" / "Dump terminated"
+# (show) or "Flush terminated" (flush) when table 159 has never been
+# created. That is the empty state, not a failure: the first `ip route
+# replace … table 159` creates it. Treating it as an error bricks apply
+# after any enabled-exit deploy, including boot apply with exit: null.
+def missing_table?(error)
+  msg = error.message
+  msg.include?("does not exist") || msg.include?("Dump terminated") || msg.include?("Flush terminated")
+end
+
+def table_routes(table)
+  run!("ip", "-4", "route", "show", "table", table)
+rescue => e
+  return "" if missing_table?(e)
+  raise
+end
+
+def flush_table(table)
+  run!("ip", "route", "flush", "table", table)
+rescue => e
+  return if missing_table?(e)
+  raise
+end
+
 def sync_exit_routes(desired)
   current = {}
-  run!("ip", "-4", "route", "show", "table", EXIT_TABLE).each_line do |line|
+  table_routes(EXIT_TABLE).each_line do |line|
     f = line.split
     next if f.empty?
     i = f.index("dev")
@@ -389,7 +413,7 @@ end
 
 def sync_exit_down
   EXIT_RULE_PREFS.each { |pref| delete_rule_pref(pref) }
-  run!("ip", "route", "flush", "table", EXIT_TABLE)
+  flush_table(EXIT_TABLE)
   run!("ip", "link", "del", EXIT_IF) if iface_exists?(EXIT_IF)
 end
 
