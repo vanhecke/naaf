@@ -376,18 +376,38 @@ def sync_exit_routes(desired)
   end
 end
 
+# iproute2 dumps selectors in its own order (`to` before `iif`). Comparing
+# the token array to what we add (`iif` then `to`) would del+add pref 15850
+# on every apply and open a leak window to main.
+RULE_KEYS = %w[from iif oif to fwmark lookup table].freeze
+
+def spec_key(tokens)
+  tokens = tokens.dup
+  tokens.shift(2) if tokens[0] == "from" && tokens[1] == "all"
+  acc = {}
+  i = 0
+  while i < tokens.size
+    key = tokens[i]
+    if RULE_KEYS.include?(key) && tokens[i + 1]
+      val = tokens[i + 1]
+      if key == "fwmark"
+        raw = val.split("/", 2).first
+        val = raw.start_with?("0x", "0X") ? raw.to_i(16).to_s : Integer(raw, 10).to_s
+      end
+      acc[key] = val
+      i += 2
+    else
+      acc[key] = true
+      i += 1
+    end
+  end
+  acc
+end
+
 def parse_rule_line(line)
   m = /\A(\d+):\s*(.*)\z/.match(line.strip)
   return unless m
-  pref = Integer(m[1], 10)
-  tokens = m[2].split
-  tokens.each_with_index do |tok, i|
-    next unless tok == "fwmark" && tokens[i + 1]
-    raw = tokens[i + 1].split("/", 2).first
-    tokens[i + 1] = raw.start_with?("0x", "0X") ? raw.to_i(16).to_s : Integer(raw, 10).to_s
-  end
-  tokens.shift(2) if tokens[0] == "from" && tokens[1] == "all"
-  [pref, tokens]
+  [Integer(m[1], 10), spec_key(m[2].split)]
 end
 
 def current_rules
@@ -405,7 +425,7 @@ end
 def sync_exit_rules(desired)
   current = current_rules
   desired.each do |pref, spec|
-    next if current[pref] == spec
+    next if current[pref] == spec_key(spec)
     delete_rule_pref(pref) if current[pref]
     run!("ip", "-4", "rule", "add", *spec, "pref", pref.to_s)
   end

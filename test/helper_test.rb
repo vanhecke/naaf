@@ -279,6 +279,15 @@ describe "bin/naaf-helper" do
       expect(sync[3].include?("/etc/wireguard")).to be == false
     end
 
+    it "does not churn pref 15850 when iproute2 dumps to before iif" do
+      @all_addr_show = addr_line_on("eth0", "203.0.113.5/24")
+      @rules = "15800:\tfrom all fwmark 0x9f lookup main\n" \
+        "15850:\tfrom all to 10.8.0.0/24 iif #{WG_IF} lookup main\n" \
+        "15900:\tfrom all iif #{WG_IF} lookup 159\n"
+      expect(handle(apply_line(exit: exit_payload))).to be == {ok: true}
+      expect(rule_writes.any? { |a| a.include?("del") }).to be == false
+    end
+
     it "replaces pref 15850 when wg_subnet in the spec changes, instead of leaving the old to" do
       @all_addr_show = addr_line_on("eth0", "203.0.113.5/24")
       @rules = "15800:\tfrom all fwmark 0x9f lookup main\n" \
