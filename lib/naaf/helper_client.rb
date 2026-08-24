@@ -25,11 +25,14 @@ module Naaf
     end
 
     def genkeys = call("genkeys").transform_keys(&:to_sym)
-    def dump = call("dump")["dump"]
 
-    def apply(wg_conf:, nft_ruleset:, routes: [], addresses: [])
+    # The whole response hash, not just ["dump"]. poll! is the only reader of
+    # either dump; line 1 of each is a private key.
+    def dump = call("dump")
+
+    def apply(wg_conf:, nft_ruleset:, routes: [], addresses: [], exit: nil)
       call("apply", wg_conf: wg_conf, nft_ruleset: nft_ruleset,
-        routes: routes, addresses: addresses)
+        routes: routes, addresses: addresses, exit: exit)
     end
   end
 end

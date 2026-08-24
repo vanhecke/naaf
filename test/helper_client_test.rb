@@ -52,7 +52,7 @@ describe Naaf::HelperClient do
     end
   end
 
-  it "forwards apply's four fields so an older helper can ignore the extras" do
+  it "forwards apply's fields including optional exit so an older helper can ignore extras" do
     seen = nil
     with_socket do |path, server|
       thr = serve_one(server, ->(req) {
@@ -73,12 +73,31 @@ describe Naaf::HelperClient do
     expect(seen["nft_ruleset"]).to be == "NFT"
     expect(seen["routes"]).to be == [{"dst" => "192.168.1.0/24", "dev" => "wg0"}]
     expect(seen["addresses"]).to be == [{"addr" => "192.168.2.2", "dev" => "wg0"}]
+    expect(seen["exit"]).to be_nil
   end
 
-  it "returns dump as the raw text, and genkeys with symbol keys" do
+  it "forwards a present exit object on apply" do
+    seen = nil
+    payload = {conf: "CONF", dev: "wg-exit", address: "172.16.0.2"}
     with_socket do |path, server|
-      thr = serve_one(server, {"dump" => "LINE\n"})
-      Timeout.timeout(2) { expect(Naaf::HelperClient.new(path).dump).to be == "LINE\n" }
+      thr = serve_one(server, ->(req) {
+        seen = req
+        {"ok" => true}
+      })
+      Timeout.timeout(2) do
+        Naaf::HelperClient.new(path).apply(wg_conf: "WG", nft_ruleset: "NFT", exit: payload)
+      end
+      thr.join
+    end
+    expect(seen["exit"]).to be == {"conf" => "CONF", "dev" => "wg-exit", "address" => "172.16.0.2"}
+  end
+
+  it "returns dump as the whole response hash, and genkeys with symbol keys" do
+    with_socket do |path, server|
+      thr = serve_one(server, {"dump" => "LINE\n", "exit_dump" => "EXIT\n"})
+      Timeout.timeout(2) do
+        expect(Naaf::HelperClient.new(path).dump).to be == {"dump" => "LINE\n", "exit_dump" => "EXIT\n"}
+      end
       thr.join
     end
     with_socket do |path, server|

@@ -4,6 +4,7 @@ require_relative "helper_client"
 require_relative "renderers/wireguard"
 require_relative "renderers/nftables"
 require_relative "renderers/routes"
+require_relative "renderers/exit"
 require_relative "metrics/peer_stats"
 
 module Naaf
@@ -55,13 +56,15 @@ module Naaf
       wg = Renderers::WireGuard.render(@db)
       nft = Renderers::Nftables.render(@db)
       extra = Renderers::Routes.desired(@db)
+      exit_cfg = Renderers::Exit.desired(@db)
       @helper.apply(wg_conf: wg, nft_ruleset: nft,
-        routes: extra[:routes], addresses: extra[:addresses])
+        routes: extra[:routes], addresses: extra[:addresses], exit: exit_cfg)
       @zone.reload!
       @last_apply_at = Time.now
       Console.info(self, "applied",
         peers: @db[:clients].where(enabled: true).count,
-        sites: @db[:sites].where(enabled: true).count)
+        sites: @db[:sites].where(enabled: true).count,
+        exit: !exit_cfg.nil?)
       true
     end
 
@@ -74,7 +77,9 @@ module Naaf
       # delayed behind an apply! would otherwise inflate every rate.
       interval = @last_poll_mono && (mono - @last_poll_mono)
 
-      live = parse_dump(@helper.dump)
+      resp = @helper.dump
+      live = parse_dump(resp["dump"])
+      exit_live = resp.key?("exit_dump") ? parse_dump(resp["exit_dump"]) : nil
 
       # Materialize before writing. Updating the clients table while streaming a
       # cursor over that same table is exactly the shape SQLite leaves
@@ -86,8 +91,12 @@ module Naaf
       # the same transaction so one poll is one fsync. The configured
       # `endpoint` on a site is what we dial; the kernel's view lands in
       # `observed_endpoint` and must not overwrite it.
+      # The exit is a different iface; its dump is parsed separately and never
+      # mixed into the wg0 expected-peer set. Handshake/rx/tx land on the
+      # exits row. They are not published to PeerStats (dashboard option (b)).
       client_rows = @db[:clients].all
       site_rows = @db[:sites].all
+      exit_rows = @db[:exits].all
       measured = {}
       @db.transaction do
         client_rows.each do |c|
@@ -95,6 +104,11 @@ module Naaf
         end
         site_rows.each do |s|
           record_peer!(@db[:sites], s, live, measured, interval, :observed_endpoint)
+        end
+        if exit_live
+          exit_rows.each do |row|
+            record_exit!(row, exit_live)
+          end
         end
       end
 
@@ -116,6 +130,18 @@ module Naaf
     end
 
     private
+
+    def record_exit!(row, live)
+      peer = live[row[:pubkey]] or return
+      attrs = {
+        last_handshake_at: (peer[:handshake].zero? ? nil : Time.at(peer[:handshake])),
+        observed_endpoint: peer[:endpoint],
+        rx_bytes: peer[:rx],
+        tx_bytes: peer[:tx]
+      }
+      return if unchanged?(row, attrs, peer[:handshake], :observed_endpoint)
+      @db[:exits].where(id: row[:id]).update(attrs)
+    end
 
     def record_peer!(dataset, row, live, measured, interval, endpoint_key)
       peer = live[row[:pubkey]] or return

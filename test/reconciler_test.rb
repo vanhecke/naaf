@@ -4,11 +4,12 @@ require_relative "helper"
 require "naaf/reconciler"
 require "naaf/metrics/peer_stats"
 require "naaf/renderers/routes"
+require "naaf/renderers/exit"
 
 # Minimal stand-ins so we can drive the reconciler without a live helper/kernel.
 class FakeHelper
   attr_reader :applies, :last_apply
-  attr_accessor :dump_text
+  attr_accessor :dump_text, :exit_dump
 
   def initialize(dump_text)
     @dump_text = dump_text
@@ -16,7 +17,11 @@ class FakeHelper
     @last_apply = nil
   end
 
-  def dump = @dump_text
+  def dump
+    out = {"dump" => @dump_text}
+    out["exit_dump"] = @exit_dump if @exit_dump
+    out
+  end
 
   def apply(**kwargs)
     @applies += 1
@@ -210,8 +215,49 @@ describe Naaf::Reconciler do
     expect(helper.last_apply[:nft_ruleset]).to be(:include?, "192.168.1.0/24")
     expect(helper.last_apply[:routes]).to be == extra[:routes]
     expect(helper.last_apply[:addresses]).to be == extra[:addresses]
+    expect(helper.last_apply[:exit]).to be_nil
     expect(zone.reloads).to be == 1
     expect(r.last_apply_at.nil?).to be == false
+  end
+
+  it "apply! forwards Exit.desired when an exit is enabled" do
+    make_exit(@db, pubkey: "EXITPUB", privkey: "EXITPRIV")
+    helper = FakeHelper.new("")
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.apply!
+    expect(helper.last_apply[:exit]).to be == Naaf::Renderers::Exit.desired(@db)
+    expect(helper.last_apply[:exit][:conf]).to be(:include?, "PrivateKey = EXITPRIV")
+  end
+
+  it "poll! does not count the exit pubkey in the wg0 expected set" do
+    make_exit(@db, pubkey: "EXITPUB")
+    helper = FakeHelper.new("SRVPRIV\tSRVPUB\t51820\toff\n")
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.poll!
+    expect(helper.applies).to be == 0
+  end
+
+  it "poll! writes exit handshake/rx/tx from exit_dump" do
+    make_exit(@db, pubkey: "EXITPUB")
+    helper = FakeHelper.new("SRVPRIV\tSRVPUB\t51820\toff\n")
+    helper.exit_dump = dump_for("EXITPUB", handshake: 1_700_000_000, rx: 11, tx: 22)
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.poll!
+    row = @db[:exits].first
+    expect(row[:rx_bytes]).to be == 11
+    expect(row[:tx_bytes]).to be == 22
+    expect(row[:last_handshake_at].nil?).to be == false
+    expect(row[:observed_endpoint]).to be == "1.2.3.4:51820"
+    expect(helper.applies).to be == 0
+  end
+
+  it "poll! does not treat a missing exit_dump as drift (older helper)" do
+    make_exit(@db, pubkey: "EXITPUB")
+    helper = FakeHelper.new("SRVPRIV\tSRVPUB\t51820\toff\n")
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.poll!
+    expect(helper.applies).to be == 0
+    expect(@db[:exits].first[:rx_bytes]).to be == 0
   end
 
   # Same contract as Naaf::Backup.tick!: the reactor task must survive a helper
@@ -286,5 +332,15 @@ describe Naaf::Reconciler do
     r = Naaf::Reconciler.new(@db, FakeZone.new, helper: FakeHelper.new(dump), peers: peers)
     r.poll!
     expect(peers.sample.keys.to_set).to be == %w[PEERPUB SITEPUB].to_set
+  end
+
+  it "poll! does not publish the exit into PeerStats" do
+    make_exit(@db, pubkey: "EXITPUB")
+    helper = FakeHelper.new("SRVPRIV\tSRVPUB\t51820\toff\n")
+    helper.exit_dump = dump_for("EXITPUB", handshake: 1, rx: 50, tx: 50)
+    peers = Naaf::Metrics::PeerStats.new
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper, peers: peers)
+    r.poll!
+    expect(peers.sample.keys).not.to be(:include?, "EXITPUB")
   end
 end
