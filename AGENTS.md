@@ -226,7 +226,24 @@
 - Always: `bin/ci` (standardrb, sus, shellcheck, conf grammar, require-free
   `config.rb`, vendored script digests, `nft -c -f` including a non-empty
   `site_nets`).
-- Apply-path or firewall change: `sudo nft list table inet naaf`,
+- `bin/ci` on a workstation is not kernel proof. Helper tests stub `ip`
+  (iproute2's real exit codes never appear), and `nft -c -f` is skipped when
+  `nft` is missing. An apply-path, helper, firewall, or admin-UI change is
+  not done until it has run on a real Debian 13 kernel.
+- Scratch box, never production unless asked. `./deploy.sh --create` with
+  `NAAF_LABEL=naaf-e2e-<thing>` — existing `NAAF_PROVIDER`, the same script,
+  no parallel runner. Destroy the instance when the checklist is green.
+  Spoke traffic does not need a second VPS: `docs/TROUBLESHOOTING.md` §2 is
+  a real client in a netns on the same box.
+- Admin UI: `ssh -L 8080:127.0.0.1:8080 root@<box>`, then
+  `http://localhost:8080`. That is how first login is designed. Do not bind
+  `0.0.0.0` to make a browser happy. Click the changed flow end to end
+  (forms, flash, CSRF, empty and populated states), not a screenshot.
+- A hostname is only needed when the *name* is under test (ACME, wstunnel
+  SNI, `endpoint_host`). Use a different `NAAF_DNS_NAME` than production —
+  `NAAF_DNS_PROVIDER` on `--create` rewrites that record. Do not mint ACME
+  certs for junk names unless certificates are the feature.
+- Apply-path or firewall change (on that box): `sudo nft list table inet naaf`,
   `sudo wg show wg0`, `sudo wg show wg-exit`, `ip -4 route show proto 158`,
   `ip -4 route show table 159`, and a continuous ping
   between two spokes across `apply!`. A dropped packet means something used
@@ -311,7 +328,9 @@
   privilege check. Wait for approval before implementing. Do not invent
   project slash commands or named agents for this — the built-in plan mode
   is the loop.
-- After each behavior: run its test. Then `bin/ci`.
+- After each behavior: run its test. Then `bin/ci`. Apply-path, helper
+  `ip`/`nft`/`wg` side effects, or admin UI: scratch box + `ssh -L` as in
+  Verification. Do not declare those done on `bin/ci` alone.
 - Commits: `<type>: <imperative ~60 chars>`. No Co-authored-by trailer.
 
 ## Boundaries (three tiers)
@@ -322,6 +341,8 @@
 - Regenerate the ENTIRE `inet naaf` table from the DB and apply it in one
   `nft -f` transaction. Check with `nft -c -f` first.
 - Keep the admin UI bound to the WireGuard IP and 127.0.0.1, and nothing else.
+- Prove apply-path and admin-UI changes on a throwaway box (`./deploy.sh
+  --create`), not on production, and not only in `bin/ci`.
 - Run `standardrb --fix` and `bin/ci` before finishing.
 
 ### Ask first
