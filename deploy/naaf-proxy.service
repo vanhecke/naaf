@@ -15,7 +15,9 @@ After=network-online.target wg-quick@__NAAF_WG_INTERFACE__.service
 [Service]
 Type=exec
 User=__NAAF_PROXY_USER__
-Group=__NAAF_PROXY_USER__
+# No Group=: Debian `adduser --system` puts the user in nogroup, not a
+# same-named group. systemd then uses the passwd gid. A Group= that does
+# not exist is status 216/GROUP and the unit never starts.
 ExecStart=/usr/bin/microsocks -q -i __NAAF_SERVER_IP__ -p __NAAF_PROXY_PORT__
 
 Restart=on-failure
