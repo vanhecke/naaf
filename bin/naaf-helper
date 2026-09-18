@@ -65,6 +65,12 @@ end
 SITE_ROUTE_PROTO = "158"
 EXIT_TABLE = "159"
 EXIT_RULE_PREFS = [15800, 15850, 15900].freeze
+# SOCKS proxy uid rules. Optional `exit.proxy` on apply; an older helper ignores
+# the key and the proxy stays on WAN. Not folded into EXIT_RULE_PREFS: that list
+# is the exact three `rules` entries an old helper requires, and sending these
+# prefs there would reject the whole apply.
+PROXY_RULE_PREFS = [15870, 15875, 15880].freeze
+ALL_EXIT_RULE_PREFS = (EXIT_RULE_PREFS + PROXY_RULE_PREFS).freeze
 EXIT_CONF_BANNED = /\A\s*(Address|DNS|MTU|Table|ListenPort|PreUp|PostUp|PreDown|PostDown|FwMark)\s*=/i
 IFACE_NAME = /\A[a-zA-Z0-9._-]{1,15}\z/
 V4_DOT = /\A\d{1,3}(\.\d{1,3}){3}\z/
@@ -270,6 +276,7 @@ def sync_exit_up(payload)
 
   desired_routes = exit_routes(payload["routes"] || [])
   desired_rules = exit_rules(payload["rules"] || [])
+  desired_rules.merge!(proxy_uid_rules(payload["proxy"]))
 
   raise_if_steals!("exit address", addr)
 
@@ -326,6 +333,30 @@ def exit_rules(list)
   desired
 end
 
+# Optional. Missing or null: no uid rules (and leftover prefs are deleted by
+# sync_exit_rules). Locals are `to … lookup main` exemptions so the proxy uid
+# can still reach 127.0.0.53 and the VPN subnet; they are NOT routes, so they
+# do not go through raise_if_steals! (127.0.0.0/8 covers lo).
+def proxy_uid_rules(proxy)
+  return {} if proxy.nil?
+  raise "exit proxy must be an object" unless proxy.is_a?(Hash)
+  uid = Integer(proxy["uid"].to_s, exception: false)
+  raise "invalid exit proxy uid" unless uid&.between?(1, 65_534)
+  locals = proxy["locals"]
+  raise "exit proxy locals must be two CIDRs" unless locals.is_a?(Array) && locals.size == 2
+  locals = locals.map { |c|
+    s = c.to_s
+    raise "invalid exit proxy local" unless valid_v4_cidr?(s)
+    s
+  }
+  uidrange = "#{uid}-#{uid}"
+  {
+    15870 => ["uidrange", uidrange, "to", locals[0], "lookup", "main"],
+    15875 => ["uidrange", uidrange, "to", locals[1], "lookup", "main"],
+    15880 => ["uidrange", uidrange, "lookup", EXIT_TABLE]
+  }
+end
+
 def norm_dst(dst)
   return "default" if dst == "default"
   return "#{dst}/32" if valid_v4?(dst)
@@ -379,7 +410,7 @@ end
 # iproute2 dumps selectors in its own order (`to` before `iif`). Comparing
 # the token array to what we add (`iif` then `to`) would del+add pref 15850
 # on every apply and open a leak window to main.
-RULE_KEYS = %w[from iif oif to fwmark lookup table].freeze
+RULE_KEYS = %w[from iif oif to fwmark lookup table uidrange].freeze
 
 def spec_key(tokens)
   tokens = tokens.dup
@@ -424,7 +455,12 @@ end
 
 def sync_exit_rules(desired)
   current = current_rules
-  desired.each do |pref, spec|
+  ALL_EXIT_RULE_PREFS.each do |pref|
+    spec = desired[pref]
+    if spec.nil?
+      delete_rule_pref(pref)
+      next
+    end
     next if current[pref] == spec_key(spec)
     delete_rule_pref(pref) if current[pref]
     run!("ip", "-4", "rule", "add", *spec, "pref", pref.to_s)
@@ -432,7 +468,7 @@ def sync_exit_rules(desired)
 end
 
 def sync_exit_down
-  EXIT_RULE_PREFS.each { |pref| delete_rule_pref(pref) }
+  ALL_EXIT_RULE_PREFS.each { |pref| delete_rule_pref(pref) }
   flush_table(EXIT_TABLE)
   run!("ip", "link", "del", EXIT_IF) if iface_exists?(EXIT_IF)
 end

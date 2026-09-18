@@ -25,7 +25,7 @@
   </div>
   <div class="level-right">
     <span class="tag naaf-chip level-item">
-      subnet <%= @settings[:wg_subnet] %> · gateway <%= @settings[:server_ip] %>
+      subnet <%= @settings[:wg_subnet] %> · gateway <%= @settings[:server_ip] %><% if @proxy %> · SOCKS5 <%= @proxy %><% end %>
     </span>
   </div>
 </div>

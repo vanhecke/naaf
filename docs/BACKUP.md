@@ -340,7 +340,7 @@ done
 #    a certificate for the OLD box's address and serve it. ACME is DNS-01, so
 #    issuance does not need anything to resolve to this box yet; the certificate
 #    is ready before the cutover rather than after it.
-for s in 60-certs 65-wstunnel; do
+for s in 60-certs 65-wstunnel 66-socks; do
   ./deploy.sh --step $s "$IP"
 done
 

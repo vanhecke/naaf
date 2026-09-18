@@ -315,18 +315,66 @@ describe "bin/naaf-helper" do
       expect(@links).to be(:include?, EXIT_IF)
     end
 
-    it "on down deletes the link, the three prefs, and flushes table 159" do
+    it "on down deletes the link, the three prefs, leftover proxy prefs, and flushes table 159" do
       @links << EXIT_IF
       @rules = "15800:\tfrom all fwmark 0x9f lookup main\n" \
         "15850:\tfrom all iif #{WG_IF} to 10.8.0.0/24 lookup main\n" \
+        "15870:\tfrom all uidrange 123-123 to 127.0.0.0/8 lookup main\n" \
+        "15875:\tfrom all uidrange 123-123 to 10.8.0.0/24 lookup main\n" \
+        "15880:\tfrom all uidrange 123-123 lookup 159\n" \
         "15900:\tfrom all iif #{WG_IF} lookup 159\n"
       expect(handle(apply_line(exit: nil))).to be == {ok: true}
       expect(ip_calls).to be(:include?, ["ip", "link", "del", EXIT_IF])
       expect(ip_calls).to be(:include?, ["ip", "route", "flush", "table", "159"])
-      expect(rule_writes).to be(:include?, ["ip", "-4", "rule", "del", "pref", "15800"])
-      expect(rule_writes).to be(:include?, ["ip", "-4", "rule", "del", "pref", "15850"])
-      expect(rule_writes).to be(:include?, ["ip", "-4", "rule", "del", "pref", "15900"])
+      [15800, 15850, 15870, 15875, 15880, 15900].each do |pref|
+        expect(rule_writes).to be(:include?, ["ip", "-4", "rule", "del", "pref", pref.to_s])
+      end
       expect(@links.include?(EXIT_IF)).to be == false
+    end
+
+    it "installs proxy uidrange rules from exit.proxy and does not churn them" do
+      @all_addr_show = addr_line_on("eth0", "203.0.113.5/24")
+      proxy = {"uid" => 123, "locals" => ["127.0.0.0/8", "10.8.0.0/24"]}
+      expect(handle(apply_line(exit: exit_payload("proxy" => proxy)))).to be == {ok: true}
+      expect(rule_writes).to be(:include?,
+        ["ip", "-4", "rule", "add", "uidrange", "123-123", "to", "127.0.0.0/8", "lookup", "main", "pref", "15870"])
+      expect(rule_writes).to be(:include?,
+        ["ip", "-4", "rule", "add", "uidrange", "123-123", "to", "10.8.0.0/24", "lookup", "main", "pref", "15875"])
+      expect(rule_writes).to be(:include?,
+        ["ip", "-4", "rule", "add", "uidrange", "123-123", "lookup", "159", "pref", "15880"])
+
+      @run_calls = []
+      @rules = "15800:\tfrom all fwmark 0x9f lookup main\n" \
+        "15850:\tfrom all to 10.8.0.0/24 iif #{WG_IF} lookup main\n" \
+        "15870:\tfrom all to 127.0.0.0/8 uidrange 123-123 lookup main\n" \
+        "15875:\tfrom all to 10.8.0.0/24 uidrange 123-123 lookup main\n" \
+        "15880:\tfrom all uidrange 123-123 lookup 159\n" \
+        "15900:\tfrom all iif #{WG_IF} lookup 159\n"
+      expect(handle(apply_line(exit: exit_payload("proxy" => proxy)))).to be == {ok: true}
+      expect(rule_writes.any? { |a| a.include?("del") }).to be == false
+    end
+
+    it "deletes leftover proxy prefs when exit.proxy is omitted" do
+      @all_addr_show = addr_line_on("eth0", "203.0.113.5/24")
+      @rules = "15800:\tfrom all fwmark 0x9f lookup main\n" \
+        "15850:\tfrom all iif #{WG_IF} to 10.8.0.0/24 lookup main\n" \
+        "15870:\tfrom all uidrange 123-123 to 127.0.0.0/8 lookup main\n" \
+        "15875:\tfrom all uidrange 123-123 to 10.8.0.0/24 lookup main\n" \
+        "15880:\tfrom all uidrange 123-123 lookup 159\n" \
+        "15900:\tfrom all iif #{WG_IF} lookup 159\n"
+      expect(handle(apply_line(exit: exit_payload))).to be == {ok: true}
+      expect(rule_writes).to be(:include?, ["ip", "-4", "rule", "del", "pref", "15870"])
+      expect(rule_writes).to be(:include?, ["ip", "-4", "rule", "del", "pref", "15875"])
+      expect(rule_writes).to be(:include?, ["ip", "-4", "rule", "del", "pref", "15880"])
+      expect(rule_writes.any? { |a| a.include?("15800") && a.include?("del") }).to be == false
+    end
+
+    it "refuses a /0 proxy local and a uid of 0" do
+      @all_addr_show = addr_line_on("eth0", "203.0.113.5/24")
+      bad = exit_payload("proxy" => {"uid" => 123, "locals" => ["0.0.0.0/0", "10.8.0.0/24"]})
+      expect(handle(apply_line(exit: bad))[:error]).to be == "invalid exit proxy local"
+      root = exit_payload("proxy" => {"uid" => 0, "locals" => ["127.0.0.0/8", "10.8.0.0/24"]})
+      expect(handle(apply_line(exit: root))[:error]).to be == "invalid exit proxy uid"
     end
 
     it "still brings the exit up when table 159 has never been created" do

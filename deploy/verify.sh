@@ -39,6 +39,9 @@ NAAF_CONF="${NAAF_CONF:-/etc/naaf/naaf.conf}"
 : "${NAAF_WSTUNNEL_PORT:=443}"
 : "${NAAF_CERT_DIR:=/etc/naaf/certs}"
 : "${NAAF_ACME_ENABLED:=0}"
+: "${NAAF_PROXY_ENABLED:=1}"
+: "${NAAF_PROXY_PORT:=1080}"
+: "${NAAF_PROXY_USER:=naaf-proxy}"
 
 pass=0; fail=0; warn=0
 # Count files matching a glob. A glob that matches nothing stays literal, so the
@@ -84,6 +87,18 @@ has "admin UI on loopback" "127.0.0.1:$NAAF_WEB_PORT" "$binds"
 ck "admin UI NOT on 0.0.0.0" "0" "$(printf '%s' "$binds" | grep -c "0\.0\.0\.0:$NAAF_WEB_PORT")"
 ck "admin UI NOT on [::]" "0" "$(printf '%s' "$binds" | grep -c '\[::\]')"
 has "DNS on the WireGuard IP" "$SERVER_IP:53" "$(ss -lunH '( sport = :53 )')"
+
+if [ "$NAAF_PROXY_ENABLED" = "1" ]; then
+  pbinds=$(ss -ltnH "( sport = :$NAAF_PROXY_PORT )")
+  ck "SOCKS proxy listener count" "1" "$(printf '%s' "$pbinds" | grep -c . )"
+  has "SOCKS proxy on the WireGuard IP" "$SERVER_IP:$NAAF_PROXY_PORT" "$pbinds"
+  ck "SOCKS proxy NOT on 0.0.0.0" "0" "$(printf '%s' "$pbinds" | grep -c "0\.0\.0\.0:$NAAF_PROXY_PORT")"
+  ck "SOCKS proxy NOT on [::]" "0" "$(printf '%s' "$pbinds" | grep -c '\[::\]')"
+else
+  note "SOCKS proxy disabled" "NAAF_PROXY_ENABLED=0"
+  ck "nothing listening on tcp/$NAAF_PROXY_PORT" "0" \
+     "$(ss -ltnH "( sport = :$NAAF_PROXY_PORT )" | grep -c .)"
+fi
 
 # The Troubleshoot page shells out to these three as the naaf user. Missing, the
 # failure surfaces as an opaque exit code inside a web page; ping without
@@ -131,6 +146,19 @@ for u in naaf naaf-helper "wg-quick@$WG_IF" nftables; do
   ck "$u" "active" "$(systemctl is-active "$u" 2>/dev/null)"
 done
 has "helper socket is group-readable only" "srw-rw----" "$(ls -l "${NAAF_HELPER_SOCKET:-/run/naaf/helper.sock}" 2>/dev/null)"
+if [ "$NAAF_PROXY_ENABLED" = "1" ]; then
+  ck "naaf-proxy" "active" "$(systemctl is-active naaf-proxy 2>/dev/null)"
+  # USER is truncated to 8 chars; assert the process is not root and not naaf.
+  pusers=$(ps -o user= -C microsocks 2>/dev/null || true)
+  ck "SOCKS proxy not running as root" "0" "$(printf '%s' "$pusers" | grep -c '^root')"
+  ck "SOCKS proxy not running as $NAAF_USER" "0" "$(printf '%s' "$pusers" | grep -c "^$NAAF_USER$")"
+  if [ "$(q 'select count(*) from exits where enabled=1')" = "1" ]; then
+    has "proxy uidrange looks up table 159" "uidrange" "$(ip -4 rule show | grep 'lookup 159' || true)"
+  fi
+else
+  ck "naaf-proxy is not running" "no" \
+     "$(case "$(systemctl is-active naaf-proxy 2>/dev/null)" in active) echo yes ;; *) echo no ;; esac)"
+fi
 
 echo
 echo "── 6. backups ──"

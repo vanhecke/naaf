@@ -882,6 +882,7 @@ module Naaf
           # they would produce dials a path the server rejects, so the page says
           # so rather than leaving the admin to discover it on a client.
           @wstunnel_unprovisioned = ConfigBuilder.wstunnel? && !ConfigBuilder.wstunnel_ready?
+          @proxy = ConfigBuilder.proxy_listen(@settings[:server_ip])
           view("clients")
         end
 
@@ -1352,6 +1353,7 @@ module Naaf
           @backups_enabled = Config.bool("NAAF_BACKUP_ENABLED")
           @backup_dir = Config["NAAF_BACKUP_DIR"]
           @last_backup = @backups_enabled ? Backup.new(Naaf.db).latest : nil
+          @proxy = ConfigBuilder.proxy_listen(@settings[:server_ip])
           view("settings")
         end
 

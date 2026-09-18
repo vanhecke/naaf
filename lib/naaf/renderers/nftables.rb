@@ -124,6 +124,11 @@ module Naaf
             iifname "#{wan}" ct mark set 159
             ct mark 159 meta mark set 159
           }
+
+          chain output {
+            type filter hook output priority filter; policy accept;
+            oifname "#{exit_if}" tcp flags syn / syn,rst tcp option maxseg size set #{mss}
+          }
         CHAIN
         [forward, nat, mangle]
       end

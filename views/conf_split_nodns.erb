@@ -1,3 +1,6 @@
+<% if socks -%>
+# SOCKS5 (per-app on split): <%= socks %>
+<% end -%>
 [Interface]
 PrivateKey = <%= pk %>
 Address = <%= client[:wg_ip] %>/32

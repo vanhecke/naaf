@@ -4,6 +4,7 @@
 - Debian 13 (trixie), Ruby 4.0.6, YJIT on in production via RUBY_YJIT_ENABLE
 - Falcon + Roda + async-dns, ALL on one shared Async reactor, one process
 - Web binds 10.8.0.1:8080 AND 127.0.0.1:8080. Never 0.0.0.0.
+- SOCKS5 proxy binds settings.server_ip:NAAF_PROXY_PORT only. Never 0.0.0.0.
 - Sequel + SQLite at /var/lib/naaf/naaf.db — the single source of truth
 - nftables table `inet naaf` (app-owned) + /etc/nftables.conf (static, off-limits)
 - Root helper daemon on /run/naaf/helper.sock — the ONLY privileged code
@@ -39,14 +40,19 @@
   `apply` projects four things from the DB: the WireGuard conf (`wg syncconf` on
   wg0), the entire `inet naaf` table (`nft -f`), site extras (`ip route` proto 158
   + extra `/32`s on wg0), and the optional internet exit (`wg syncconf` on
-  `NAAF_EXIT_INTERFACE`, `ip rule`, routing table 159). Widening what apply
-  writes to the kernel is the same "Ask first" as a new command. Extra apply
-  fields are optional so an older helper still answers; a box whose helper
-  predates a new side effect will silently skip it. An older helper that does
-  not understand `exit` leaves client internet on WAN masquerade.
+  `NAAF_EXIT_INTERFACE`, `ip rule`, routing table 159). When an exit is up, an
+  optional `exit.proxy` object adds uidrange prefs 15870/15875/15880 so the
+  SOCKS5 proxy follows the exit; an older helper ignores the key and the proxy
+  stays on WAN. Widening what apply writes to the kernel is the same "Ask first"
+  as a new command. Extra apply fields are optional so an older helper still
+  answers; a box whose helper predates a new side effect will silently skip it.
+  An older helper that does not understand `exit` leaves client internet on WAN
+  masquerade.
 - Never build shell strings. Always argv arrays via IO.popen(array).
 - New long-running work is an `Async` task on the existing reactor, not a
-  new process and not a Thread. Privileged work stays in the helper — no
+  new process and not a Thread. Data-plane daemons (wstunnel, the SOCKS5
+  proxy) are separate systemd units, not reactor tasks. Privileged work stays
+  in the helper — no
   **privileged** command on the web or DNS path, and never a shell string.
   `HelperClient#call` opens a fresh socket under a mutex; a slow helper call
   runs on the calling fiber.
@@ -192,8 +198,9 @@
   tighter mode: `/etc/naaf/acme.env`, 0600 root:root, because acme.sh runs as
   root and `/etc/naaf` is traversable by the `naaf` group. Both reach the box
   through `deploy.sh`'s secret channel, never through a config key.
-- The wstunnel and certificate knobs (`NAAF_WSTUNNEL_*`, `NAAF_CERT_*`,
-  `NAAF_ACME_*`) live in `naaf.conf` and NEVER in the `settings` table. The port
+- The wstunnel, certificate, and SOCKS proxy knobs (`NAAF_WSTUNNEL_*`,
+  `NAAF_CERT_*`, `NAAF_ACME_*`, `NAAF_PROXY_*`) live in `naaf.conf` and NEVER
+  in the `settings` table. The port
   and the cert paths must match the systemd unit AND the base firewall, both
   rendered from `naaf.conf` at provisioning time; a DB copy would be a second
   source of truth that drifts. The *host* clients dial stays in `settings`
@@ -405,6 +412,8 @@
 - NEVER store or log a client private key.
 - NEVER bind the admin UI to 0.0.0.0 or the public interface. Two binds only:
   the WireGuard IP and 127.0.0.1.
+- NEVER bind the SOCKS5 proxy to 0.0.0.0 or the public interface. The hub
+  WireGuard IP only. NEVER run it as `User=naaf` (that uid owns `naaf.db`).
 - NEVER add Node, npm, or a package.json.
 - NEVER add client-side JavaScript beyond the vendored htmx and its official SSE
   extension — no app .js file, no inline <script>, no JS framework. A third

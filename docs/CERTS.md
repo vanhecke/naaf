@@ -83,7 +83,7 @@ dot: `..` is still path traversal and is still refused, as are `.`, `-x` and
 `60-certs.sh` is a normal provisioning step:
 
 ```
-05-swap 10-packages 20-system 30-ruby 40-app 45-litestream 50-bringup 60-certs 65-wstunnel
+05-swap 10-packages 20-system 30-ruby 40-app 45-litestream 50-bringup 60-certs 65-wstunnel 66-socks
 ```
 
 **It runs after `50-bringup`, and that ordering is load-bearing.** The name a
@@ -102,9 +102,8 @@ record must cost you a certificate — never the deploy, and never the VPN that
 is already up by the time this step starts. Every failure path in the store
 `return`s or `warn`s; nothing in `lib-certs.sh` calls `die`.
 
-`65-wstunnel.sh` *may* die, and does: it is the last step, the VPN is already up,
-and a transport enabled against a certificate that does not exist is a silent
-outage.
+`65-wstunnel.sh` *may* die, and does: the VPN is already up, and a transport
+enabled against a certificate that does not exist is a silent outage.
 
 The order inside the step:
 
@@ -475,9 +474,10 @@ openssl x509 -in /etc/naaf/certs/vpn.example.com/cert.pem -noout -ext subjectAlt
 #   DNS:vpn.example.com, DNS:*.vpn.example.com
 ```
 
-**Step 2 — the consumer's provisioning step**, `deploy/provision/70-proxy.sh`,
+**Step 2 — the consumer's provisioning step**, `deploy/provision/70-tls-proxy.sh`,
 added to the `STEPS` array in **both** `deploy.sh` and
-`deploy/provision/provision.sh` after `65-wstunnel`:
+`deploy/provision/provision.sh` after `66-socks` (`66-socks.sh` is the SOCKS5
+proxy; do not reuse that name or `naaf-proxy.service`):
 
 ```sh
 set -euo pipefail
@@ -488,11 +488,11 @@ source "$DIR/00-lib.sh"
 source "$DIR/lib-certs.sh"
 require_root
 
-[ "$NAAF_PROXY_ENABLED" = "1" ] || {
-  log "NAAF_PROXY_ENABLED is not 1 — skipping"
-  systemctl disable --now naaf-proxy 2>/dev/null || true   # bare form exits non-zero
-  exit 0
-}
+  [ "$NAAF_TLS_PROXY_ENABLED" = "1" ] || {
+    log "NAAF_TLS_PROXY_ENABLED is not 1 — skipping"
+    systemctl disable --now naaf-tls-proxy 2>/dev/null || true   # bare form exits non-zero
+    exit 0
+  }
 
 # The same name 60-certs.sh derived, derived the same way, so the slugs agree by
 # construction rather than by a string written down twice.
@@ -503,7 +503,7 @@ CERT_PATH="$(cert_dir "$SLUG")"
 [ -f "$CERT_PATH/cert.pem" ] && [ -f "$CERT_PATH/key.pem" ] ||
   die "no certificate pair under $CERT_PATH — run 60-certs.sh first"
 
-cert_register "$SLUG" naaf-proxy.service || die "could not register as a consumer"
+cert_register "$SLUG" naaf-tls-proxy.service || die "could not register as a consumer"
 # … render the unit with __NAAF_CERT_PATH__ = $CERT_PATH, grep -q '__NAAF_' && die,
 # install 0644 root:root, systemctl daemon-reload, enable, restart.
 ```
@@ -516,7 +516,7 @@ Type=exec
 DynamicUser=yes
 LoadCredential=tls-cert:__NAAF_CERT_PATH__/cert.pem
 LoadCredential=tls-key:__NAAF_CERT_PATH__/key.pem
-ExecStart=/usr/local/bin/naaf-proxy --cert %d/tls-cert --key %d/tls-key …
+ExecStart=/usr/local/bin/naaf-tls-proxy --cert %d/tls-cert --key %d/tls-key …
 ```
 
 systemd reads both files as root and exposes them to this service only, so

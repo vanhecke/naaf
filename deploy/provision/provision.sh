@@ -29,15 +29,15 @@ mkdir -p "$NAAF_LOG_DIR"
 # database gets its server key — you want the very first meaningful write
 # replicated, not the second. It is a no-op when replication is disabled.
 #
-# 60-certs and 65-wstunnel run AFTER 50-bringup because the name a certificate
-# has to match is endpoint_host || endpoint_v4 read from the settings table, and
-# endpoint_v4 is detected by bin/bootstrap.rb at step 50. Running them earlier
-# means no name on a default bare-IP deploy, and any failure there would take
-# 50-bringup down with it — a box with no WireGuard interface at all, which is
-# far worse than a box with no transport. 20-system still opens the firewall
-# port early: a gap where tcp/443 is open with nothing listening is a connection
-# refused, while the reverse order gives a live listener the firewall drops.
-STEPS=(05-swap 10-packages 20-system 30-ruby 40-app 45-litestream 50-bringup 60-certs 65-wstunnel)
+# 60-certs, 65-wstunnel and 66-socks run AFTER 50-bringup because they read the
+# settings table (certificate name, hub IP), and endpoint_v4 / server_ip are
+# written by bin/bootstrap.rb at step 50. Running them earlier means no name on
+# a default bare-IP deploy, and any failure there would take 50-bringup down
+# with it — a box with no WireGuard interface at all, which is far worse than a
+# box with no transport. 20-system still opens the firewall port early: a gap
+# where tcp/443 is open with nothing listening is a connection refused, while
+# the reverse order gives a live listener the firewall drops.
+STEPS=(05-swap 10-packages 20-system 30-ruby 40-app 45-litestream 50-bringup 60-certs 65-wstunnel 66-socks)
 for step in "${STEPS[@]}"; do
   log "=== $step ==="
   if bash "$DIR/$step.sh" 2>&1 | tee "$NAAF_LOG_DIR/$step.log"; then

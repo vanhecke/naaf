@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
+require "etc"
 require_relative "helper_client"
 require_relative "renderers/wireguard"
 require_relative "renderers/nftables"
 require_relative "renderers/routes"
 require_relative "renderers/exit"
+require_relative "config"
 require_relative "metrics/peer_stats"
 
 module Naaf
@@ -52,11 +54,25 @@ module Naaf
       @last_error_at = Time.now
     end
 
+    # Host state, not DB state: the proxy uid only exists after 66-socks.sh.
+    # Missing user → omit the key so apply stays green through 50-bringup.
+    # Overridable in tests.
+    def proxy_payload
+      return unless Config.bool("NAAF_PROXY_ENABLED")
+      uid = Etc.getpwnam(Config["NAAF_PROXY_USER"]).uid
+      {uid: uid, locals: ["127.0.0.0/8", Naaf.settings[:wg_subnet]]}
+    rescue ArgumentError
+      nil
+    end
+
     def apply!
       wg = Renderers::WireGuard.render(@db)
       nft = Renderers::Nftables.render(@db)
       extra = Renderers::Routes.desired(@db)
       exit_cfg = Renderers::Exit.desired(@db)
+      if exit_cfg && (proxy = proxy_payload)
+        exit_cfg = exit_cfg.merge(proxy: proxy)
+      end
       @helper.apply(wg_conf: wg, nft_ruleset: nft,
         routes: extra[:routes], addresses: extra[:addresses], exit: exit_cfg)
       @zone.reload!

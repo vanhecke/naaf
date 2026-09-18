@@ -1,0 +1,49 @@
+# Install as /etc/systemd/system/naaf-proxy.service.
+# The __PLACEHOLDERS__ are substituted by deploy/provision/66-socks.sh — NOT
+# by 40-app.sh. That step's loop is a fixed six-placeholder set shared by the two
+# Ruby units; this unit shares none of the six, and unlike those it is expected
+# to be absent from disk entirely whenever NAAF_PROXY_ENABLED is not 1.
+#
+# What it does: SOCKS5 on the hub WireGuard IP so split clients can send
+# individual apps through the box. Bound only to that address — never 0.0.0.0,
+# never WAN. The tunnel is the auth. See docs/PROXY.md.
+[Unit]
+Description=Naaf SOCKS5 proxy (tunnel-only)
+Documentation=https://github.com/rofl0r/microsocks
+After=network-online.target wg-quick@__NAAF_WG_INTERFACE__.service
+
+[Service]
+Type=exec
+User=__NAAF_PROXY_USER__
+Group=__NAAF_PROXY_USER__
+ExecStart=/usr/bin/microsocks -q -i __NAAF_SERVER_IP__ -p __NAAF_PROXY_PORT__
+
+Restart=on-failure
+RestartSec=2
+
+# No capabilities. The port is unprivileged and the process has nothing to
+# bind below 1024. DynamicUser and PrivateUsers are deliberately absent: the
+# internet-exit path matches this uid with `ip rule uidrange`, which sees the
+# host uid, and a dynamic uid would churn on every restart.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# AF_UNIX for nss-resolve (127.0.0.53). No AF_INET6: the tunnel is IPv4-only.
+RestrictAddressFamilies=AF_INET AF_UNIX
+# NO ReadWritePaths. ProtectSystem=strict plus no exception means the whole
+# filesystem is read-only to this process. It has nothing to write.
+
+[Install]
+WantedBy=multi-user.target

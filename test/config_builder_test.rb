@@ -77,6 +77,25 @@ describe Naaf::ConfigBuilder do
     expect(c.include?("0.0.0.0/0")).to be == false
   end
 
+  it "comments the SOCKS5 listen in every flavor when the proxy is on" do
+    note = "# SOCKS5 (per-app on split): 10.8.0.1:1080"
+    %w[split split-nodns full].each do |f|
+      expect(build(f)).to be(:include?, note)
+    end
+    with_wstunnel do
+      %w[split-ws split-ws-nodns].each do |f|
+        expect(build(f)).to be(:include?, note)
+      end
+    end
+  end
+
+  it "omits the SOCKS5 comment when the proxy is off" do
+    ENV["NAAF_PROXY_ENABLED"] = "0"
+    expect(build("split").include?("SOCKS5")).to be == false
+  ensure
+    ENV.delete("NAAF_PROXY_ENABLED")
+  end
+
   it "does not fold an exit into split AllowedIPs, and still refuses ws /0" do
     make_exit(@db)
     expect(build("split")[/^AllowedIPs = .*/]).to be == "AllowedIPs = 10.8.0.0/24"

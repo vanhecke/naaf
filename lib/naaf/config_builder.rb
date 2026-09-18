@@ -106,6 +106,13 @@ module Naaf
       def available_flavors = wstunnel? ? FLAVORS : FLAVORS - WS_FLAVORS
 
       def available?(flavor) = available_flavors.include?(flavor)
+
+      def proxy? = Config.bool("NAAF_PROXY_ENABLED")
+
+      def proxy_listen(server_ip)
+        return unless proxy?
+        "#{server_ip}:#{Config.int("NAAF_PROXY_PORT")}"
+      end
     end
 
     def initialize(db, client)
@@ -135,6 +142,7 @@ module Naaf
       ws_preup = w[:preup]
       ws_postdown = w[:postdown]
       ws_sni_note = w[:sni_note]
+      socks = self.class.proxy_listen(s[:server_ip])
       ERB.new(File.read(path), trim_mode: "-").result(binding)
     end
 

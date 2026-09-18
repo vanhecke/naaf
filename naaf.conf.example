@@ -219,6 +219,26 @@ NAAF_WSTUNNEL_TLS_VERIFY=auto
 # split-ws-nodns config, which never repoints DNS at all).
 NAAF_WSTUNNEL_DNS_RESOLVER=dns://1.1.1.1
 
+# ──────────────────────────────────────────────────────────── SOCKS5 proxy
+# A tunnel-only SOCKS5 listen on the hub IP so split clients can send
+# individual apps through the box without a full-tunnel config. Bound only to
+# settings.server_ip — never 0.0.0.0, never WAN — so the tunnel is the auth
+# and the base firewall does not grow a hole. TCP CONNECT only (no UDP).
+#
+# On by default: unlike wstunnel this opens no public port. Set to 0 and
+# re-run `./deploy.sh --step 66-socks` to remove the unit.
+#
+# These are keys here and NOT columns in the settings table: the port and the
+# unit user have to match the systemd unit rendered at provision time. The
+# user must not be `naaf` — that uid owns naaf.db.
+#
+# Egress follows the internet exit when one is up (uid-scoped ip rules; SSH,
+# ACME, Troubleshoot stay on WAN). Without an exit, destinations see the VPS
+# IP. docs/PROXY.md.
+NAAF_PROXY_ENABLED=1
+NAAF_PROXY_PORT=1080
+NAAF_PROXY_USER=naaf-proxy
+
 # ────────────────────────────────────────────────────────────── certificates
 # A general-purpose certificate store, owned by deploy/provision/60-certs.sh.
 # wstunnel is its first consumer, not its owner: consumers register themselves

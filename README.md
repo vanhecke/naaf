@@ -53,7 +53,7 @@ change something.
 | **Routes** | Extra split-tunnel subnets folded into a client's `AllowedIPs` (global, or per-client). |
 | **DNS** | Static `A` records in the internal `.vpn` zone, layered over the automatic per-client `<hostname>.vpn` records — **and** per-domain upstreams: send `*.example.com` to a resolver of your choosing, or let a site answer for its own domains over the tunnel. |
 | **Troubleshoot** | `ping`, `traceroute` and `curl` run from the box, plus a flow tester that walks a packet through the rules the renderers emit and names the line that decided it. |
-| **Settings** | Edit endpoint host/IPs, DNS upstream + internal domain, MTU, WAN interface; change the admin password. Structural values (subnet, gateway, listen port, keys) are read-only. |
+| **Settings** | Edit endpoint host/IPs, DNS upstream + internal domain, MTU, WAN interface; change the admin password. Structural values (subnet, gateway, listen port, keys) are read-only. The SOCKS5 listen (split per-app) is shown here too. |
 
 ## Config flavors
 
@@ -69,6 +69,10 @@ Every client can download up to five configs (`GET /clients/:id/config/:flavor`)
 
 The `Endpoint` is `settings.endpoint_host:listen_port` when an endpoint host is set
 (so migrating boxes is just a DNS repoint), otherwise the raw `endpoint_v4`.
+
+Split configs do not send internet to the hub. A tunnel-only SOCKS5 listen on
+the gateway IP (default `10.8.0.1:1080`) is how a single app still egresses via
+this box; `docs/PROXY.md`. It follows the internet exit when one is up.
 
 The two `ws` flavors are offered only when the server has the transport enabled
 (`NAAF_WSTUNNEL_ENABLED=1`, off by default — an open tcp/443 with nothing behind
@@ -107,7 +111,7 @@ test/                   sus tests (renderers, ipam, reconciler, helper, zone, ap
                         config, backup, bootstrap, metrics)
 deploy.sh               the one deploy command (create, provision, update, verify)
 deploy/                 host artifacts (systemd, nftables template, sysctl, tmpfiles)
-deploy/provision/       idempotent provisioning steps (05-swap … 65-wstunnel)
+deploy/provision/       idempotent provisioning steps (05-swap … 66-socks)
 deploy/verify.sh        post-deploy assertions, run on the box
 deploy/providers/       optional per-provider box creation and DNS (vultr, dnsimple)
 deploy/DEPLOY.md        the deploy runbook
@@ -115,6 +119,7 @@ docs/BACKUP.md          snapshots, Litestream, restore, box migration
 docs/TROUBLESHOOTING.md operations, the WireGuard-not-connecting playbook, gotchas
 docs/WSTUNNEL.md        the TLS-WebSocket transport: enabling it, the client side, SNI
 docs/CERTS.md           the certificate store, its consumers, and ACME over DNS-01
+docs/PROXY.md           tunnel-only SOCKS5 for split per-app egress
 ```
 
 ## Development (macOS or Linux dev box)
@@ -161,8 +166,8 @@ for Litestream, which would otherwise land in the web application's environment
 `docs/CERTS.md`). The last two reach the box through `deploy.sh`'s secret
 channel, never through a config key.
 
-The wstunnel and certificate keys (`NAAF_WSTUNNEL_*`, `NAAF_CERT_*`,
-`NAAF_ACME_*`) are the one group that does **not** seed the database: the port
+The wstunnel, certificate, and SOCKS proxy keys (`NAAF_WSTUNNEL_*`, `NAAF_CERT_*`,
+  `NAAF_ACME_*`, `NAAF_PROXY_*`) are the one group that does **not** seed the database: the port
 and the certificate paths have to match the systemd unit *and* the base
 firewall, both rendered from this file at provisioning time, so a `settings` copy
 would be a second source of truth that drifts.

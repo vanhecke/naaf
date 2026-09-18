@@ -12,6 +12,9 @@
 # handshake can take up to 5 seconds while WireGuard retries. That is expected.
 #
 <%= ws_sni_note %>
+<% if socks -%>
+# SOCKS5 (per-app on split): <%= socks %>
+<% end -%>
 [Interface]
 PrivateKey = <%= pk %>
 Address = <%= client[:wg_ip] %>/32

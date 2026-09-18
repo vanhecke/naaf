@@ -27,11 +27,11 @@ LOGDIR="$HERE/deploy/logs"
 
 # Every provisioning step, in the one order that works. 45-litestream runs before
 # 50-bringup so replication is already up when the database gets its server key;
-# 60-certs and 65-wstunnel run after it because the name a certificate must match
-# comes from the settings table, which bootstrap only fills in at step 50.
+# 60-certs, 65-wstunnel and 66-socks run after it because they read the settings
+# table, which bootstrap only fills in at step 50.
 # Duplicated from deploy/provision/provision.sh — this copy is what --step
 # validates against, so the two must stay in lock-step.
-STEPS=(05-swap 10-packages 20-system 30-ruby 40-app 45-litestream 50-bringup 60-certs 65-wstunnel)
+STEPS=(05-swap 10-packages 20-system 30-ruby 40-app 45-litestream 50-bringup 60-certs 65-wstunnel 66-socks)
 
 usage() {
   cat <<'EOF'

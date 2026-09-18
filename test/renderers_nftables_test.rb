@@ -261,6 +261,17 @@ describe Naaf::Renderers::Nftables do
       expect(out).to be(:include?, %(iifname "wg0" oifname "wg-exit" accept))
     end
 
+    it "clamps locally originated MSS on output toward the exit, policy accept" do
+      out = with_exit(mtu: 1280)
+      expect(out).to be(:include?, "chain output {")
+      expect(out).to be(:include?,
+        %(oifname "wg-exit" tcp flags syn / syn,rst tcp option maxseg size set 1240))
+      expect(out).to be(:include?, "type filter hook output priority filter; policy accept;")
+      off = Naaf::Renderers::Nftables.render(reset_db!(wg_interface: "wg0", wan_interface: "eth0",
+        wg_subnet: "10.8.0.0/24"))
+      expect(off.include?("hook output")).to be == false
+    end
+
     it "interpolates every iface name from settings or Config, never a literal eth0 in source" do
       src = File.read(File.expand_path("../lib/naaf/renderers/nftables.rb", __dir__))
       expect(src.include?("eth0")).to be == false

@@ -57,6 +57,7 @@ The provisioning steps, in the one order that works:
 | `50-bringup` | helper → `bootstrap.rb` (keys/admin-pw/endpoint host) → app → `wg-quick@wg0` |
 | `60-certs` | the TLS certificate store in `/etc/naaf/certs`: self-signed always, Let's Encrypt over DNS-01 when `NAAF_ACME_ENABLED=1` |
 | `65-wstunnel` | optional TLS-WebSocket transport in front of the WireGuard listener; a no-op unless `NAAF_WSTUNNEL_ENABLED=1` |
+| `66-socks` | tunnel-only SOCKS5 proxy on the hub IP; a no-op unless `NAAF_PROXY_ENABLED=1` (on by default) |
 
 Every step is idempotent and logs to `/var/log/naaf-provision/<step>.log` on the
 box; the whole run is also tee'd to `deploy/logs/` locally (gitignored).
@@ -66,11 +67,12 @@ box; the whole run is also tee'd to `deploy/logs/` locally (gitignored).
 re-deploy needs no admin password, and why [restoring a database onto a fresh
 box](../docs/BACKUP.md) keeps the original server identity.
 
-The last two steps run **after** bring-up on purpose: a certificate has to be
+The last three steps run **after** bring-up on purpose: a certificate has to be
 named for `endpoint_host || endpoint_v4` as they sit in the settings table, and
-`bootstrap.rb` only fills `endpoint_v4` in at step 50. Running them earlier meant
-no name at all on a default bare-IP deploy — and a step that fails there takes
-`50-bringup` with it, leaving the box with no WireGuard interface. `60-certs` is
+`bootstrap.rb` only fills `endpoint_v4` in at step 50. `66-socks` reads
+`server_ip` from the same row. Running them earlier meant no name at all on a
+default bare-IP deploy — and a step that fails there takes `50-bringup` with it,
+leaving the box with no WireGuard interface. `60-certs` is
 also the one step that never fails the deploy: a CA outage or a missing DNS
 record downgrades to a warning and the self-signed certificate beside it, because
 a certificate problem must not cost you the VPN. `20-system` still opens the

@@ -128,6 +128,18 @@ module Naaf
       # split-ws-nodns config, which never repoints DNS at all.
       "NAAF_WSTUNNEL_DNS_RESOLVER" => "dns://1.1.1.1",
 
+      # SOCKS5 proxy for split clients (per-app egress via the hub). Bound only
+      # to settings.server_ip — never 0.0.0.0, never WAN — so the tunnel is the
+      # auth. On by default: unlike wstunnel this opens no public port.
+      #
+      # naaf.conf keys, not settings columns: the port and the unit user have to
+      # match the systemd unit rendered at provision time. A database copy would
+      # be a second source of truth that drifts, and the web process cannot
+      # systemctl. NAAF_PROXY_USER must not be `naaf` (that uid owns naaf.db).
+      "NAAF_PROXY_ENABLED" => "1",
+      "NAAF_PROXY_PORT" => "1080",
+      "NAAF_PROXY_USER" => "naaf-proxy",
+
       # certificates — a general-purpose store owned by 60-certs.sh. Not
       # namespaced under wstunnel: wstunnel is its first consumer, not its owner,
       # and consumers register in <cert>/consumers.d/ rather than growing a

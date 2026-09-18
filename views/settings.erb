@@ -68,6 +68,16 @@
   <tbody>
     <tr><th>VPN subnet</th><td><code><%= @settings[:wg_subnet] %></code></td></tr>
     <tr><th>Gateway IP</th><td><code><%= @settings[:server_ip] %></code></td></tr>
+    <tr>
+      <th>SOCKS5 proxy</th>
+      <td>
+        <% if @proxy %>
+          <code><%= h(@proxy) %></code>
+        <% else %>
+          <span class="has-text-grey">disabled</span>
+        <% end %>
+      </td>
+    </tr>
     <tr><th>Listen port</th><td><code><%= @settings[:listen_port] %></code></td></tr>
     <tr><th>WireGuard interface</th><td><code><%= @settings[:wg_interface] %></code></td></tr>
     <tr><th>Server public key</th><td><code><%= @settings[:server_pubkey] %></code></td></tr>

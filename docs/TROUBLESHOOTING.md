@@ -515,7 +515,7 @@ itself, Troubleshoot ping/curl — still uses the VPS WAN; that is intended.
 
 **2. Are the policy rules and table 159 installed?**
 ```bash
-ip -4 rule show                  # prefs 15800 (fwmark 159), 15850 (iif wg0 to $wg_subnet), 15900 (iif wg0 lookup 159)
+ip -4 rule show                  # prefs 15800 (fwmark 159), 15850 (iif wg0 to $wg_subnet), 15900 (iif wg0 lookup 159); 15870/15875/15880 if the SOCKS proxy follows the exit
 ip -4 route show table 159       # site CIDRs and site /32s via wg0, default via wg-exit
 ip route get 1.1.1.1 from 10.8.0.2 iif wg0
 # must come back `dev wg-exit`, not the WAN default
@@ -547,6 +547,27 @@ than this check — redeploy.
 **5. Confirm the leak is not happening.** From a full client, `curl -4
 https://ifconfig.me` should show the WARP (or other upstream) address. From
 the hub itself, the same `curl` should still show the VPS IP.
+
+---
+
+## 1d. Playbook: split client, per-app via SOCKS5
+
+Split configs do not send internet to the hub. The SOCKS5 listen on
+`settings.server_ip:NAAF_PROXY_PORT` (default `10.8.0.1:1080`) is how a
+single app still egresses via this box. `docs/PROXY.md`.
+
+```bash
+curl --socks5-hostname 10.8.0.1:1080 https://ifconfig.me
+ss -ltnH '( sport = :1080 )'     # one row, the WireGuard IP, never 0.0.0.0
+systemctl is-active naaf-proxy
+```
+
+Destinations see the VPS WAN IP unless an internet exit is up, in which case
+`ip -4 rule show` has `uidrange` prefs 15870/15875/15880 and the curl shows
+the WARP address. Troubleshoot curl from the hub itself still shows the VPS
+IP — that is intended. TCP only; there is no UDP ASSOCIATE.
+
+`NAAF_PROXY_ENABLED=0` plus `./deploy.sh --step 66-socks` removes the unit.
 
 ---
 

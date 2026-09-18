@@ -225,8 +225,30 @@ describe Naaf::Reconciler do
     helper = FakeHelper.new("")
     r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
     r.apply!
-    expect(helper.last_apply[:exit]).to be == Naaf::Renderers::Exit.desired(@db)
+    expect(helper.last_apply[:exit].except(:proxy)).to be == Naaf::Renderers::Exit.desired(@db)
     expect(helper.last_apply[:exit][:conf]).to be(:include?, "PrivateKey = EXITPRIV")
+  end
+
+  it "apply! attaches exit.proxy when the proxy user is present" do
+    make_exit(@db)
+    helper = FakeHelper.new("")
+    r = Class.new(Naaf::Reconciler) {
+      def proxy_payload = {uid: 123, locals: ["127.0.0.0/8", "10.8.0.0/24"]}
+    }.new(@db, FakeZone.new, helper: helper)
+    r.apply!
+    expect(helper.last_apply[:exit][:proxy]).to be == {uid: 123, locals: ["127.0.0.0/8", "10.8.0.0/24"]}
+    expect(helper.last_apply[:exit].except(:proxy)).to be == Naaf::Renderers::Exit.desired(@db)
+  end
+
+  it "apply! omits exit.proxy when the proxy is disabled" do
+    make_exit(@db)
+    ENV["NAAF_PROXY_ENABLED"] = "0"
+    helper = FakeHelper.new("")
+    r = Naaf::Reconciler.new(@db, FakeZone.new, helper: helper)
+    r.apply!
+    expect(helper.last_apply[:exit].key?(:proxy)).to be == false
+  ensure
+    ENV.delete("NAAF_PROXY_ENABLED")
   end
 
   it "poll! does not count the exit pubkey in the wg0 expected set" do
