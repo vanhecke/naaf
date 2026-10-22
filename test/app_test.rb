@@ -2490,6 +2490,95 @@ describe "Naaf::App integration" do
       expect(Naaf.db[:sites].where(name: "overlap").count).to be == 0
     end
 
+    # Tunnel-in-tunnel: the exit is a VPN client, dialled at its wg_ip.
+    def client_ip(id) = Naaf.db[:clients][id: id][:wg_ip]
+
+    def add_vpn_exit(ip, **extra)
+      add_exit(host: ip, port: "51821", address: "10.99.0.2", **extra)
+    end
+
+    it "refuses an exit endpoint on the VPN subnet unless an enabled client has it" do
+      login!
+      add_vpn_exit("10.8.0.1")
+      expect(Naaf.db[:exits].count).to be == 0
+      expect(get("/exit").body).to be(:include?, "this box's own VPN address")
+
+      add_vpn_exit("10.8.0.77")
+      expect(Naaf.db[:exits].count).to be == 0
+      expect(get("/exit").body).to be(:include?, "no enabled client has that address")
+
+      id = add_client("brainrot")
+      Naaf.db[:clients].where(id: id).update(enabled: false)
+      add_vpn_exit(client_ip(id))
+      expect(Naaf.db[:exits].count).to be == 0
+
+      Naaf.db[:clients].where(id: id).update(enabled: true)
+      add_vpn_exit(client_ip(id))
+      expect(Naaf.db[:exits].first[:endpoint]).to be == "#{client_ip(id)}:51821"
+      body = get("/exit").body
+      expect(body).to be(:include?, "Reached through VPN client <strong>brainrot</strong>")
+    end
+
+    it "caps the MTU of an exit reached through the VPN at wg0's minus 60" do
+      login!
+      ip = client_ip(add_client("brainrot"))
+      add_vpn_exit(ip, mtu: "1361")
+      expect(Naaf.db[:exits].count).to be == 0
+      expect(get("/exit").body).to be(:include?, "at most 1360")
+      add_vpn_exit(ip, mtu: "1360")
+      expect(Naaf.db[:exits].first[:mtu]).to be == 1360
+    end
+
+    it "leaves the MTU of a public exit endpoint alone" do
+      login!
+      add_exit(mtu: "1400")
+      expect(Naaf.db[:exits].first[:mtu]).to be == 1400
+      expect(get("/exit").body).not.to be(:include?, "Reached through VPN client")
+    end
+
+    it "refuses to enable an exit whose client was disabled while it was off" do
+      login!
+      id = add_client("brainrot")
+      add_vpn_exit(client_ip(id))
+      exit_id = Naaf.db[:exits].first[:id]
+      post_form("/exit", "/exit/#{exit_id}/toggle", {})
+      expect(Naaf.db[:exits][id: exit_id][:enabled]).to be == false
+
+      post_form("/clients", "/clients/#{id}/toggle", {})
+      expect(Naaf.db[:clients][id: id][:enabled]).to be == false
+      post_form("/exit", "/exit/#{exit_id}/toggle", {})
+      expect(Naaf.db[:exits][id: exit_id][:enabled]).to be == false
+      expect(get("/exit").body).to be(:include?, "no enabled client has that address")
+    end
+
+    it "will not delete the client carrying the exit, nor disable it under an enabled exit" do
+      login!
+      id = add_client("brainrot")
+      add_vpn_exit(client_ip(id))
+      exit_id = Naaf.db[:exits].first[:id]
+      applies = Naaf::App.reconciler.applies
+
+      post_form("/clients", "/clients/#{id}/toggle", {})
+      expect(Naaf.db[:clients][id: id][:enabled]).to be == true
+      expect(get("/clients").body).to be(:include?, "Disable the exit first")
+      post_form("/clients", "/clients/#{id}/delete", {})
+      expect(Naaf.db[:clients][id: id].nil?).to be == false
+      expect(get("/clients").body).to be(:include?, "Repoint or delete the exit first")
+      expect(Naaf::App.reconciler.applies).to be == applies
+
+      # A disabled exit frees the client to be disabled, but not deleted: IPAM
+      # would hand the address to a machine the exit dials when re-enabled.
+      post_form("/exit", "/exit/#{exit_id}/toggle", {})
+      post_form("/clients", "/clients/#{id}/toggle", {})
+      expect(Naaf.db[:clients][id: id][:enabled]).to be == false
+      post_form("/clients", "/clients/#{id}/delete", {})
+      expect(Naaf.db[:clients][id: id].nil?).to be == false
+
+      post_form("/exit", "/exit/#{exit_id}/delete", {})
+      post_form("/clients", "/clients/#{id}/delete", {})
+      expect(Naaf.db[:clients][id: id].nil?).to be == true
+    end
+
     it "answers an exit action for a row that has since been removed with 404" do
       login!
       ["", "/toggle", "/delete"].each do |suffix|

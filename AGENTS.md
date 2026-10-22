@@ -86,6 +86,13 @@
   full-tunnel egress (and for hub-originated traffic even when an internet
   exit is up). Enabled-exit full-tunnel client traffic masquerades onto
   `NAAF_EXIT_INTERFACE` instead.
+- The exit can be one of our own clients (`docs/EXIT.md`): its endpoint is that
+  client's `wg_ip`, and `wg-exit`'s UDP rides wg0 to it (tunnel-in-tunnel). It
+  is plain row data — no helper, renderer or kernel difference. The `/exit` form
+  (and the toggle on the way ON) requires an endpoint inside `wg_subnet` to be
+  an ENABLED client, never `server_ip`, with MTU ≤ wg0 MTU − 60. The client
+  carrying it cannot be deleted, nor disabled while the exit is enabled — IPAM
+  reuses freed addresses, and the exit would dial whoever got it.
 - IPAM never hands out the network, broadcast, or server address, and reuses
   freed ones. Enabled clients, and sites that have networks, are kernel peers;
   disabled ones are absent.

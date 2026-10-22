@@ -447,17 +447,60 @@ module Naaf
       raise ValidationError, "An internet exit already exists. Disable, replace, or delete it."
     end
 
+    # An exit endpoint inside wg_subnet is a VPN client carrying the exit:
+    # wg-exit's own UDP rides wg0 to it (tunnel-in-tunnel). Returns that
+    # address, or nil for a public endpoint or a hostname.
+    def exit_vpn_host(endpoint)
+      ip = IPAM.parse_v4(endpoint.to_s.split(":", 2).first) or return
+      IPAM.parse_v4(Naaf.settings[:wg_subnet])&.include?(ip) ? ip.to_s : nil
+    end
+
+    # The exit row a client carries, if any. Such a client cannot quietly go
+    # away: every full-tunnel client's internet goes with it, and IPAM would
+    # hand its address to a machine the exit then dials.
+    def exit_carried_by(client)
+      Naaf.db[:exits].all.find { |row| exit_vpn_host(row[:endpoint]) == client[:wg_ip] }
+    end
+
+    # IPv4 + UDP + WireGuard header around the inner tunnel's packets on wg0.
+    WG_V4_OVERHEAD = 60
+
+    # A tunnel-in-tunnel exit must dial a peer wg0 actually has, and its MTU
+    # must fit inside wg0's once the outer header is paid. A public endpoint
+    # passes untouched.
+    def assert_exit_endpoint!(endpoint, mtu)
+      host = exit_vpn_host(endpoint) or return
+      s = Naaf.settings
+      if host == s[:server_ip]
+        raise ValidationError,
+          "Exit endpoint #{host} is this box's own VPN address — the exit would dial itself."
+      end
+      if Naaf.db[:clients].where(wg_ip: host, enabled: true).empty?
+        raise ValidationError,
+          "Exit endpoint #{host} is inside the VPN subnet, but no enabled client has that address."
+      end
+      max = s[:mtu].to_i - WG_V4_OVERHEAD
+      if mtu.to_i > max
+        raise ValidationError,
+          "Reached through the VPN, the exit MTU can be at most #{max} " \
+          "(wg0's #{s[:mtu]} minus #{WG_V4_OVERHEAD} for the outer WireGuard header)."
+      end
+    end
+
     def exit_attrs(params, except_exit_id: nil)
       pubkey = param_wg_key(params["pubkey"])
       assert_unused_pubkey!(pubkey, except_exit_id: except_exit_id)
+      endpoint = param_site_endpoint(params["endpoint_host"], params["endpoint_port"])
+      mtu = param_exit_mtu(params["mtu"])
+      assert_exit_endpoint!(endpoint, mtu)
       {
         name: param_label(params["name"]),
         pubkey: pubkey,
         psk: optional_wg_key(params["psk"]),
-        endpoint: param_site_endpoint(params["endpoint_host"], params["endpoint_port"]),
+        endpoint: endpoint,
         keepalive: param_keepalive(params["keepalive"]),
         address: param_exit_address(params["address"]),
-        mtu: param_exit_mtu(params["mtu"]),
+        mtu: mtu,
         notes: presence(params["notes"])
       }
     end
@@ -919,12 +962,20 @@ module Naaf
           client = Naaf.db[:clients][id: id] || r.halt(404)
 
           r.post("delete") do
+            if exit_carried_by(client)
+              flash["error"] = "#{client[:wg_ip]} carries the internet exit. Repoint or delete the exit first."
+              r.redirect "/clients"
+            end
             Naaf.db[:clients].where(id: id).delete
             reconciler.apply!
             r.redirect "/clients"
           end
 
           r.post("toggle") do
+            if client[:enabled] && exit_carried_by(client)&.fetch(:enabled)
+              flash["error"] = "#{client[:wg_ip]} carries the internet exit. Disable the exit first."
+              r.redirect "/clients"
+            end
             Naaf.db[:clients].where(id: id).update(enabled: !client[:enabled])
             reconciler.apply!
             r.redirect "/clients"
@@ -1190,6 +1241,8 @@ module Naaf
         r.get true do
           @exit = Naaf.db[:exits].first
           @exit_if = Config["NAAF_EXIT_INTERFACE"]
+          via = @exit && exit_vpn_host(@exit[:endpoint])
+          @exit_via = via && Naaf.db[:clients].where(wg_ip: via).first
           @settings = Naaf.settings
           view("exit")
         end
@@ -1251,7 +1304,12 @@ module Naaf
           end
 
           r.post "toggle" do
-            submit("/exit") { Naaf.db[:exits].where(id: id).update(enabled: !row[:enabled]) }
+            submit("/exit") do
+              # Re-check on the way ON: the client carrying the exit may have
+              # been disabled while the exit was off. Disabling is always allowed.
+              assert_exit_endpoint!(row[:endpoint], row[:mtu]) unless row[:enabled]
+              Naaf.db[:exits].where(id: id).update(enabled: !row[:enabled])
+            end
           end
 
           r.post "delete" do

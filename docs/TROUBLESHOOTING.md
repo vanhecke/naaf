@@ -548,6 +548,21 @@ than this check — redeploy.
 https://ifconfig.me` should show the WARP (or other upstream) address. From
 the hub itself, the same `curl` should still show the VPS IP.
 
+**6. The exit is a VPN client** (endpoint inside `wg_subnet`, `docs/EXIT.md`).
+Its handshake rides that client's own wg0 session, so check the outer tunnel
+first:
+```bash
+ip route get 10.8.0.2            # must be `dev wg0` — wg-exit's UDP takes the main table
+sudo wg show wg0 | grep -A4 '<that client pubkey prefix>'   # is the outer peer handshaking?
+```
+Outer peer stale → the machine is asleep or offline; on a Mac, `pmset -g log`
+(a sleeping Mac looks like a flapping peer, not a dead one). Outer peer fine,
+`wg-exit` silent → on the client, `sudo wg show naaf-exit` (no handshake means
+the key or listen port does not match the row), then forwarding and NAT
+(`sysctl net.inet.ip.forwarding`, `sudo pfctl -a com.apple/naaf-exit -s nat`
+on macOS; `ip_forward` and the nft masquerade on Linux). Handshake and rx on
+`naaf-exit` but no internet → the NAT names the wrong interface.
+
 ---
 
 ## 1d. Playbook: split client, per-app via SOCKS5

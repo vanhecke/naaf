@@ -153,6 +153,14 @@
       Interface <code><%= h(@exit_if) %></code>
       — full-tunnel client internet leaves here when this row is enabled.
     </p>
+    <% if @exit_via %>
+      <p class="is-size-7 mb-4">
+        Reached through VPN client <strong><%= h(@exit_via[:name]) %></strong>
+        (<code><%= h(@exit_via[:wg_ip]) %></code>) — this box dials it inside wg0.
+        If that machine sleeps or goes offline, every full-tunnel client loses
+        internet. It cannot be deleted, or disabled while this exit is enabled.
+      </p>
+    <% end %>
 
     <details class="mb-2">
       <summary class="button is-small">Edit</summary>
