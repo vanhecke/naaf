@@ -557,7 +557,8 @@ sudo wg show wg0 | grep -A4 '<that client pubkey prefix>'   # is the outer peer 
 ```
 Outer peer stale → the machine is asleep or offline; on a Mac, `pmset -g log`
 (a sleeping Mac looks like a flapping peer, not a dead one). Outer peer fine,
-`wg-exit` silent → on the client, `sudo wg show naaf-exit` (no handshake means
+`wg-exit` silent → on the client, `sudo wg show naaf-exit` (on macOS the
+`utunN` named in `/var/run/wireguard/naaf-exit.name` instead; no handshake means
 the key or listen port does not match the row), then forwarding and NAT
 (`sysctl net.inet.ip.forwarding`, `sudo pfctl -a com.apple/naaf-exit -s nat`
 on macOS; `ip_forward` and the nft masquerade on Linux). Handshake and rx on

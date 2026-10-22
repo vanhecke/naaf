@@ -66,7 +66,9 @@ On the hub, `/exit` → **Add manually** (delete an existing exit first):
 | MTU | `1280` |
 | Keepalive | `25` — the hub dials, so the hub keeps it alive |
 
-`/opt/homebrew/etc/wireguard/naaf-exit.conf`, root-owned, mode 0600:
+`/etc/wireguard/naaf-exit.conf`, root-owned, mode 0600. `/etc/wireguard` is
+the first place wg-quick looks, and it keeps root-owned files out of
+Homebrew's user-owned prefix:
 
 ```ini
 [Interface]
@@ -75,10 +77,10 @@ Address = 10.99.0.1/32
 ListenPort = 51821
 MTU = 1280
 PostUp = sysctl -w net.inet.ip.forwarding=1
-PostUp = pfctl -a com.apple/naaf-exit -f /opt/homebrew/etc/wireguard/naaf-exit.pf
+PostUp = pfctl -a com.apple/naaf-exit -f /etc/wireguard/naaf-exit.pf
 PostUp = pfctl -E 2>&1 | awk '/^Token/ {print $3}' > /var/run/naaf-exit.pftoken
 PostDown = pfctl -a com.apple/naaf-exit -F all
-PostDown = pfctl -X "$(cat /var/run/naaf-exit.pftoken)"
+PostDown = pfctl -X "$(cat /var/run/naaf-exit.pftoken)"; rm -f /var/run/naaf-exit.pftoken
 PostDown = sysctl -w net.inet.ip.forwarding=0
 
 [Peer]
@@ -91,7 +93,7 @@ No `Endpoint` and no keepalive: the hub dials in. `AllowedIPs` is the hub's
 masquerade address only — never `0.0.0.0/0`, which would take this Mac's own
 default route.
 
-`/opt/homebrew/etc/wireguard/naaf-exit.pf` — the interface is whatever
+`/etc/wireguard/naaf-exit.pf` — the interface is whatever
 `route -n get default` names:
 
 ```
@@ -106,9 +108,13 @@ Bring it up and check it:
 
 ```sh
 sudo wg-quick up naaf-exit
-sudo wg show naaf-exit          # a handshake with endpoint 10.8.0.1:<port> once the hub dials
+sudo wg show "$(sudo cat /var/run/wireguard/naaf-exit.name)"   # handshake, endpoint 10.8.0.1:<port>
 sudo pfctl -a com.apple/naaf-exit -s nat
 ```
+
+On macOS `wg` addresses the `utunN` device wireguard-go created, not the
+config name — `wg show naaf-exit` fails with "Unable to access interface".
+`/var/run/wireguard/naaf-exit.name` is wg-quick's map from one to the other.
 
 Keep it across reboots with `/Library/LaunchDaemons/be.joris.naaf-exit.plist`:
 
