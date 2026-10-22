@@ -52,12 +52,31 @@ REPLICA_TYPE="${NAAF_LITESTREAM_REPLICA_TYPE:-file}"
 SNAP_INTERVAL="${NAAF_LITESTREAM_SNAPSHOT_INTERVAL:-24h}"
 SNAP_RETENTION="${NAAF_LITESTREAM_SNAPSHOT_RETENTION:-168h}"
 REPLICA_PATH="${NAAF_LITESTREAM_PATH:-$NAAF_STATE_DIR/replica}"
+# R2 bills ListObjects as a Class A operation, and Litestream lists a level by
+# paging the whole prefix. The upstream defaults (sync 1s, L1 every 30s, L0
+# scan every 15s) ran this database past the free million a month. These
+# defaults keep a destroyed disk to about an hour of lost writes. docs/BACKUP.md.
+SYNC_INTERVAL="${NAAF_LITESTREAM_SYNC_INTERVAL:-1h}"
+L0_RETENTION="${NAAF_LITESTREAM_L0_RETENTION:-1h}"
+L0_RETENTION_CHECK="${NAAF_LITESTREAM_L0_RETENTION_CHECK_INTERVAL:-6h}"
+L1_INTERVAL="${NAAF_LITESTREAM_L1_INTERVAL:-1h}"
+L2_INTERVAL="${NAAF_LITESTREAM_L2_INTERVAL:-6h}"
+L3_INTERVAL="${NAAF_LITESTREAM_L3_INTERVAL:-24h}"
 
 # Credentials live in their own file, NOT naaf.conf: that one is EnvironmentFile=
 # for naaf.service, so anything in it becomes an environment variable of the
 # tunnel-facing web application. Litestream reads these two names from its own
 # environment and expands them in the config, so the keys never touch the YAML.
 CRED_ENV=/etc/naaf/litestream.env
+DROPIN=/etc/systemd/system/litestream.service.d/10-naaf.conf
+
+# Everything litestream reads at start, hashed now and again at the end so a
+# re-run that changed any of it restarts the process. See the try-restart below.
+inputs_digest() {
+  { cat /etc/litestream.yml "$CRED_ENV" "$DROPIN" 2>/dev/null || true; } | sha256sum
+}
+BEFORE="$(inputs_digest)"
+
 if [ -n "${NAAF_LITESTREAM_ACCESS_KEY_ID:-}" ]; then
   log "writing $CRED_ENV"
   umask 027
@@ -78,6 +97,16 @@ logging:
   level: info
   type: text
 
+# Hourly sync and compaction. A 15s full-prefix list is what made R2 Class A
+# operations the whole bill. docs/BACKUP.md.
+l0-retention: $L0_RETENTION
+l0-retention-check-interval: $L0_RETENTION_CHECK
+
+levels:
+  - interval: $L1_INTERVAL
+  - interval: $L2_INTERVAL
+  - interval: $L3_INTERVAL
+
 snapshot:
   interval: $SNAP_INTERVAL
   retention: $SNAP_RETENTION
@@ -95,7 +124,7 @@ EOF
     cat <<EOF
       type: file
       path: $REPLICA_PATH
-      sync-interval: 1s
+      sync-interval: $SYNC_INTERVAL
 EOF
   else
     : "${NAAF_LITESTREAM_BUCKET:?set NAAF_LITESTREAM_BUCKET for an s3 replica}"
@@ -103,7 +132,7 @@ EOF
       type: s3
       bucket: $NAAF_LITESTREAM_BUCKET
       path: ${NAAF_LITESTREAM_PREFIX:-naaf}
-      sync-interval: 1s
+      sync-interval: $SYNC_INTERVAL
 EOF
     [ -n "${NAAF_LITESTREAM_REGION:-}" ] &&
       printf '      region: %s\n' "$NAAF_LITESTREAM_REGION"
@@ -157,9 +186,18 @@ EOF
     "$NAAF_STATE_DIR"/*) ;;
     *) [ "$REPLICA_TYPE" = "file" ] && printf 'ReadWritePaths=%s\n' "$REPLICA_PATH" ;;
   esac
-} >/etc/systemd/system/litestream.service.d/10-naaf.conf
+} >"$DROPIN"
 
 systemctl daemon-reload
+# `enable --now` only STARTS, and starting a running unit is a no-op, so without
+# this a re-run rewrites a config the running process never reads — the box kept
+# a 1s sync-interval for weeks that way. try-restart, not restart: on a first
+# install the unit is not running yet and `enable --now` below starts it. Only on
+# a change, so an idempotent re-run leaves replication alone.
+if [ "$(inputs_digest)" != "$BEFORE" ]; then
+  log "litestream inputs changed — restarting it"
+  systemctl try-restart litestream
+fi
 systemctl enable --now litestream
 systemctl --no-pager --lines=0 status litestream || true
 log "replication enabled — verify with: litestream databases; litestream snapshots $NAAF_DB"

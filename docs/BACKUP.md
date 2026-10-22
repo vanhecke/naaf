@@ -15,7 +15,7 @@ Two independent layers, either usable without the other:
 | | what it protects against | granularity | off-box |
 |---|---|---|---|
 | **Snapshots** (on by default) | a bad write, an accidental delete, a botched change | one file per interval, default hourly | no |
-| **Litestream** (off by default) | the same, plus losing the disk or the whole VPS | continuous, second-level | yes, with an object-store replica |
+| **Litestream** (off by default) | the same, plus losing the disk or the whole VPS | hourly | yes, with an object-store replica |
 
 ---
 
@@ -79,8 +79,9 @@ restored database is a documented corruption path.
 
 ## 2. Litestream
 
-Continuous replication of the write-ahead log, giving second-level recovery point
-and — with an object-store replica — a copy that survives the machine.
+Replication of the write-ahead log. With an object-store replica it is the copy
+that survives the machine. The recovery point is one hour, not one second: a
+destroyed disk loses at most `NAAF_LITESTREAM_SYNC_INTERVAL` of writes.
 
 Off by default. Enable it in `naaf.conf` and run the step:
 
@@ -89,6 +90,12 @@ NAAF_LITESTREAM_ENABLED=1
 NAAF_LITESTREAM_VERSION=0.5.16
 NAAF_LITESTREAM_REPLICA_TYPE=file        # or s3
 NAAF_LITESTREAM_PATH=/var/lib/naaf/replica
+NAAF_LITESTREAM_SYNC_INTERVAL=1h
+NAAF_LITESTREAM_L0_RETENTION=1h
+NAAF_LITESTREAM_L0_RETENTION_CHECK_INTERVAL=6h
+NAAF_LITESTREAM_L1_INTERVAL=1h
+NAAF_LITESTREAM_L2_INTERVAL=6h
+NAAF_LITESTREAM_L3_INTERVAL=24h
 ```
 
 ```sh
@@ -115,6 +122,18 @@ looks like a credentials error in the journal. Cloudflare R2 is the cheap defaul
 — 10 GB free, no egress fee, and the database is well under a megabyte. (Vultr
 Object Storage also works and is S3-compatible, but its smallest tier is $18/mo
 for 1 TB, which is a lot of money to replicate a file this size.)
+
+The free storage tier is not the whole R2 price. `ListObjects` is a Class A
+operation, the first million a month are free, and Litestream 0.5 lists a level
+by paging the entire prefix. Its own defaults (sync every second, compact L1
+every 30 seconds, scan for expired L0 every 15 seconds) did that often enough
+to run about 6 million Class A operations a month against a replica of a few
+megabytes. The intervals above are what keeps the same replica inside the free
+million, including while an old prefix of tens of thousands of files is still
+being listed in full. Do not put them back to the upstream defaults to "get
+second-level recovery." That is the bill. A full snapshot is still taken every
+`NAAF_LITESTREAM_SNAPSHOT_INTERVAL` and kept for
+`NAAF_LITESTREAM_SNAPSHOT_RETENTION`.
 
 ```
 NAAF_LITESTREAM_REPLICA_TYPE=s3

@@ -222,8 +222,9 @@ and every firewall rule. Two layers, documented in **`docs/BACKUP.md`**:
 
 - **Snapshots**, on by default: an hourly `VACUUM INTO` taken in-process, mode
   0600, newest 24 kept, in `/var/lib/naaf/backups`.
-- **Litestream**, off by default: continuous WAL replication to a file path or
+- **Litestream**, off by default: hourly WAL replication to a file path or
   any S3-compatible bucket, for recovery that survives losing the machine.
+  Hourly is what keeps an R2 replica inside the free Class A allowance.
 
 Because the server private key lives in the database and clients dial
 `endpoint_host`, restoring onto a fresh box and repointing DNS moves the whole

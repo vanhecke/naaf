@@ -89,6 +89,17 @@ module Naaf
       "NAAF_LITESTREAM_PREFIX" => "naaf",
       "NAAF_LITESTREAM_REGION" => nil,
       "NAAF_LITESTREAM_ENDPOINT" => nil,
+      # Hourly on purpose. Litestream's own defaults (sync 1s, L1 compact 30s,
+      # L0 scan 15s) list the whole replica prefix on each pass, and R2 bills
+      # ListObjects as a Class A operation. Those defaults put this database
+      # past R2's free million operations a month on a few megabytes of storage.
+      # One hour is the destroyed-disk recovery point. See docs/BACKUP.md.
+      "NAAF_LITESTREAM_SYNC_INTERVAL" => "1h",
+      "NAAF_LITESTREAM_L0_RETENTION" => "1h",
+      "NAAF_LITESTREAM_L0_RETENTION_CHECK_INTERVAL" => "6h",
+      "NAAF_LITESTREAM_L1_INTERVAL" => "1h",
+      "NAAF_LITESTREAM_L2_INTERVAL" => "6h",
+      "NAAF_LITESTREAM_L3_INTERVAL" => "24h",
       "NAAF_LITESTREAM_SNAPSHOT_INTERVAL" => "24h",
       "NAAF_LITESTREAM_SNAPSHOT_RETENTION" => "168h",
 

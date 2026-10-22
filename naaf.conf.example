@@ -162,6 +162,16 @@ NAAF_LITESTREAM_BUCKET=
 NAAF_LITESTREAM_PREFIX=naaf
 NAAF_LITESTREAM_REGION=
 NAAF_LITESTREAM_ENDPOINT=
+# Cadence. Litestream's defaults list the replica prefix every few seconds, and
+# R2 counts each ListObjects call as a Class A operation. Left there, this
+# database used about 6 million of those a month and the storage stayed free.
+# An hour is as stale as the off-box copy is allowed to be. See docs/BACKUP.md.
+NAAF_LITESTREAM_SYNC_INTERVAL=1h
+NAAF_LITESTREAM_L0_RETENTION=1h
+NAAF_LITESTREAM_L0_RETENTION_CHECK_INTERVAL=6h
+NAAF_LITESTREAM_L1_INTERVAL=1h
+NAAF_LITESTREAM_L2_INTERVAL=6h
+NAAF_LITESTREAM_L3_INTERVAL=24h
 NAAF_LITESTREAM_SNAPSHOT_INTERVAL=24h
 NAAF_LITESTREAM_SNAPSHOT_RETENTION=168h
 
