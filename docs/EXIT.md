@@ -30,6 +30,11 @@ enabled — IPAM would hand its address to another machine.
   a closed lid still sleeps unless it is in clamshell mode with a display.
 - **That machine must stay split.** With a full config its own internet would
   enter the hub, leave through `wg-exit`, and come straight back to it.
+- **That machine's own tunnel must reconnect by itself.** The exit rides inside
+  it: with the split tunnel down, the exit listener is up and nothing can reach
+  it. Seen in practice: a macOS update rebooted the exit machine several times,
+  the App Store app had On-Demand off, and the exit stayed dead for hours until
+  someone clicked Activate.
 - Packets cross the VPS↔home path twice and are encrypted twice. Throughput is
   the home uplink at best.
 - DNS still resolves on the VPS (the hub's passthrough), so geo-DNS answers for
@@ -46,8 +51,19 @@ is the client's listen port — any UDP port free on that machine.
 
 ## Client side: macOS
 
-The App Store WireGuard app keeps running the split tunnel. It allows only
-one active tunnel, so the exit listener runs on Homebrew's `wireguard-go`:
+The App Store WireGuard app keeps running the split tunnel. Edit that tunnel
+and turn on **On-Demand** for Ethernet and Wi-Fi. Without it the app connects
+only when someone clicks Activate, so after a reboot the exit listener is back
+(launchd, below) and unreachable. Read it back with:
+
+```sh
+scutil --nc show "<split tunnel name>" | grep OnDemandEnabled   # TRUE
+```
+
+The app allows only one active tunnel, so the exit listener runs on Homebrew's
+`wireguard-go`. It is its own interface, not a second peer on the split tunnel:
+the hub dials a separate exit key on its own port, and the exit's smaller MTU
+needs an interface of its own.
 
 ```sh
 brew install wireguard-tools        # wg, wg-quick, wireguard-go, bash 5
@@ -131,6 +147,8 @@ Keep it across reboots with `/Library/LaunchDaemons/be.joris.naaf-exit.plist`:
   <key>EnvironmentVariables</key>
   <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
   <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>/var/log/naaf-exit.log</string>
+  <key>StandardOutPath</key><string>/var/log/naaf-exit.log</string>
 </dict>
 </plist>
 ```
@@ -138,6 +156,8 @@ Keep it across reboots with `/Library/LaunchDaemons/be.joris.naaf-exit.plist`:
 ```sh
 sudo launchctl bootstrap system /Library/LaunchDaemons/be.joris.naaf-exit.plist
 ```
+
+`/var/log/naaf-exit.log` collects wg-quick's output from every boot.
 
 `PATH` is load-bearing: `wg-quick` is `#!/usr/bin/env bash` and needs bash 5
 and `wireguard-go` from Homebrew, not `/bin/bash` 3.2. If the macOS
@@ -169,6 +189,20 @@ curl -4 https://ifconfig.me              # still the VPS
 
 # a full-tunnel client
 curl -4 https://ifconfig.me              # the home IP
+
+# the exit machine (macOS)
+scutil --nc status "<split tunnel name>" | head -1   # Connected
+ping -c1 10.8.0.1                                     # the split tunnel carries the exit
+sudo wg show "$(sudo cat /var/run/wireguard/naaf-exit.name)" latest-handshakes
+sysctl net.inet.ip.forwarding                         # 1
+sudo pfctl -a com.apple/naaf-exit -s nat              # the nat rule
+tail /var/log/naaf-exit.log
 ```
+
+Keepalive is 25 s and WireGuard re-handshakes every two minutes while it
+carries traffic, so a `wg-exit` handshake older than about three minutes means
+the exit is down. `/exit` shows the same handshake, from `poll!`. Nothing
+alerts: an exit that died overnight looks fine until a full-tunnel client
+notices.
 
 When it breaks: `docs/TROUBLESHOOTING.md` §1c.

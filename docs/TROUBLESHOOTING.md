@@ -555,8 +555,11 @@ first:
 ip route get 10.8.0.2            # must be `dev wg0` — wg-exit's UDP takes the main table
 sudo wg show wg0 | grep -A4 '<that client pubkey prefix>'   # is the outer peer handshaking?
 ```
-Outer peer stale → the machine is asleep or offline; on a Mac, `pmset -g log`
-(a sleeping Mac looks like a flapping peer, not a dead one). Outer peer fine,
+Outer peer stale → the machine is asleep, offline, or rebooted without its
+tunnel coming back; on a Mac, `pmset -g log` (a sleeping Mac looks like a
+flapping peer, not a dead one), `last reboot`, and
+`scutil --nc status "<split tunnel name>"` — the App Store app reconnects after
+a reboot only with On-Demand on. Outer peer fine,
 `wg-exit` silent → on the client, `sudo wg show naaf-exit` (on macOS the
 `utunN` named in `/var/run/wireguard/naaf-exit.name` instead; no handshake means
 the key or listen port does not match the row), then forwarding and NAT
