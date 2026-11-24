@@ -144,8 +144,16 @@ describe "Naaf::App integration" do
 
   # The layout renders an /apply form before the page body, so grab the token
   # that belongs to the specific form action, not merely the first on the page.
+  # The token is bound to the form's path. Match the action exactly so a GET
+  # filter form, or /clients/1/toggle, cannot donate its token to POST /clients.
   def csrf_for(body, action)
-    body[/action="#{Regexp.escape(action)}"[^>]*>.*?name="_csrf" value="([^"]+)"/m, 1]
+    body.scan(/<form\b.*?<\/form>/m).each do |form|
+      next unless form[/action="([^"]+)"/, 1] == action
+      next unless form.include?('method="post"')
+      token = form[/name="_csrf" value="([^"]+)"/, 1]
+      return token if token
+    end
+    nil
   end
 
   def login!
@@ -414,10 +422,10 @@ describe "Naaf::App integration" do
     # set of chips alone would pass for a three-way branch whose arms had been
     # swapped, which is the mistake that puts "online" beside a disabled peer.
     def chips_by_name(body)
-      body.scan(%r{<tr>(.*?)</tr>}m).flatten.filter_map { |row|
-        name = row[%r{<td>([^<]*)</td>}, 1]
-        chip = row[%r{<span class="tag(?: naaf-chip[^"]*| is-warning)">([a-z]+)</span>}, 1]
-        name && chip && [name.strip, chip]
+      body.scan(%r{<tr class="st-[^"]+">(.*?)</tr>}m).flatten.filter_map { |row|
+        name = row[%r{class="name"[^>]*>([^<]+)}, 1]
+        word = row[%r{class="word">([^<]+)}, 1]
+        name && word && [name.strip, word.strip]
       }.to_h
     end
 
@@ -485,7 +493,7 @@ describe "Naaf::App integration" do
         peer(name: "nas", id: 1, wg_ip: "10.8.0.2", kind: :client, online: true,
           last_handshake_at: Time.now - 30, endpoint: "81.82.83.84:51820",
           rx_bps: 2048.0, tx_bps: 512.0, rx_series: [1024.0, 2048.0]),
-        peer(name: "laptop", id: 2, wg_ip: "10.8.0.3", last_handshake_at: Time.now - 7200),
+        peer(name: "laptop", id: 2, wg_ip: "10.8.0.3", last_handshake_at: Time.now - 600),
         peer(name: "old-phone", id: 3, wg_ip: "10.8.0.4", enabled: false, online: true)
       ])
       body = get("/metrics/clients").body
@@ -493,7 +501,7 @@ describe "Naaf::App integration" do
       # A disabled peer that the kernel still counts as up is the case the
       # order of the arms exists for: the admin turned it off, so say so.
       expect(chips_by_name(body)).to be == {
-        "nas" => "online", "laptop" => "idle", "old-phone" => "disabled"
+        "nas" => "online", "laptop" => "stale", "old-phone" => "disabled"
       }
       expect(body.include?("No clients yet")).to be == false
     end
@@ -688,12 +696,12 @@ describe "Naaf::App integration" do
     expect(deleted.headers["location"]).to be == "/clients"
   end
 
-  it "sends a newly added client back to the list" do
+  it "sends a newly added client to its detail page, where the key is taken" do
     login!
     body = get("/clients").body
     res = post("/clients", "name" => "erin", "hostname" => "erin", "pubkey" => "",
       "_csrf" => csrf_for(body, "/clients"))
-    expect(res.headers["location"]).to be == "/clients"
+    expect(res.headers["location"]).to be(:match?, %r{\A/clients/\d+\z})
   end
 
   # The list is matched with `r.get true`. A bare `r.get` would match any GET
@@ -740,7 +748,7 @@ describe "Naaf::App integration" do
   end
 
   it "leaves the vendored assets cacheable" do
-    expect(get("/bulma.min.css").headers["cache-control"]).to be_nil
+    expect(get("/naaf.js").headers["cache-control"]).to be_nil
   end
 
   it "sends an already-authenticated admin away from the login form" do

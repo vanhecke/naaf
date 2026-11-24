@@ -84,7 +84,7 @@ echo "== vendored assets =="
 # know). The exact-set check is what makes "a third vendored script is Ask
 # first" a failing build rather than a review comment.
 js_got="$(find vendor -maxdepth 1 -name '*.js' | sed 's|.*/||' | LC_ALL=C sort)"
-js_want="$(printf '%s\n' htmx-ext-sse.min.js htmx.min.js)"
+js_want="$(printf '%s\n' htmx-ext-sse.min.js htmx.min.js naaf.js)"
 if [ "$js_got" != "$js_want" ]; then
   echo "vendor/ .js set drifted — only the two pinned htmx files are allowed" >&2
   echo "  expected:" >&2
@@ -107,6 +107,8 @@ check_digest vendor/htmx.min.js \
   "H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V"
 check_digest vendor/htmx-ext-sse.min.js \
   "A986SAtodyH8eg8x8irJnYUk7i9inVQqYigD6qZ9evobksGNIXfeFvDwLSHcp31N"
+check_digest vendor/naaf.js \
+  "yh0hai3InW8RacsaM/r3Sl1O9oPd2XX7RCx4iqjJac0dvTaASdimpV44DqRparop"
 echo "vendored scripts match their pinned digests"
 
 # Inline <script> is a Never. The two <script src> tags in the layout are the
@@ -116,6 +118,7 @@ while IFS= read -r line; do
   case "$line" in
     *'<script src="/htmx.min.js" defer></script>'*) ;;
     *'<script src="/htmx-ext-sse.min.js" defer></script>'*) ;;
+    *'<script src="/naaf.js" defer></script>'*) ;;
     *)
       echo "views/ may only load the two vendored scripts; no inline <script>" >&2
       echo "  $line" >&2

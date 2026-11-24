@@ -9,6 +9,20 @@ describe Naaf::Format do
   # These five bands are what views/dashboard.erb rendered inline before this
   # module existed, and test/app_test.rb still asserts "2h ago" appears on a
   # rendered page. Moving the formatter must not move the output.
+  describe ".peer_state" do
+    def at(secs) = Time.utc(2026, 8, 9, 12, 0, 0) - secs
+    def now = Time.utc(2026, 8, 9, 12, 0, 0)
+
+    it "lets disabled win, then splits the clock into online, stale and offline" do
+      expect(f.peer_state(enabled: false, handshake: at(10), now: now)).to be == :disabled
+      expect(f.peer_state(enabled: true, handshake: at(30), now: now)).to be == :online
+      expect(f.peer_state(enabled: true, handshake: at(600), now: now)).to be == :stale
+      expect(f.peer_state(enabled: true, handshake: at(9000), now: now)).to be == :offline
+      expect(f.peer_state(enabled: true, handshake: nil, now: now)).to be == :offline
+      expect(f.peer_state(enabled: true, handshake: at(10), installed: false, now: now)).to be == :bare
+    end
+  end
+
   describe ".ago" do
     def at(secs) = Time.now - secs
 

@@ -8,7 +8,8 @@
 - Sequel + SQLite at /var/lib/naaf/naaf.db — the single source of truth
 - nftables table `inet naaf` (app-owned) + /etc/nftables.conf (static, off-limits)
 - Root helper daemon on /run/naaf/helper.sock — the ONLY privileged code
-- ERB + vendored Bulma + vendored htmx. NO Node, NO npm, NO asset pipeline
+- ERB + one hand-written stylesheet (`vendor/naaf.css`) + vendored htmx and a
+  small keyboard script (`vendor/naaf.js`). NO Node, NO npm, NO asset pipeline
 - Standard (standardrb) for style; sus + sus-fixtures-async for tests
 
 ## Commands
@@ -150,18 +151,14 @@
   AllowedIPs). `poll!` must not count it as drift.
 
 ## Frontend
-- htmx AND its official SSE extension (`vendor/htmx-ext-sse.min.js`, 0BSD) are
-  the only client-side JavaScript. There is no application .js file and there
-  must not be one. No inline <script>. No Alpine/Stimulus/React. A THIRD
-  vendored script is an "Ask first".
+- htmx, its official SSE extension (`vendor/htmx-ext-sse.min.js`, 0BSD), and
+  `vendor/naaf.js` (keyboard focus and `g` navigation only) are the client-side
+  JavaScript. No inline <script>. No Alpine/Stimulus/React. A fourth vendored
+  script is an "Ask first".
 - Interactivity is server-rendered fragments swapped via hx-* attributes.
   If something seems to need scripting, move the behaviour to the server.
-- Bulma is class-based: table.is-fullwidth, .field/.control, .button.is-danger,
-  .notification. Bulma ships no JS — do not add its optional JS snippets.
-- Everything static is vendored in `vendor/` and served by Roda's `:public`
-  plugin: bulma.min.css, htmx.min.js, htmx-ext-sse.min.js, and naaf.css (ours —
-  it exists only to colour the inline SVG charts for light and dark). No CDN at
-  runtime. `bin/ci` pins both scripts by sha384.
+- The stylesheet is `vendor/naaf.css` (the Bay system in `docs/DESIGN.md`).
+  No Bulma, no CDN, no build. `bin/ci` pins all three scripts by sha384.
 - The dashboard at `/` pushes fragments over ONE SSE stream (`GET /events`).
   Every fragment is also a plain `GET /metrics/<name>`, so the page degrades to
   `hx-trigger="every Ns"` polling with `NAAF_METRICS_SSE=0` and every panel is
@@ -422,9 +419,9 @@
 - NEVER bind the SOCKS5 proxy to 0.0.0.0 or the public interface. The hub
   WireGuard IP only. NEVER run it as `User=naaf` (that uid owns `naaf.db`).
 - NEVER add Node, npm, or a package.json.
-- NEVER add client-side JavaScript beyond the vendored htmx and its official SSE
-  extension — no app .js file, no inline <script>, no JS framework. A third
-  vendored script is an "Ask first".
+- NEVER add client-side JavaScript beyond vendored htmx, its official SSE
+  extension, and `vendor/naaf.js` — no inline <script>, no JS framework. A
+  fourth vendored script is an "Ask first".
 - NEVER add a metrics table. Dashboard history lives in in-memory ring buffers
   and resets on restart, deliberately: naaf.db is configuration truth, and a
   high-frequency table in it would multiply the WAL churn Litestream replicates

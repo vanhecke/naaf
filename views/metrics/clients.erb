@@ -1,73 +1,50 @@
-<div class="box mb-4">
-  <div class="level is-mobile mb-2">
-    <div class="level-left"><h2 class="title is-6 level-item mb-0">Peers</h2></div>
-    <div class="level-right">
-      <a class="level-item is-size-7" href="/clients">clients →</a>
-      <a class="level-item is-size-7" href="/sites">sites →</a>
+<div class="box">
+  <div class="level mb-2">
+    <h2 class="title is-6">Peers</h2>
+    <div>
+      <a href="/clients">clients</a>
+      <a href="/sites">sites</a>
     </div>
   </div>
 
   <% if s.peers.empty? %>
-    <p class="has-text-grey">No peers yet. Add a <a href="/clients">client</a> or a <a href="/sites">site</a>.</p>
+    <p class="empty">No peers yet. Add a <a href="/clients">client</a> or a <a href="/sites">site</a>.</p>
   <% else %>
-    <div class="naaf-scroll">
-      <%# This table is also the table view for the per-peer sparklines beside
-          it — every value in a chart is readable as a number here. %>
-      <table class="table is-fullwidth is-narrow is-hoverable">
-        <thead>
-          <tr>
-            <th>Name</th><th>Type</th><th>VPN IP</th><th>Status</th><th>Last handshake</th>
-            <th>Endpoint</th>
-            <th class="has-text-right" title="traffic from the peer to this server">In</th>
-            <th class="has-text-right" title="traffic from this server to the peer">Out</th>
-            <th class="has-text-right" title="total both ways since wg0 came up">Total</th>
-            <th title="inbound throughput over the last few minutes">Recent</th>
+    <table class="strips">
+      <tbody>
+        <% s.peers.each do |p| %>
+          <% bare = p[:kind] == :site && Array(p[:cidrs]).empty? %>
+          <% state = fmt.peer_state(enabled: p[:enabled], handshake: p[:last_handshake_at], installed: !bare) %>
+          <tr class="st-<%= state %>">
+            <td>
+              <span class="mark" aria-hidden="true"></span>
+              <%= Naaf::Format::CODES[state] %>
+              <span class="word"><%= Naaf::Format::WORDS[state] %></span>
+            </td>
+            <td><a class="name" href="<%= (p[:kind] == :site) ? "/sites/#{p[:id]}" : "/clients/#{p[:id]}" %>"><%= h(p[:name]) %></a></td>
+            <td><%= (p[:kind] == :site) ? "site" : "client" %></td>
+            <td class="mono">
+              <% if p[:kind] == :site %>
+                <% if Array(p[:cidrs]).empty? %>
+                  <span title="not installed — no networks">no networks</span>
+                <% else %>
+                  <% Array(p[:cidrs]).each do |cidr| %><span><%= h(cidr) %></span> <% end %>
+                <% end %>
+              <% else %>
+                <%= h(p[:wg_ip]) %>
+              <% end %>
+            </td>
+            <td class="mono"><%= fmt.ago(p[:last_handshake_at]) %></td>
+            <td class="mono"><%= h(fmt.dash(p[:endpoint])) %></td>
+            <td class="num"><%= fmt.bps(p[:rx_bps]) %></td>
+            <td class="num"><%= fmt.bps(p[:tx_bps]) %></td>
+            <td class="num has-text-grey"><%= fmt.bytes(p[:rx_bytes].to_i + p[:tx_bytes].to_i) %></td>
+            <td>
+              <%= svg.sparkline(p[:rx_series], height: 22, label: "#{p[:name]} inbound throughput") %>
+            </td>
           </tr>
-        </thead>
-        <tbody>
-          <% s.peers.each do |p| %>
-            <tr>
-              <td><%= h(p[:name]) %></td>
-              <td><span class="tag is-light"><%= (p[:kind] == :site) ? "site" : "client" %></span></td>
-              <td>
-                <% if p[:kind] == :site %>
-                  <code class="naaf-num"><%= h(fmt.dash(p[:wg_ip])) %></code>
-                  <% Array(p[:cidrs]).each do |cidr| %>
-                    <code class="naaf-num"><%= h(cidr) %></code>
-                  <% end %>
-                <% else %>
-                  <code class="naaf-num"><%= h(p[:wg_ip]) %></code>
-                <% end %>
-              </td>
-              <td>
-                <%# Disabled first: a site the admin switched off AND left
-                    without networks would otherwise report the renderer's
-                    reason and hide their own action. %>
-                <% if !p[:enabled] %>
-                  <span class="tag naaf-chip">disabled</span>
-                <% elsif p[:kind] == :site && Array(p[:cidrs]).empty? %>
-                  <span class="tag is-warning">not installed — no networks</span>
-                <% elsif p[:online] %>
-                  <span class="tag naaf-chip has-text-success-on-scheme">online</span>
-                <% else %>
-                  <span class="tag is-warning">idle</span>
-                <% end %>
-              </td>
-              <td class="naaf-num"><%= fmt.ago(p[:last_handshake_at]) %></td>
-              <td><code class="naaf-num"><%= h(fmt.dash(p[:endpoint])) %></code></td>
-              <td class="has-text-right naaf-num"><%= fmt.bps(p[:rx_bps]) %></td>
-              <td class="has-text-right naaf-num"><%= fmt.bps(p[:tx_bps]) %></td>
-              <td class="has-text-right naaf-num has-text-grey">
-                <%= fmt.bytes(p[:rx_bytes].to_i + p[:tx_bytes].to_i) %>
-              </td>
-              <td style="width: 8rem">
-                <%= svg.sparkline(p[:rx_series], height: 22,
-                                  label: "#{p[:name]} inbound throughput") %>
-              </td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
+        <% end %>
+      </tbody>
+    </table>
   <% end %>
 </div>

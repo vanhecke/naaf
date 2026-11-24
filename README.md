@@ -689,7 +689,7 @@ db/schema.rb            settings, clients, exposed_ports, port_forwards,
                         dns_records, dns_forwarders, extra_routes, sites,
                         site_networks, exits
 views/                  ERB pages and the five client-config templates
-vendor/                 bulma.min.css, htmx.min.js, htmx-ext-sse.min.js, naaf.css
+vendor/                 naaf.css, naaf.js, htmx.min.js, htmx-ext-sse.min.js
 test/                   sus tests
 deploy.sh               the one deploy command
 deploy/                 units, nftables template, provision steps, verify.sh

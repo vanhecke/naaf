@@ -24,7 +24,41 @@ module Naaf
     UNITS = ["B", "KB", "MB", "GB", "TB", "PB"].freeze
     STEP = 1024.0
 
+    # How fresh a handshake is, for the admin UI. The collector's online flag
+    # stays a single 3-minute cut (it feeds the stall detector). The page splits
+    # everything older than that into stale and offline so a peer that went
+    # quiet at lunch does not look the same as one that has been gone for days.
+    # Disabled wins over the clock: the admin turned the peer off.
+    ONLINE_WITHIN = 180
+    STALE_WITHIN = 2 * 60 * 60
+
+    CODES = {
+      online: "ONL",
+      stale: "STL",
+      offline: "OFF",
+      disabled: "DIS",
+      bare: "NON"
+    }.freeze
+
+    WORDS = {
+      online: "online",
+      stale: "stale",
+      offline: "offline",
+      disabled: "disabled",
+      bare: "no networks"
+    }.freeze
+
     module_function
+
+    def peer_state(enabled:, handshake:, installed: true, now: Time.now)
+      return :disabled unless enabled
+      return :bare unless installed
+      return :offline unless handshake
+      age = now - handshake.to_time
+      return :online if age <= ONLINE_WITHIN
+      return :stale if age <= STALE_WITHIN
+      :offline
+    end
 
     # Output is pinned by test/app_test.rb, which asserts "2h ago" appears for a
     # client that handshaked two hours ago.
