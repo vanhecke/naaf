@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>Naaf — laptop</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="plate">
+    <div class="mast">
+      <h1>laptop</h1>
+      <div class="muted"><a href="clients.html">Clients</a> · <time class="mono">09:41:07</time></div>
+    </div>
+    <nav class="nav" aria-label="primary">
+      <div class="links">
+        <a href="dashboard.html">Dashboard</a>
+        <a class="current" href="clients.html">Clients</a>
+        <a href="clients.html">Exposed ports</a>
+        <a href="clients.html">Forwards</a>
+        <a href="dashboard.html">Sites</a>
+        <a href="dashboard.html">Exit</a>
+        <a href="dashboard.html">Routes</a>
+        <a href="dashboard.html">DNS</a>
+        <a href="dashboard.html">Troubleshoot</a>
+        <a href="dashboard.html">Settings</a>
+      </div>
+      <span class="actions">
+        <button type="button">Disable</button>
+        <button type="button" class="btn-danger">Delete</button>
+        <button type="button" class="btn-solid">Re-apply</button>
+      </span>
+    </nav>
+  </header>
+
+  <div class="page">
+    <article class="strip peer st-online">
+      <div class="code"><span class="mark" aria-hidden="true"></span>ONL</div>
+      <div class="who"><span class="name">laptop</span><span class="mono">laptop.vpn</span></div>
+      <div class="cell"><span class="k">vpn ip</span><span class="mono">10.8.0.2</span></div>
+      <div class="cell"><span class="k">handshake</span><span class="mono">42s</span></div>
+      <div class="cell"><span class="k">endpoint</span><span class="mono">192.0.2.14:51234</span></div>
+      <div class="cell"><span class="k">in</span><span class="mono">1.80 Mb/s</span></div>
+      <div class="cell"><span class="k">out · total</span><span class="mono">240 kb/s · 18.4 GB</span></div>
+      <div class="cell"><span class="k">public key</span><span class="mono">or+pz2uu4EVM…</span></div>
+    </article>
+
+    <div class="banner-strip st-key">
+      <strong>SHOWN ONCE · NOT FILED</strong>
+      <div class="keyline">76Nk1vUAoiZRvhEDzzEkkVUVgIfS48D5H2Ea/28sAbU=</div>
+      <div class="muted">This strip is the only copy. The first download and the QR spend it. Nothing is written to the database. Delete and add to reissue.</div>
+    </div>
+
+    <div class="cols">
+      <div class="sheet">
+        <h2>split config</h2>
+        <pre class="conf"># SOCKS5 10.8.0.1:1080 · key is spent on download
+[Interface]
+PrivateKey = 76Nk1vUAoiZRvhEDzzEkkVUVgIfS48D5H2Ea/28sAbU=
+Address = 10.8.0.2/32
+DNS = 10.8.0.1
+MTU = 1420
+
+[Peer]
+PublicKey = sC5OcOoEURA9YIPg/FU2GHt3H7Uml+4A84QmA5PFryE=
+PresharedKey = QHsK6Di4l95c6ghNTydGNVJfiTQGfHXAiywuKeSf6NU=
+Endpoint = 203.0.113.10:51820
+AllowedIPs = 10.8.0.0/24, 10.40.8.0/24
+PersistentKeepalive = 25</pre>
+        <div class="flavors">
+          <button type="button" class="btn-solid">split</button>
+          <button type="button">split·nodns</button>
+          <button type="button">full</button>
+          <button type="button">split·ws</button>
+          <button type="button">split·ws·nodns</button>
+          <span class="muted">QR is split only. ws has no QR.</span>
+        </div>
+      </div>
+      <figure class="qr">
+        <img src="../qr.svg" width="154" height="154" alt="QR of the fake split config for laptop">
+        <figcaption>split · one scan</figcaption>
+      </figure>
+    </div>
+
+    <div class="pair">
+      <div class="sheet">
+        <h2>Exposed ports</h2>
+        <table>
+          <thead><tr><th>Proto</th><th>Ports</th><th>Description</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>tcp</td><td class="mono">22</td><td>ssh</td><td><button class="btn-quiet" type="button">Delete</button></td></tr>
+            <tr><td>tcp</td><td class="mono">8080-8090</td><td>dev servers</td><td><button class="btn-quiet" type="button">Delete</button></td></tr>
+          </tbody>
+        </table>
+        <form class="row" style="margin-top:8px">
+          <div class="field"><label for="proto">Proto</label><select id="proto"><option>tcp</option><option>udp</option></select></div>
+          <div class="field"><label for="port">Ports</label><input id="port" value="22000"></div>
+          <div class="field"><label for="desc">Description</label><input id="desc" value="syncthing"></div>
+          <button type="button" class="btn-solid">Expose and apply</button>
+        </form>
+      </div>
+      <div class="sheet">
+        <h2>Forward and route</h2>
+        <div class="kv"><span class="mono">tcp/2222 → :22</span><span>enabled</span><button class="btn-quiet" type="button">Disable</button></div>
+        <div class="kv"><span class="mono">10.40.8.0/24</span><span>lab</span><button class="btn-quiet" type="button">Delete</button></div>
+        <p class="muted">Spoke-to-spoke is default deny. These ports are the allow list. The route is folded into AllowedIPs the same way a global extra route is.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

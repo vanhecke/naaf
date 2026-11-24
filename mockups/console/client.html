@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <title>naaf — laptop</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="id">
+      <span class="brand">naaf</span>
+      <span class="dim">hub</span>
+      <span class="crumb"><a href="clients.html">clients</a> / laptop</span>
+    </div>
+    <div class="id-right"><time>09:41:07</time></div>
+  </header>
+
+  <nav class="nav" aria-label="primary">
+    <div class="links">
+      <a href="dashboard.html">dashboard</a>
+      <a class="current" href="clients.html">clients</a>
+      <a href="clients.html">exposed</a>
+      <a href="clients.html">forwards</a>
+      <a href="dashboard.html">sites</a>
+      <a href="dashboard.html">exit</a>
+      <a href="dashboard.html">routes</a>
+      <a href="dashboard.html">dns</a>
+      <a href="dashboard.html">troubleshoot</a>
+      <a href="dashboard.html">settings</a>
+    </div>
+    <button type="button" class="btn-solid">re-apply</button>
+  </nav>
+
+  <div class="title-row">
+    <h1>laptop</h1>
+    <span class="status st-online"><span class="mark" aria-hidden="true"></span>online</span>
+    <span class="dim">handshake 42s · endpoint 192.0.2.14:51234</span>
+    <span class="grow"></span>
+    <button type="button">disable</button>
+    <button type="button" class="btn-danger">delete</button>
+  </div>
+
+  <dl class="facts">
+    <div><dt>hostname</dt><dd>laptop.vpn</dd></div>
+    <div><dt>vpn ip</dt><dd>10.8.0.2</dd></div>
+    <div><dt>public key</dt><dd>or+pz2uu4EVM…</dd></div>
+    <div><dt>transfer</dt><dd>1.80 Mb/s in · 240 kb/s out · 18.4 GB</dd></div>
+  </dl>
+
+  <div class="banner">
+    <strong>shown once · not stored</strong>
+    <span class="keyline">PrivateKey = 76Nk1vUAoiZRvhEDzzEkkVUVgIfS48D5H2Ea/28sAbU=</span>
+    <span class="dim">Injected into the first download and the QR, then discarded. Nothing in the database can show it again. Delete the client and add it to reissue.</span>
+  </div>
+
+  <div class="split">
+    <pre class="conf"><span class="cmt"># split · SOCKS5 10.8.0.1:1080 · key is spent on download</span>
+[Interface]
+PrivateKey = 76Nk1vUAoiZRvhEDzzEkkVUVgIfS48D5H2Ea/28sAbU=
+Address = 10.8.0.2/32
+DNS = 10.8.0.1
+MTU = 1420
+
+[Peer]
+PublicKey = sC5OcOoEURA9YIPg/FU2GHt3H7Uml+4A84QmA5PFryE=
+PresharedKey = QHsK6Di4l95c6ghNTydGNVJfiTQGfHXAiywuKeSf6NU=
+Endpoint = 203.0.113.10:51820
+AllowedIPs = 10.8.0.0/24, 10.40.8.0/24
+PersistentKeepalive = 25</pre>
+    <div>
+      <figure class="qr">
+        <img src="../qr.svg" width="154" height="154" alt="QR of the fake split config for laptop">
+        <figcaption>split · one scan</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <div class="flavors">
+    <button type="button" class="btn-solid">split</button>
+    <button type="button">split·nodns</button>
+    <button type="button">full</button>
+    <button type="button">split·ws</button>
+    <button type="button">split·ws·nodns</button>
+    <span class="dim">first download spends the key. QR is split only. full sets AllowedIPs to 0.0.0.0/0. ws flavors are wg-quick hooks and have no QR.</span>
+  </div>
+
+  <section>
+    <div class="ports-head">
+      <h2>exposed ports · other spokes, default deny</h2>
+      <span class="dim">tcp/22 and tcp/8080–8090</span>
+    </div>
+    <table>
+      <thead>
+        <tr><th>proto</th><th>ports</th><th>description</th><th></th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>tcp</td><td>22</td><td>ssh</td>
+          <td><button type="button" class="btn-quiet">delete</button></td>
+        </tr>
+        <tr>
+          <td>tcp</td><td>8080-8090</td><td>dev servers</td>
+          <td><button type="button" class="btn-quiet">delete</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <form class="inline-form" style="margin-top: 8px;">
+      <div class="field"><label for="proto">proto</label>
+        <select id="proto"><option>tcp</option><option>udp</option></select>
+      </div>
+      <div class="field"><label for="port">port or range</label><input id="port" placeholder="22 or 8000-8100" value="22000"></div>
+      <div class="field" style="flex:1"><label for="desc">description</label><input id="desc" value="syncthing" style="width:100%"></div>
+      <button type="button" class="btn-solid">expose and apply</button>
+    </form>
+  </section>
+
+  <section class="pair">
+    <div>
+      <h2>port forward · wan dnat</h2>
+      <div class="kv"><span>tcp/2222 → 10.8.0.2:22</span><span class="status st-online"><span class="mark" aria-hidden="true"></span>enabled</span><button type="button">disable</button></div>
+    </div>
+    <div>
+      <h2>extra route · folded into AllowedIPs</h2>
+      <div class="kv"><span>10.40.8.0/24</span><span class="dim">lab · this client</span><button type="button" class="btn-quiet">delete</button></div>
+    </div>
+  </section>
+</body>
+</html>

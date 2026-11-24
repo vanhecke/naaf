@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>Naaf — clients</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="plate">
+    <div class="mast">
+      <h1>Clients</h1>
+      <div class="muted">10.8.0.0/24 · gateway 10.8.0.1 · next 10.8.0.7 · socks 10.8.0.1:1080 · <time class="mono">09:41:07</time></div>
+    </div>
+    <nav class="nav" aria-label="primary">
+      <div class="links">
+        <a href="dashboard.html">Dashboard</a>
+        <a class="current" href="clients.html">Clients</a>
+        <a href="clients.html">Exposed ports</a>
+        <a href="clients.html">Forwards</a>
+        <a href="dashboard.html">Sites</a>
+        <a href="dashboard.html">Exit</a>
+        <a href="dashboard.html">Routes</a>
+        <a href="dashboard.html">DNS</a>
+        <a href="dashboard.html">Troubleshoot</a>
+        <a href="dashboard.html">Settings</a>
+      </div>
+      <button type="button" class="btn-solid">Re-apply</button>
+    </nav>
+  </header>
+
+  <div class="page">
+    <div class="banner-strip">
+      <strong>KEY · NOT FILED</strong>
+      <div>laptop has a private key waiting. It is not stored. <a href="client.html">Open the strip</a> to download or scan. After that, delete and add to reissue.</div>
+    </div>
+
+    <article class="strip client st-online">
+      <div class="code"><span class="mark" aria-hidden="true"></span>ONL</div>
+      <div class="who"><a class="name" href="client.html">laptop</a><span class="mono">laptop.vpn</span></div>
+      <div class="cell"><span class="k">vpn ip</span><span class="mono">10.8.0.2</span></div>
+      <div class="cell"><span class="k">handshake</span><span class="mono">42s</span></div>
+      <div class="cell"><span class="k">public key</span><span class="mono">or+pz2uu4EVM…</span></div>
+      <div class="cell"><span class="k">config</span><span><a href="client.html">split</a> · nodns · full · ws</span></div>
+      <div class="cell"><span class="k">qr</span><a href="client.html">split only</a></div>
+      <div class="actions"><button type="button" class="btn-quiet">Disable</button></div>
+    </article>
+    <article class="strip client st-online">
+      <div class="code"><span class="mark" aria-hidden="true"></span>ONL</div>
+      <div class="who"><span class="name">phone</span><span class="mono">phone.vpn</span></div>
+      <div class="cell"><span class="k">vpn ip</span><span class="mono">10.8.0.3</span></div>
+      <div class="cell"><span class="k">handshake</span><span class="mono">1m</span></div>
+      <div class="cell"><span class="k">public key</span><span class="mono">ekIeXJbxUqxT…</span></div>
+      <div class="cell"><span class="k">config</span><span>split · nodns · full · ws</span></div>
+      <div class="cell"><span class="k">qr</span><span>split only</span></div>
+      <div class="actions"><button type="button" class="btn-quiet">Disable</button></div>
+    </article>
+    <article class="strip client st-stale">
+      <div class="code"><span class="mark" aria-hidden="true"></span>STL</div>
+      <div class="who"><span class="name">nas</span><span class="mono">nas.vpn</span></div>
+      <div class="cell"><span class="k">vpn ip</span><span class="mono">10.8.0.4</span></div>
+      <div class="cell"><span class="k">handshake</span><span class="mono">14m</span></div>
+      <div class="cell"><span class="k">public key</span><span class="mono">WtIb9luHfiLl…</span></div>
+      <div class="cell"><span class="k">config</span><span>split · nodns · full · ws</span></div>
+      <div class="cell"><span class="k">qr</span><span>split only</span></div>
+      <div class="actions"><button type="button" class="btn-quiet">Disable</button></div>
+    </article>
+    <article class="strip client st-offline">
+      <div class="code"><span class="mark" aria-hidden="true"></span>OFF</div>
+      <div class="who"><span class="name">workstation</span><span class="mono">workstation.vpn</span></div>
+      <div class="cell"><span class="k">vpn ip</span><span class="mono">10.8.0.5</span></div>
+      <div class="cell"><span class="k">handshake</span><span class="mono">2d</span></div>
+      <div class="cell"><span class="k">public key</span><span class="mono">SXhv8/7uZvZo…</span></div>
+      <div class="cell"><span class="k">config</span><span>split · nodns · full · ws</span></div>
+      <div class="cell"><span class="k">qr</span><span>split only</span></div>
+      <div class="actions"><button type="button" class="btn-quiet">Disable</button></div>
+    </article>
+    <article class="strip client st-disabled">
+      <div class="code"><span class="mark" aria-hidden="true"></span>DIS</div>
+      <div class="who"><span class="name">tablet</span><span class="mono">tablet.vpn</span></div>
+      <div class="cell"><span class="k">vpn ip</span><span class="mono">10.8.0.6</span></div>
+      <div class="cell"><span class="k">handshake</span><span class="muted">—</span></div>
+      <div class="cell"><span class="k">public key</span><span class="mono">2VlGCEeEoXYF…</span></div>
+      <div class="cell"><span class="k">config</span><span>split · nodns · full · ws</span></div>
+      <div class="cell"><span class="k">qr</span><span>split only</span></div>
+      <div class="actions"><button type="button" class="btn-solid">Enable</button></div>
+    </article>
+
+    <div class="pair" style="margin-top:4px">
+      <div class="sheet">
+        <h2>Flavors</h2>
+        <div class="kv"><span>split</span><span>subnet and extra routes, DNS 10.8.0.1</span></div>
+        <div class="kv"><span>split·nodns</span><span>same routes, no DNS line</span></div>
+        <div class="kv"><span>full</span><span>AllowedIPs 0.0.0.0/0</span></div>
+        <div class="kv"><span>split·ws</span><span>TLS on tcp/443, no QR</span></div>
+        <div class="kv"><span>split·ws·nodns</span><span>split·ws without DNS</span></div>
+      </div>
+      <form class="sheet">
+        <h2>Add a client</h2>
+        <div class="row">
+          <div class="field"><label for="name">Name</label><input id="name" value="printer"></div>
+          <div class="field"><label for="host">Hostname</label><input id="host" value="printer"></div>
+        </div>
+        <div class="field" style="margin-top:8px">
+          <label for="pub">Public key · blank is shown once</label>
+          <input id="pub" placeholder="leave blank to generate" style="width:100%">
+        </div>
+        <div style="margin-top:8px"><button type="button" class="btn-solid">Add and apply</button></div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

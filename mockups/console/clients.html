@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <title>naaf — clients</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="id">
+      <span class="brand">naaf</span>
+      <span class="dim">hub</span>
+      <span class="dim">10.8.0.0/24</span>
+      <span class="dim">gw 10.8.0.1</span>
+      <span class="dim">socks 10.8.0.1:1080</span>
+    </div>
+    <div class="id-right">
+      <span>next 10.8.0.7</span>
+      <time>09:41:07</time>
+    </div>
+  </header>
+
+  <nav class="nav" aria-label="primary">
+    <div class="links">
+      <a href="dashboard.html">dashboard</a>
+      <a class="current" href="clients.html">clients</a>
+      <a href="clients.html">exposed</a>
+      <a href="clients.html">forwards</a>
+      <a href="dashboard.html">sites</a>
+      <a href="dashboard.html">exit</a>
+      <a href="dashboard.html">routes</a>
+      <a href="dashboard.html">dns</a>
+      <a href="dashboard.html">troubleshoot</a>
+      <a href="dashboard.html">settings</a>
+    </div>
+    <button type="button" class="btn-solid">re-apply</button>
+  </nav>
+
+  <div class="banner">
+    <strong>laptop · private key waiting · not stored</strong>
+    <span>Download or scan from the client page. The key is injected once and then discarded. Reissue means delete and add again. <a href="client.html">open laptop</a></span>
+  </div>
+
+  <section class="peers">
+    <div class="title-row">
+      <h1>clients</h1>
+      <span class="comment">5 rows · 4 enabled · handshake status, not just the enable flag</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>name</th>
+          <th>hostname</th>
+          <th>vpn ip</th>
+          <th>status</th>
+          <th>handshake</th>
+          <th>public key</th>
+          <th>config</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><a href="client.html">laptop</a></td>
+          <td>laptop.vpn</td>
+          <td>10.8.0.2</td>
+          <td><span class="status st-online"><span class="mark" aria-hidden="true"></span>online</span></td>
+          <td>42s</td>
+          <td>or+pz2uu4EVM…</td>
+          <td><span class="actions"><a href="client.html">split</a><a href="client.html">·nodns</a><a href="client.html">full</a><a href="client.html">·ws</a><a href="client.html">·ws·nodns</a><a href="client.html">qr</a></span></td>
+          <td><button type="button">disable</button></td>
+        </tr>
+        <tr>
+          <td>phone</td>
+          <td>phone.vpn</td>
+          <td>10.8.0.3</td>
+          <td><span class="status st-online"><span class="mark" aria-hidden="true"></span>online</span></td>
+          <td>1m</td>
+          <td>ekIeXJbxUqxT…</td>
+          <td><span class="actions"><a href="client.html">split</a><a href="client.html">·nodns</a><a href="client.html">full</a><a href="client.html">·ws</a><a href="client.html">·ws·nodns</a><a href="client.html">qr</a></span></td>
+          <td><button type="button">disable</button></td>
+        </tr>
+        <tr>
+          <td>nas</td>
+          <td>nas.vpn</td>
+          <td>10.8.0.4</td>
+          <td><span class="status st-stale"><span class="mark" aria-hidden="true"></span>stale</span></td>
+          <td>14m</td>
+          <td>WtIb9luHfiLl…</td>
+          <td><span class="actions"><a href="client.html">split</a><a href="client.html">·nodns</a><a href="client.html">full</a><a href="client.html">·ws</a><a href="client.html">·ws·nodns</a><a href="client.html">qr</a></span></td>
+          <td><button type="button">disable</button></td>
+        </tr>
+        <tr>
+          <td>workstation</td>
+          <td>workstation.vpn</td>
+          <td>10.8.0.5</td>
+          <td><span class="status st-offline"><span class="mark" aria-hidden="true"></span>offline</span></td>
+          <td>2d</td>
+          <td>SXhv8/7uZvZo…</td>
+          <td><span class="actions"><a href="client.html">split</a><a href="client.html">·nodns</a><a href="client.html">full</a><a href="client.html">·ws</a><a href="client.html">·ws·nodns</a><a href="client.html">qr</a></span></td>
+          <td><button type="button">disable</button></td>
+        </tr>
+        <tr>
+          <td>tablet</td>
+          <td>tablet.vpn</td>
+          <td>10.8.0.6</td>
+          <td><span class="status st-disabled"><span class="mark" aria-hidden="true"></span>disabled</span></td>
+          <td class="dim">—</td>
+          <td>2VlGCEeEoXYF…</td>
+          <td><span class="actions"><a href="client.html">split</a><a href="client.html">·nodns</a><a href="client.html">full</a><a href="client.html">·ws</a><a href="client.html">·ws·nodns</a><a href="client.html">qr</a></span></td>
+          <td><button type="button" class="btn-solid">enable</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="two">
+    <div>
+      <h2>flavors</h2>
+      <div class="legend">
+        <div><span>split</span><span>VPN subnet and extra routes. DNS = 10.8.0.1</span></div>
+        <div><span>split·nodns</span><span>same routes, no DNS line</span></div>
+        <div><span>full</span><span>AllowedIPs 0.0.0.0/0 through the hub</span></div>
+        <div><span>split·ws</span><span>split inside TLS on tcp/443. wg-quick only, no QR</span></div>
+        <div><span>split·ws·nodns</span><span>split·ws without the DNS line</span></div>
+      </div>
+    </div>
+    <form>
+      <h2>add client · applies immediately</h2>
+      <div class="form-row" style="grid-template-columns: 1fr 1fr; margin-top: 8px;">
+        <div class="field"><label for="name">name</label><input id="name" value="printer"></div>
+        <div class="field"><label for="host">hostname</label><input id="host" value="printer"></div>
+      </div>
+      <div class="field" style="margin-top: 8px;">
+        <label for="pub">public key · blank generates one, shown once</label>
+        <input id="pub" placeholder="leave blank to generate server-side" style="width:100%">
+      </div>
+      <div style="margin-top: 10px;">
+        <button type="button" class="btn-solid">add client and apply</button>
+      </div>
+    </form>
+  </section>
+</body>
+</html>
