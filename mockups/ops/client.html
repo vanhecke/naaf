@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <title>Naaf — laptop</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside>
+    <div class="brand">NAAF<small>clients / laptop</small></div>
+    <div class="group">
+      <h2>Observe</h2>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="dashboard.html">Troubleshoot</a>
+    </div>
+    <div class="group">
+      <h2>Peers</h2>
+      <a class="current" href="clients.html">Clients</a>
+      <a href="dashboard.html">Sites</a>
+      <a href="dashboard.html">Internet exit</a>
+    </div>
+    <div class="group">
+      <h2>Policy</h2>
+      <a href="clients.html">Exposed ports</a>
+      <a href="clients.html">Port forwards</a>
+      <a href="dashboard.html">Routes</a>
+      <a href="dashboard.html">DNS</a>
+    </div>
+    <div class="group"><h2>System</h2><a href="dashboard.html">Settings</a></div>
+    <div class="side-foot">
+      <button type="button" class="btn-solid">Re-apply state</button>
+      <button type="button">Disable laptop</button>
+      <button type="button" class="btn-danger">Delete laptop</button>
+    </div>
+  </aside>
+  <main>
+    <div class="main-head">
+      <h1>laptop</h1>
+      <span class="status st-online"><span class="mark" aria-hidden="true"></span>online</span>
+      <span class="mono muted">10.8.0.2 · laptop.vpn · handshake 42s</span>
+      <span class="grow"></span>
+      <span class="mono">1.80 Mb/s in · 240 kb/s out</span>
+    </div>
+
+    <div class="banner">
+      <strong>Private key · shown once · not stored</strong>
+      <div class="keyline">76Nk1vUAoiZRvhEDzzEkkVUVgIfS48D5H2Ea/28sAbU=</div>
+      <div class="muted">Injected into the first download and the QR, then discarded. Delete and add the client to reissue.</div>
+    </div>
+
+    <div class="split">
+      <pre class="conf"># split · SOCKS5 10.8.0.1:1080 · key is spent on download
+[Interface]
+PrivateKey = 76Nk1vUAoiZRvhEDzzEkkVUVgIfS48D5H2Ea/28sAbU=
+Address = 10.8.0.2/32
+DNS = 10.8.0.1
+MTU = 1420
+
+[Peer]
+PublicKey = sC5OcOoEURA9YIPg/FU2GHt3H7Uml+4A84QmA5PFryE=
+PresharedKey = QHsK6Di4l95c6ghNTydGNVJfiTQGfHXAiywuKeSf6NU=
+Endpoint = 203.0.113.10:51820
+AllowedIPs = 10.8.0.0/24, 10.40.8.0/24
+PersistentKeepalive = 25</pre>
+      <figure class="qr">
+        <img src="../qr.svg" width="154" height="154" alt="QR of the fake split config for laptop">
+        <figcaption>split · one scan</figcaption>
+      </figure>
+    </div>
+    <div class="flavors">
+      <button type="button" class="btn-solid">split</button>
+      <button type="button">split·nodns</button>
+      <button type="button">full</button>
+      <button type="button">split·ws</button>
+      <button type="button">split·ws·nodns</button>
+      <span class="muted">QR is split only. full is 0.0.0.0/0. ws flavors have no QR.</span>
+    </div>
+
+    <div class="pair">
+      <div class="panel">
+        <h2 class="sec">Exposed ports · spoke to spoke</h2>
+        <div class="kv"><span class="mono">tcp/22</span><span>ssh</span><button type="button" class="btn-quiet">Delete</button></div>
+        <div class="kv"><span class="mono">tcp/8080-8090</span><span>dev servers</span><button type="button" class="btn-quiet">Delete</button></div>
+        <form class="row" style="margin-top:8px">
+          <div class="field"><label for="proto">Proto</label><select id="proto"><option>tcp</option><option>udp</option></select></div>
+          <div class="field"><label for="port">Ports</label><input id="port" value="22000"></div>
+          <div class="field"><label for="desc">Description</label><input id="desc" value="syncthing"></div>
+          <button type="button" class="btn-solid">Expose</button>
+        </form>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <h2 class="sec">Port forward · WAN DNAT</h2>
+          <div class="kv"><span class="mono">tcp/2222 → 10.8.0.2:22</span><span class="status st-online"><span class="mark" aria-hidden="true"></span>enabled</span><button type="button" class="btn-quiet">Disable</button></div>
+        </div>
+        <div class="panel">
+          <h2 class="sec">Extra route · AllowedIPs</h2>
+          <div class="kv"><span class="mono">10.40.8.0/24</span><span class="muted">lab</span><button type="button" class="btn-quiet">Delete</button></div>
+        </div>
+        <div class="panel">
+          <h2 class="sec">Identity</h2>
+          <div class="kv"><span>Public key</span><span class="mono">or+pz2uu4EVM…</span></div>
+          <div class="kv"><span>Endpoint</span><span class="mono">192.0.2.14:51234</span></div>
+          <div class="kv"><span>Total</span><span class="mono">18.4 GB</span></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

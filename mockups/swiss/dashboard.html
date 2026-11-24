@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>Naaf — Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="word">NAAF</div>
+    <div class="muted">hub · <a href="dashboard-dark.html">dark</a> · <time>09:41:07</time></div>
+  </header>
+  <nav class="nav" aria-label="primary">
+    <div class="links">
+      <a class="current" href="dashboard.html">Dashboard</a>
+      <a href="clients.html">Clients</a>
+      <a href="clients.html">Exposed ports</a>
+      <a href="clients.html">Port forwards</a>
+      <a href="dashboard.html">Sites</a>
+      <a href="dashboard.html">Exit</a>
+      <a href="dashboard.html">Routes</a>
+      <a href="dashboard.html">DNS</a>
+      <a href="dashboard.html">Troubleshoot</a>
+      <a href="dashboard.html">Settings</a>
+    </div>
+    <button type="button" class="btn-solid">Re-apply</button>
+  </nav>
+
+  <div class="title-row">
+    <h1>Dashboard</h1>
+    <p class="deck">10.8.0.0/24 · gateway 10.8.0.1 · 203.0.113.10:51820 · live · reconciled 12s ago</p>
+  </div>
+
+  <section class="figures" aria-label="summary">
+    <div class="fig">
+      <div class="lbl">Tunnel · 15 min · solid in, dashed out</div>
+      <div><span class="big">2.28</span> <span class="unit">Mb/s in</span> · <span class="big">1.36</span> <span class="unit">Mb/s out</span></div>
+      <svg class="dual" viewBox="0 0 480 64" role="img" aria-label="Tunnel throughput, in above the axis, out below">
+        <line class="axis" x1="0" y1="32" x2="480" y2="32"></line>
+        <polyline class="in" points="2.0,23.2 36.0,21.6 70.0,22.6 104.0,18.5 138.0,20.0 172.0,16.4 206.0,14.3 240.0,17.4 274.0,15.4 308.0,11.7 342.0,13.3 376.0,9.1 410.0,13.8 444.0,10.7 478.0,12.2"></polyline>
+        <polyline class="out" points="2.0,37.7 36.0,38.2 70.0,36.7 104.0,40.3 138.0,39.3 172.0,41.4 206.0,42.9 240.0,39.8 274.0,41.9 308.0,44.0 342.0,42.4 376.0,43.4 410.0,40.3 444.0,41.9 478.0,40.8"></polyline>
+      </svg>
+    </div>
+    <div class="fig">
+      <div class="lbl">Clients</div>
+      <div class="big">2<span class="unit">/4</span></div>
+      <div class="muted">1 stale · 1 offline · 1 disabled</div>
+    </div>
+    <div class="fig">
+      <div class="lbl">Sites · exit off</div>
+      <div class="big">1<span class="unit">/2</span></div>
+      <div class="muted">full tunnel via WAN masquerade</div>
+    </div>
+    <div class="fig">
+      <div class="lbl">DNS · CPU</div>
+      <div class="big">3.2<span class="unit">/s</span></div>
+      <div class="muted">cpu 6% · load 0.18 / 2</div>
+    </div>
+  </section>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Type</th><th>Address</th><th>Status</th><th>Handshake</th><th>Endpoint</th>
+        <th class="num">In</th><th class="num">Out</th><th class="num">Total</th><th>Recent</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="client.html">laptop</a></td><td class="muted">client</td>
+        <td class="mono">10.8.0.2</td>
+        <td><span class="status st-online"><span class="mark" aria-hidden="true"></span>Online</span></td>
+        <td class="mono">42s</td><td class="mono">192.0.2.14:51234</td>
+        <td class="num mono">1.80 Mb/s</td><td class="num mono">240 kb/s</td><td class="num mono muted">18.4 GB</td>
+        <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="laptop inbound"><polyline points="1.5,17.9 9.3,17.2 17.1,18.3 24.9,15.4 32.6,12.4 40.4,13.7 48.2,10.3 56.0,11.8 63.8,8.6 71.6,7.0 79.4,7.8 87.1,4.4 94.9,6.1 102.7,2.8 110.5,4.0"></polyline></svg></td>
+      </tr>
+      <tr>
+        <td>phone</td><td class="muted">client</td><td class="mono">10.8.0.3</td>
+        <td><span class="status st-online"><span class="mark" aria-hidden="true"></span>Online</span></td>
+        <td class="mono">1m</td><td class="mono">192.0.2.88:41822</td>
+        <td class="num mono">80 kb/s</td><td class="num mono">22 kb/s</td><td class="num mono muted">2.1 GB</td>
+        <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="phone inbound"><polyline points="1.5,16.2 9.3,16.6 17.1,17.9 24.9,14.9 32.6,17.0 40.4,18.3 48.2,15.4 56.0,16.2 63.8,17.5 71.6,15.8 79.4,16.6 87.1,17.9 94.9,18.7 102.7,17.0 110.5,17.5"></polyline></svg></td>
+      </tr>
+      <tr>
+        <td>nas</td><td class="muted">client</td><td class="mono">10.8.0.4</td>
+        <td><span class="status st-stale"><span class="mark" aria-hidden="true"></span>Stale</span></td>
+        <td class="mono">14m</td><td class="mono">192.0.2.40:51820</td>
+        <td class="num mono">0 B/s</td><td class="num mono">0 B/s</td><td class="num mono muted">640 GB</td>
+        <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="nas inbound"><polyline points="1.5,3.2 9.3,4.9 17.1,7.8 24.9,10.9 32.6,14.9 40.4,17.9 48.2,20.0 56.0,21.2 63.8,22.1 71.6,22.5 79.4,22.5 87.1,22.5 94.9,22.5 102.7,22.5 110.5,22.5"></polyline></svg></td>
+      </tr>
+      <tr>
+        <td>workstation</td><td class="muted">client</td><td class="mono">10.8.0.5</td>
+        <td><span class="status st-offline"><span class="mark" aria-hidden="true"></span>Offline</span></td>
+        <td class="mono">2d</td><td class="muted">—</td>
+        <td class="num mono">0 B/s</td><td class="num mono">0 B/s</td><td class="num mono muted">4.4 GB</td>
+        <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="workstation inbound"><polyline points="1.5,20.4 9.3,20.8 17.1,21.7 24.9,22.1 32.6,22.5 40.4,22.5 48.2,22.5 56.0,22.5 63.8,22.5 71.6,22.5 79.4,22.5 87.1,22.5 94.9,22.5 102.7,22.5 110.5,22.5"></polyline></svg></td>
+      </tr>
+      <tr>
+        <td>tablet</td><td class="muted">client</td><td class="mono">10.8.0.6</td>
+        <td><span class="status st-disabled"><span class="mark" aria-hidden="true"></span>Disabled</span></td>
+        <td class="muted">—</td><td class="muted">—</td>
+        <td class="num muted">—</td><td class="num muted">—</td><td class="num mono muted">880 MB</td>
+        <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="tablet not installed"><polyline points="1.5,22.5 9.3,22.5 17.1,22.5 24.9,22.5 32.6,22.5 40.4,22.5 48.2,22.5 56.0,22.5 63.8,22.5 71.6,22.5 79.4,22.5 87.1,22.5 94.9,22.5 102.7,22.5 110.5,22.5"></polyline></svg></td>
+      </tr>
+      <tr>
+        <td>site-office</td><td class="muted">site</td><td class="mono">10.20.0.0/24 <span class="muted">+1</span></td>
+        <td><span class="status st-online"><span class="mark" aria-hidden="true"></span>Online</span></td>
+        <td class="mono">28s</td><td class="mono">203.0.113.20:51820</td>
+        <td class="num mono">420 kb/s</td><td class="num mono">1.10 Mb/s</td><td class="num mono muted">96 GB</td>
+        <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="site-office inbound"><polyline points="1.5,14.1 9.3,12.8 17.1,13.7 24.9,10.9 32.6,12.0 40.4,9.5 48.2,10.3 56.0,8.6 63.8,9.9 71.6,7.4 79.4,8.2 87.1,6.1 94.9,7.8 102.7,4.9 110.5,6.5"></polyline></svg></td>
+      </tr>
+      <tr>
+        <td>site-parents</td><td class="muted">site</td><td class="mono">10.30.0.0/24</td>
+        <td><span class="status st-offline"><span class="mark" aria-hidden="true"></span>Offline</span></td>
+        <td class="mono">6h</td><td class="mono">198.51.100.20:51820</td>
+        <td class="num mono">0 B/s</td><td class="num mono">0 B/s</td><td class="num mono muted">12.0 GB</td>
+        <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="site-parents inbound"><polyline points="1.5,18.3 9.3,20.0 17.1,21.2 24.9,22.1 32.6,22.5 40.4,22.5 48.2,22.5 56.0,22.5 63.8,22.5 71.6,22.5 79.4,22.5 87.1,22.5 94.9,22.5 102.7,22.5 110.5,22.5"></polyline></svg></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note">Online: handshake under 3 min. Stale: under 2 h. Offline: older or never, still enabled. Disabled: not installed on wg0. Sparkline is inbound. Talkers are peer share, not destinations — laptop 56%, site-office 41%, phone 3%.</p>
+
+  <section class="cols">
+    <div>
+      <h2>DNS · .vpn via 198.51.100.53</h2>
+      <div class="kv"><span>Rate</span><span class="mono">3.2/s · local 64% · p50 4 ms · p95 18 ms</span></div>
+      <div class="kv"><span>laptop.vpn</span><span class="mono">420</span></div>
+      <div class="kv"><span>nas.vpn</span><span class="mono">310</span></div>
+      <div class="kv"><span>files.office.vpn</span><span class="mono">180 · forwarded</span></div>
+      <div class="kv"><span>phone.vpn</span><span class="mono">96</span></div>
+      <div class="kv"><span>time.vpn</span><span class="mono">40 · upstream fail 0</span></div>
+    </div>
+    <div>
+      <h2>Health · backup 4m · ruby 4.0.6 YJIT</h2>
+      <div class="meter"><span>CPU</span><progress value="6" max="100"></progress><span class="mono">6% · 0.18 / 2</span></div>
+      <div class="meter"><span>Memory</span><progress value="39" max="100"></progress><span class="mono">760 MB / 1.9 GB</span></div>
+      <div class="meter"><span>Conntrack</span><progress value="1" max="100"></progress><span class="mono">412 / 65536</span></div>
+      <div class="kv"><span>Pipeline</span><span class="mono">wan0 48 → udp 46 → wg0 41 pkt/s</span></div>
+      <div class="kv"><span>Verdict</span><span>Passing · 2 clients connected</span></div>
+      <div class="kv"><span>Process</span><span class="mono">48 MB · db 1.2 MB + 256 KB WAL</span></div>
+    </div>
+  </section>
+</body>
+</html>

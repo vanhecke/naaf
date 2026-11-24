@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>naaf — dashboard (light)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="id">
+      <span class="brand">naaf</span>
+      <span class="dim">hub</span>
+      <span class="dim">wg0</span>
+      <span class="live"><span class="mark" aria-hidden="true"></span>live</span>
+    </div>
+    <div class="id-right">
+      <a class="theme-link" href="dashboard.html">dark</a>
+      <time datetime="2026-11-24T09:41:07Z">09:41:07</time>
+    </div>
+  </header>
+
+  <nav class="nav" aria-label="primary">
+    <div class="links">
+      <a class="current" href="dashboard.html">dashboard</a>
+      <a href="clients.html">clients</a>
+      <a href="clients.html">exposed</a>
+      <a href="clients.html">forwards</a>
+      <a href="dashboard.html">sites</a>
+      <a href="dashboard.html">exit</a>
+      <a href="dashboard.html">routes</a>
+      <a href="dashboard.html">dns</a>
+      <a href="dashboard.html">troubleshoot</a>
+      <a href="dashboard.html">settings</a>
+    </div>
+    <button type="button" class="btn-solid">re-apply</button>
+  </nav>
+
+  <section class="kpis" aria-label="throughput and host">
+    <div class="kpi">
+      <div class="lbl">tunnel · 15 min · in above, out dashed</div>
+      <div class="val">2.28 <span class="unit">Mb/s in</span> <span class="dim">·</span> 1.36 <span class="unit">Mb/s out</span></div>
+      <svg class="dual" viewBox="0 0 480 64" role="img" aria-label="Tunnel throughput. In is the solid line above the axis. Out is the dashed line below.">
+        <line class="axis" x1="2" y1="32" x2="478" y2="32"></line>
+        <polyline class="in" points="2.0,23.2 36.0,21.6 70.0,22.6 104.0,18.5 138.0,20.0 172.0,16.4 206.0,14.3 240.0,17.4 274.0,15.4 308.0,11.7 342.0,13.3 376.0,9.1 410.0,13.8 444.0,10.7 478.0,12.2"></polyline>
+        <polyline class="out" points="2.0,37.7 36.0,38.2 70.0,36.7 104.0,40.3 138.0,39.3 172.0,41.4 206.0,42.9 240.0,39.8 274.0,41.9 308.0,44.0 342.0,42.4 376.0,43.4 410.0,40.3 444.0,41.9 478.0,40.8"></polyline>
+        <text x="8" y="12">in</text>
+        <text x="8" y="60">out</text>
+      </svg>
+    </div>
+    <div class="kpi">
+      <div class="lbl">clients</div>
+      <div class="val">2<span class="unit">/4 up</span></div>
+      <div class="sub">1 stale · 1 offline · 1 disabled</div>
+    </div>
+    <div class="kpi">
+      <div class="lbl">sites</div>
+      <div class="val">1<span class="unit">/2 up</span></div>
+      <div class="sub">exit off · WAN masquerade</div>
+    </div>
+    <div class="kpi">
+      <div class="lbl">dns</div>
+      <div class="val">3.2<span class="unit">/s</span></div>
+      <div class="sub">local 64% · p50 4 ms</div>
+    </div>
+  </section>
+
+  <section class="peers">
+    <p class="comment"># peers — online: handshake &lt; 3 min. stale: &lt; 2 h. offline: older or never. disabled: not a kernel peer. spark is inbound.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>name</th>
+          <th>type</th>
+          <th>address</th>
+          <th>status</th>
+          <th>handshake</th>
+          <th>endpoint</th>
+          <th class="num">in</th>
+          <th class="num">out</th>
+          <th class="num">total</th>
+          <th>recent</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><a href="client.html">laptop</a></td>
+          <td class="dim">client</td>
+          <td>10.8.0.2</td>
+          <td><span class="status st-online"><span class="mark" aria-hidden="true"></span>online</span></td>
+          <td>42s</td>
+          <td>192.0.2.14:51234</td>
+          <td class="num">1.80 Mb/s</td>
+          <td class="num">240 kb/s</td>
+          <td class="num dim">18.4 GB</td>
+          <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="laptop inbound"><polyline points="1.5,17.9 9.3,17.2 17.1,18.3 24.9,15.4 32.6,12.4 40.4,13.7 48.2,10.3 56.0,11.8 63.8,8.6 71.6,7.0 79.4,7.8 87.1,4.4 94.9,6.1 102.7,2.8 110.5,4.0"></polyline></svg></td>
+        </tr>
+        <tr>
+          <td>phone</td>
+          <td class="dim">client</td>
+          <td>10.8.0.3</td>
+          <td><span class="status st-online"><span class="mark" aria-hidden="true"></span>online</span></td>
+          <td>1m</td>
+          <td>192.0.2.88:41822</td>
+          <td class="num">80 kb/s</td>
+          <td class="num">22 kb/s</td>
+          <td class="num dim">2.1 GB</td>
+          <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="phone inbound"><polyline points="1.5,16.2 9.3,16.6 17.1,17.9 24.9,14.9 32.6,17.0 40.4,18.3 48.2,15.4 56.0,16.2 63.8,17.5 71.6,15.8 79.4,16.6 87.1,17.9 94.9,18.7 102.7,17.0 110.5,17.5"></polyline></svg></td>
+        </tr>
+        <tr>
+          <td>nas</td>
+          <td class="dim">client</td>
+          <td>10.8.0.4</td>
+          <td><span class="status st-stale"><span class="mark" aria-hidden="true"></span>stale</span></td>
+          <td>14m</td>
+          <td>192.0.2.40:51820</td>
+          <td class="num">0 B/s</td>
+          <td class="num">0 B/s</td>
+          <td class="num dim">640 GB</td>
+          <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="nas inbound, fallen to zero"><polyline points="1.5,3.2 9.3,4.9 17.1,7.8 24.9,10.9 32.6,14.9 40.4,17.9 48.2,20.0 56.0,21.2 63.8,22.1 71.6,22.5 79.4,22.5 87.1,22.5 94.9,22.5 102.7,22.5 110.5,22.5"></polyline></svg></td>
+        </tr>
+        <tr>
+          <td>workstation</td>
+          <td class="dim">client</td>
+          <td>10.8.0.5</td>
+          <td><span class="status st-offline"><span class="mark" aria-hidden="true"></span>offline</span></td>
+          <td>2d</td>
+          <td class="dim">—</td>
+          <td class="num">0 B/s</td>
+          <td class="num">0 B/s</td>
+          <td class="num dim">4.4 GB</td>
+          <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="workstation inbound, idle"><polyline points="1.5,20.4 9.3,20.8 17.1,21.7 24.9,22.1 32.6,22.5 40.4,22.5 48.2,22.5 56.0,22.5 63.8,22.5 71.6,22.5 79.4,22.5 87.1,22.5 94.9,22.5 102.7,22.5 110.5,22.5"></polyline></svg></td>
+        </tr>
+        <tr>
+          <td>tablet</td>
+          <td class="dim">client</td>
+          <td>10.8.0.6</td>
+          <td><span class="status st-disabled"><span class="mark" aria-hidden="true"></span>disabled</span></td>
+          <td class="dim">—</td>
+          <td class="dim">—</td>
+          <td class="num dim">—</td>
+          <td class="num dim">—</td>
+          <td class="num dim">880 MB</td>
+          <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="tablet not installed"><polyline points="1.5,22.5 9.3,22.5 17.1,22.5 24.9,22.5 32.6,22.5 40.4,22.5 48.2,22.5 56.0,22.5 63.8,22.5 71.6,22.5 79.4,22.5 87.1,22.5 94.9,22.5 102.7,22.5 110.5,22.5"></polyline></svg></td>
+        </tr>
+        <tr>
+          <td>site-office</td>
+          <td class="dim">site</td>
+          <td>10.20.0.0/24 <span class="dim">+1</span></td>
+          <td><span class="status st-online"><span class="mark" aria-hidden="true"></span>online</span></td>
+          <td>28s</td>
+          <td>203.0.113.20:51820</td>
+          <td class="num">420 kb/s</td>
+          <td class="num">1.10 Mb/s</td>
+          <td class="num dim">96 GB</td>
+          <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="site-office inbound"><polyline points="1.5,14.1 9.3,12.8 17.1,13.7 24.9,10.9 32.6,12.0 40.4,9.5 48.2,10.3 56.0,8.6 63.8,9.9 71.6,7.4 79.4,8.2 87.1,6.1 94.9,7.8 102.7,4.9 110.5,6.5"></polyline></svg></td>
+        </tr>
+        <tr>
+          <td>site-parents</td>
+          <td class="dim">site</td>
+          <td>10.30.0.0/24</td>
+          <td><span class="status st-offline"><span class="mark" aria-hidden="true"></span>offline</span></td>
+          <td>6h</td>
+          <td>198.51.100.20:51820</td>
+          <td class="num">0 B/s</td>
+          <td class="num">0 B/s</td>
+          <td class="num dim">12.0 GB</td>
+          <td><svg class="spark" viewBox="0 0 112 24" role="img" aria-label="site-parents inbound, idle"><polyline points="1.5,18.3 9.3,20.0 17.1,21.2 24.9,22.1 32.6,22.5 40.4,22.5 48.2,22.5 56.0,22.5 63.8,22.5 71.6,22.5 79.4,22.5 87.1,22.5 94.9,22.5 102.7,22.5 110.5,22.5"></polyline></svg></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="lower">
+    <div class="stack">
+      <h2>dns · .vpn via 198.51.100.53</h2>
+      <div class="statline">
+        <span>3.2/s</span>
+        <svg class="spark" viewBox="0 0 112 24" role="img" aria-label="dns queries per second" style="width:100%;height:28px"><polyline points="1.5,18.3 9.3,13.1 17.1,16.2 24.9,10.9 32.6,17.2 40.4,14.1 48.2,7.8 56.0,15.2 63.8,12.0 71.6,16.6 79.4,13.7 87.1,9.9 94.9,15.6 102.7,12.4 110.5,14.9"></polyline></svg>
+        <span class="dim">18.4k since start · p95 18 ms</span>
+      </div>
+      <div class="dnscols">
+        <div>
+          <div class="dim">top names</div>
+          <div class="kv"><span>laptop.vpn</span><span>420</span></div>
+          <div class="kv"><span>nas.vpn</span><span>310</span></div>
+          <div class="kv"><span>files.office.vpn</span><span>180</span></div>
+          <div class="kv"><span>phone.vpn</span><span>96</span></div>
+          <div class="kv"><span>time.vpn</span><span>40</span></div>
+        </div>
+        <div>
+          <div class="dim">top clients</div>
+          <div class="kv"><span>laptop</span><span>420</span></div>
+          <div class="kv"><span>nas</span><span>310</span></div>
+          <div class="kv"><span>phone</span><span>96</span></div>
+          <div class="kv"><span>forwarded</span><span>180</span></div>
+          <div class="kv"><span>upstream fail</span><span>0</span></div>
+        </div>
+      </div>
+      <h2>talkers · peer share, not destinations</h2>
+      <div class="share"><span>laptop</span><progress value="56" max="100">56%</progress><span>56%</span></div>
+      <div class="share"><span>site-office</span><progress value="41" max="100">41%</progress><span>41%</span></div>
+      <div class="share"><span>phone</span><progress value="3" max="100">3%</progress><span>3%</span></div>
+    </div>
+    <div class="stack">
+      <h2>health · reconciled 12s · backup 4m</h2>
+      <div class="statline">
+        <span class="lbl">cpu</span>
+        <progress value="6" max="100">6%</progress>
+        <span>6% · load 0.18 / 2</span>
+      </div>
+      <div class="statline">
+        <span class="lbl">memory</span>
+        <progress value="39" max="100">39%</progress>
+        <span>760 MB / 1.9 GB</span>
+      </div>
+      <div class="statline">
+        <span class="lbl">conntrack</span>
+        <progress value="1" max="100">1%</progress>
+        <span>412 / 65536</span>
+      </div>
+      <div class="pipeline">
+        <div><div class="lbl dim">wan0 received</div><div class="n">48 <span class="unit">pkt/s</span></div></div>
+        <div class="arrow">→</div>
+        <div><div class="lbl dim">udp delivered</div><div class="n">46 <span class="unit">dg/s</span></div></div>
+        <div class="arrow">→</div>
+        <div><div class="lbl dim">wg0 decrypted</div><div class="n">41 <span class="unit">pkt/s</span></div></div>
+        <div class="pipe-ok status"><span class="mark" aria-hidden="true"></span>passing</div>
+      </div>
+      <p class="comment">ruby 4.0.6 YJIT · 48 MB RSS · db 1.2 MB + 256 KB WAL · uptime 14d · socks 10.8.0.1:1080</p>
+      <p class="comment">10.8.0.0/24 · gw 10.8.0.1 · endpoint 203.0.113.10:51820 · wg0 / wan0</p>
+    </div>
+  </section>
+</body>
+</html>

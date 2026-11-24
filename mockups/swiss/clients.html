@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>Naaf — Clients</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="word">NAAF</div>
+    <div class="muted">10.8.0.0/24 · gateway 10.8.0.1 · next 10.8.0.7 · <time>09:41:07</time></div>
+  </header>
+  <nav class="nav" aria-label="primary">
+    <div class="links">
+      <a href="dashboard.html">Dashboard</a>
+      <a class="current" href="clients.html">Clients</a>
+      <a href="clients.html">Exposed ports</a>
+      <a href="clients.html">Port forwards</a>
+      <a href="dashboard.html">Sites</a>
+      <a href="dashboard.html">Exit</a>
+      <a href="dashboard.html">Routes</a>
+      <a href="dashboard.html">DNS</a>
+      <a href="dashboard.html">Troubleshoot</a>
+      <a href="dashboard.html">Settings</a>
+    </div>
+    <button type="button" class="btn-solid">Re-apply</button>
+  </nav>
+
+  <div class="title-row">
+    <h1>Clients</h1>
+    <p class="deck">SOCKS5 10.8.0.1:1080 · 4 enabled · status is the handshake, not only the enable flag</p>
+  </div>
+
+  <div class="banner">
+    <strong>SHOWN ONCE</strong>
+    <div>laptop has a private key waiting. It is not stored. <a href="client.html">Open laptop</a> to download or scan, then it is gone.</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Hostname</th><th>VPN IP</th><th>Status</th><th>Handshake</th><th>Public key</th><th>Config</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="client.html">laptop</a></td><td class="mono">laptop.vpn</td><td class="mono">10.8.0.2</td>
+        <td><span class="status st-online"><span class="mark" aria-hidden="true"></span>Online</span></td>
+        <td class="mono">42s</td><td class="mono">or+pz2uu4EVM…</td>
+        <td class="links-quiet"><a href="client.html">split</a><a href="client.html">nodns</a><a href="client.html">full</a><a href="client.html">ws</a><a href="client.html">qr</a></td>
+        <td><button type="button" class="btn-quiet">Disable</button></td>
+      </tr>
+      <tr>
+        <td>phone</td><td class="mono">phone.vpn</td><td class="mono">10.8.0.3</td>
+        <td><span class="status st-online"><span class="mark" aria-hidden="true"></span>Online</span></td>
+        <td class="mono">1m</td><td class="mono">ekIeXJbxUqxT…</td>
+        <td class="links-quiet"><a href="client.html">split</a><a href="client.html">nodns</a><a href="client.html">full</a><a href="client.html">ws</a><a href="client.html">qr</a></td>
+        <td><button type="button" class="btn-quiet">Disable</button></td>
+      </tr>
+      <tr>
+        <td>nas</td><td class="mono">nas.vpn</td><td class="mono">10.8.0.4</td>
+        <td><span class="status st-stale"><span class="mark" aria-hidden="true"></span>Stale</span></td>
+        <td class="mono">14m</td><td class="mono">WtIb9luHfiLl…</td>
+        <td class="links-quiet"><a href="client.html">split</a><a href="client.html">nodns</a><a href="client.html">full</a><a href="client.html">ws</a><a href="client.html">qr</a></td>
+        <td><button type="button" class="btn-quiet">Disable</button></td>
+      </tr>
+      <tr>
+        <td>workstation</td><td class="mono">workstation.vpn</td><td class="mono">10.8.0.5</td>
+        <td><span class="status st-offline"><span class="mark" aria-hidden="true"></span>Offline</span></td>
+        <td class="mono">2d</td><td class="mono">SXhv8/7uZvZo…</td>
+        <td class="links-quiet"><a href="client.html">split</a><a href="client.html">nodns</a><a href="client.html">full</a><a href="client.html">ws</a><a href="client.html">qr</a></td>
+        <td><button type="button" class="btn-quiet">Disable</button></td>
+      </tr>
+      <tr>
+        <td>tablet</td><td class="mono">tablet.vpn</td><td class="mono">10.8.0.6</td>
+        <td><span class="status st-disabled"><span class="mark" aria-hidden="true"></span>Disabled</span></td>
+        <td class="muted">—</td><td class="mono">2VlGCEeEoXYF…</td>
+        <td class="links-quiet"><a href="client.html">split</a><a href="client.html">nodns</a><a href="client.html">full</a><a href="client.html">ws</a><a href="client.html">qr</a></td>
+        <td><button type="button" class="btn-solid">Enable</button></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <section class="cols">
+    <div>
+      <h2>Config flavors</h2>
+      <div class="kv"><span>split</span><span>Subnet and extra routes. DNS = 10.8.0.1</span></div>
+      <div class="kv"><span>split·nodns</span><span>Same routes, no DNS line</span></div>
+      <div class="kv"><span>full</span><span>AllowedIPs 0.0.0.0/0 through the hub</span></div>
+      <div class="kv"><span>split·ws</span><span>Split inside TLS on tcp/443. No QR</span></div>
+      <div class="kv"><span>split·ws·nodns</span><span>split·ws without DNS</span></div>
+    </div>
+    <form>
+      <h2>Add a client · applies immediately</h2>
+      <div class="form-row" style="grid-template-columns: 1fr 1fr; margin-bottom: 8px;">
+        <div class="field"><label for="name">Name</label><input id="name" value="printer"></div>
+        <div class="field"><label for="host">Hostname</label><input id="host" value="printer"></div>
+      </div>
+      <div class="field">
+        <label for="pub">Public key · blank generates one, shown once</label>
+        <input id="pub" placeholder="leave blank to generate server-side">
+      </div>
+      <div style="margin-top:10px"><button type="button" class="btn-solid">Add client and apply</button></div>
+    </form>
+  </section>
+</body>
+</html>
