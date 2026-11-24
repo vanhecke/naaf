@@ -1,209 +1,329 @@
-/* Naaf's own stylesheet — the only one. It lives beside the vendored assets
- * because vendor/ is the static root Roda's :public plugin serves; there is no
- * asset pipeline and there must not be one.
- *
- * Its entire job is colour for the inline SVG charts. The renderers in
- * lib/naaf/renderers/svg.rb emit structure and class names and never name a
- * colour, which is what lets dark mode use *selected* steps for the dark
- * surface rather than an automatic flip of the light ones.
- *
- * Bulma 1.0.4 already switches on prefers-color-scheme and on a data-theme
- * attribute, so both scopes are declared here: the media query follows the OS,
- * the attribute follows an explicit choice, and the attribute wins either way.
- */
+/* Naaf admin — the Bay station log. One file, no build.
+   Tokens and status rules are documented in docs/DESIGN.md. */
 
 :root {
-  --naaf-in: #2a78d6;      /* inbound / primary trend */
-  --naaf-out: #eb6834;     /* outbound */
-  --naaf-grid: #c3c2b7;    /* baselines and rules, one step off the surface */
-  --naaf-good: #0ca30c;
-  --naaf-good-glow: rgba(12, 163, 12, 0.5);
-  --naaf-warning: #fab219;
-  --naaf-critical: #d03b3b;
+  color-scheme: light;
+  --bay: #e6e2d6;
+  --paper: #f7f4ec;
+  --strip: #fbfaf6;
+  --ink: #1c1b18;
+  --muted: #5e584e;
+  --line: #d0c8b6;
+  --online: #0f5c30;
+  --online-bg: #e4f3ea;
+  --stale: #7a4e00;
+  --stale-bg: #f8edd4;
+  --offline: #8a2e2e;
+  --offline-bg: #f8e4e1;
+  --disabled: #5c574e;
+  --disabled-bg: #eceae3;
+  --accent: #0f5c30;
+  --accent-ink: #ffffff;
+  --focus: #0f5c30;
+  --naaf-in: #0f5c30;
+  --naaf-out: #7a4e00;
+  --naaf-grid: #c3bba8;
+  --naaf-good: #0f5c30;
+  --naaf-good-glow: rgba(15, 92, 48, 0.45);
+  --naaf-warning: #7a4e00;
+  --naaf-critical: #8a2e2e;
+  --hatch: rgba(28, 27, 24, 0.14);
+  --serif: "Liberation Serif", "Noto Serif", serif;
+  --sans: "Liberation Sans", "Noto Sans", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
-    --naaf-in: #3987e5;
-    --naaf-out: #d95926;
-    --naaf-grid: #383835;
+    color-scheme: dark;
+    --bay: #141311;
+    --paper: #221f1a;
+    --strip: #2c2822;
+    --ink: #f4efe4;
+    --muted: #c2baab;
+    --line: #453f36;
+    --online: #b7e7c8;
+    --online-bg: #173224;
+    --stale: #f3d59a;
+    --stale-bg: #3a2e14;
+    --offline: #f3b7b0;
+    --offline-bg: #3d221e;
+    --disabled: #c2baab;
+    --disabled-bg: #2e2b26;
+    --accent: #b7e7c8;
+    --accent-ink: #102116;
+    --focus: #b7e7c8;
+    --naaf-in: #b7e7c8;
+    --naaf-out: #f3d59a;
+    --naaf-grid: #4a4338;
+    --naaf-good: #b7e7c8;
+    --naaf-good-glow: rgba(183, 231, 200, 0.45);
+    --naaf-warning: #f3d59a;
+    --naaf-critical: #f3b7b0;
+    --hatch: rgba(244, 239, 228, 0.16);
   }
 }
 
 :root[data-theme="dark"] {
-  --naaf-in: #3987e5;
-  --naaf-out: #d95926;
-  --naaf-grid: #383835;
+  color-scheme: dark;
+  --bay: #141311;
+  --paper: #221f1a;
+  --strip: #2c2822;
+  --ink: #f4efe4;
+  --muted: #c2baab;
+  --line: #453f36;
+  --online: #b7e7c8;
+  --online-bg: #173224;
+  --stale: #f3d59a;
+  --stale-bg: #3a2e14;
+  --offline: #f3b7b0;
+  --offline-bg: #3d221e;
+  --disabled: #c2baab;
+  --disabled-bg: #2e2b26;
+  --accent: #b7e7c8;
+  --accent-ink: #102116;
+  --focus: #b7e7c8;
+  --naaf-in: #b7e7c8;
+  --naaf-out: #f3d59a;
+  --naaf-grid: #4a4338;
+  --naaf-good: #b7e7c8;
+  --naaf-good-glow: rgba(183, 231, 200, 0.45);
+  --naaf-warning: #f3d59a;
+  --naaf-critical: #f3b7b0;
+  --hatch: rgba(244, 239, 228, 0.16);
 }
 
 :root[data-theme="light"] {
-  --naaf-in: #2a78d6;
-  --naaf-out: #eb6834;
-  --naaf-grid: #c3c2b7;
+  color-scheme: light;
+  --bay: #e6e2d6;
+  --paper: #f7f4ec;
+  --strip: #fbfaf6;
+  --ink: #1c1b18;
+  --muted: #5e584e;
+  --line: #d0c8b6;
+  --online: #0f5c30;
+  --online-bg: #e4f3ea;
+  --stale: #7a4e00;
+  --stale-bg: #f8edd4;
+  --offline: #8a2e2e;
+  --offline-bg: #f8e4e1;
+  --disabled: #5c574e;
+  --disabled-bg: #eceae3;
+  --accent: #0f5c30;
+  --accent-ink: #ffffff;
+  --focus: #0f5c30;
+  --naaf-in: #0f5c30;
+  --naaf-out: #7a4e00;
+  --naaf-grid: #c3bba8;
+  --naaf-good: #0f5c30;
+  --naaf-good-glow: rgba(15, 92, 48, 0.45);
+  --naaf-warning: #7a4e00;
+  --naaf-critical: #8a2e2e;
+  --hatch: rgba(28, 27, 24, 0.14);
 }
 
-/* --- charts ------------------------------------------------------------- */
-
-.naaf-spark {
-  display: block;
-  width: 100%;
-  overflow: visible;
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bay);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.4;
+  min-height: 100%;
 }
-
-/* 2px lines, thin marks, a wash rather than a saturated block. */
-.naaf-line {
-  fill: none;
-  stroke: var(--naaf-in);
-  stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.skip {
+  position: absolute; left: 8px; top: -40px; background: var(--accent);
+  color: var(--accent-ink); padding: 6px 10px; z-index: 5;
 }
+.skip:focus { top: 8px; }
 
-.naaf-area {
-  fill: var(--naaf-in);
-  fill-opacity: 0.12;
-  stroke: none;
+a { color: inherit; }
+code, .mono, kbd {
+  font-family: var(--mono);
+  font-size: 0.92em;
 }
+code { background: transparent; color: inherit; }
+kbd { border: 1px solid var(--line); padding: 0 4px; }
+.muted, .has-text-grey, .has-text-grey-light { color: var(--muted); }
+.num, .naaf-num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
 
-.naaf-out.naaf-line { stroke: var(--naaf-out); }
-.naaf-out.naaf-area { fill: var(--naaf-out); }
+h1, .title, h2.title { font-family: var(--serif); font-weight: 700; letter-spacing: -0.02em; }
+h1, .title.is-3, h1.title { font-size: 1.8rem; margin: 0; }
+h2, .title.is-5 { font-size: 1.25rem; margin: 0 0 0.4rem; }
+h3, .title.is-6 { font-size: 1rem; margin: 0 0 0.3rem; font-family: var(--sans); letter-spacing: 0.04em; text-transform: uppercase; }
+p { margin: 0 0 0.6rem; }
+.page-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 12px; }
+.deck { color: var(--muted); margin: 0; }
 
-/* Hairline, solid, recessive — never dashed, which reads as a threshold. */
-.naaf-baseline {
-  stroke: var(--naaf-grid);
-  stroke-width: 1;
+.plate {
+  background: var(--paper);
+  border-bottom: 1px solid var(--ink);
+  padding: 12px 22px 0;
 }
+.mast { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.word { font-family: var(--serif); font-size: 1.7rem; font-weight: 700; text-decoration: none; letter-spacing: -0.02em; }
+.nav { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-top: 8px; }
+.links, .policy { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.links a, .policy a { text-decoration: none; color: var(--muted); padding-bottom: 8px; }
+.links a[aria-current="page"] { color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
+.policy { border-top: 1px solid var(--line); padding: 6px 0 8px; font-size: 0.92rem; }
+.policy span { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.72rem; }
 
-/* --- chrome ------------------------------------------------------------- */
+main { padding: 16px 22px 32px; max-width: 1280px; }
+.flash { border: 1px solid var(--offline); background: var(--offline-bg); color: var(--offline); padding: 8px 12px; margin-bottom: 12px; }
+.flash.ok { border-color: var(--online); background: var(--online-bg); color: var(--online); }
 
-/* Bulma derives --bulma-code from the DANGER hue, so every inline <code> comes
- * out red: a hostname, a VPN IP, a config key, a doc path. On a page whose
- * entire job is telling you whether something is wrong, red text that means
- * "this is a filename" is the worst possible default. Neutral, on both schemes.
- */
-code {
-  color: var(--bulma-text-strong);
-  background-color: var(--bulma-background);
+.btn, button, .button, summary.button {
+  font: inherit; color: inherit; background: var(--paper);
+  border: 1px solid var(--ink); border-radius: 0; padding: 5px 10px;
+  cursor: pointer; text-decoration: none; display: inline-block;
 }
-
-/* Neutral pills.
- *
- * Bulma's `is-light` tag variants pin a fixed background lightness, so on the
- * dark surface they land as near-white chips — which makes "backup 55m ago"
- * shout louder than "reconcile failing" beside it. Status keeps Bulma's solid
- * colours (it computes a readable foreground for both schemes); everything
- * merely informational uses this instead, and reads as quiet in both.
- */
-.tag.naaf-chip {
-  background-color: var(--bulma-background);
-  color: var(--bulma-text);
-  border: 1px solid var(--bulma-border-weak);
+.btn-primary, .button.is-primary, .button.is-link {
+  background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700;
 }
+.btn-quiet, .button.is-light, .button.is-small { color: var(--muted); border-color: var(--line); background: transparent; }
+.btn-danger, .button.is-danger { color: var(--offline); border-color: var(--offline); background: transparent; }
+.buttons, .buttons.are-small, .buttons.has-addons { display: flex; flex-wrap: wrap; gap: 4px; }
+.live { color: var(--online); display: inline-flex; align-items: center; gap: 6px; }
 
-.tag.naaf-chip code {
-  background-color: transparent;
+input, select, textarea, .input, .textarea {
+  font: inherit; color: inherit; background: var(--paper);
+  border: 1px solid var(--ink); border-radius: 0; padding: 6px 8px;
 }
+.select select, .select { background: var(--paper); }
+label, .label { display: block; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.field { margin-bottom: 10px; }
+.help { color: var(--muted); font-size: 0.85rem; margin: 4px 0 0; }
+.row, .field.is-grouped, .columns { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: flex-end; }
+.column { flex: 1 1 220px; min-width: 0; }
+.control { min-width: 0; }
+.check { text-transform: none; letter-spacing: 0; font-size: 1rem; color: var(--ink); }
 
-/* The default track is one step off the surface and effectively invisible on
- * dark; a meter reading 0 then looks like a broken element rather than a low
- * number. */
-.progress {
-  background-color: var(--bulma-border-weak);
+.strip, article.strip {
+  display: grid;
+  grid-template-columns: 76px minmax(120px, 1.1fr) repeat(4, minmax(0, 1fr));
+  gap: 0;
+  background: var(--strip);
+  border: 1px solid var(--line);
+  margin: 0 0 6px;
+  align-items: stretch;
+  text-decoration: none;
 }
+.badge {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; border-right: 1px solid var(--line); min-height: 52px;
+  font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em;
+}
+.mark {
+  width: 9px; height: 9px; box-sizing: border-box;
+  border: 1.5px solid currentColor; border-radius: 50%; display: inline-block;
+}
+.st-online { color: var(--online); }
+.st-online .badge, .tag.is-success, tr.st-online .badge { background: var(--online-bg); color: var(--online); }
+.st-online .mark, .tag.is-success .mark { background: currentColor; }
+.st-stale { color: var(--stale); }
+.st-stale .badge, .tag.is-warning { background: var(--stale-bg); color: var(--stale); }
+.st-stale .mark { background: linear-gradient(90deg, currentColor 50%, transparent 50%); }
+.st-offline { color: var(--offline); }
+.st-offline .badge, .tag.is-danger, .notification.is-danger, .is-danger { background: var(--offline-bg); color: var(--offline); }
+.st-disabled, .st-bare { color: var(--disabled); }
+.st-disabled .badge, .st-bare .badge, .tag.naaf-chip {
+  background-color: var(--disabled-bg); color: var(--disabled);
+  background-image: repeating-linear-gradient(-45deg, transparent, transparent 3px, var(--hatch) 3px, var(--hatch) 4px);
+}
+.st-disabled .mark { height: 2px; border: 0; border-radius: 0; background: currentColor; }
+.tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border: 1px solid var(--line); font-size: 0.85rem; }
+.tag.naaf-chip { border-style: dashed; }
+.name { font-family: var(--serif); font-size: 1.15rem; line-height: 1.1; }
+.cell { padding: 6px 8px; display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.k { font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.word { font-size: 0.85rem; }
 
-/* --- widgets ------------------------------------------------------------ */
+table.strips { width: 100%; border-collapse: separate; border-spacing: 0 6px; }
+table.strips td { background: var(--strip); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px 8px; vertical-align: middle; }
+table.strips td:first-child { border-left: 1px solid var(--line); }
+table.strips td:last-child { border-right: 1px solid var(--line); }
+table.strips tr.st-online td:first-child { box-shadow: inset 6px 0 0 var(--online); background: var(--online-bg); color: var(--online); }
+table.strips tr.st-stale td:first-child { box-shadow: inset 6px 0 0 var(--stale); background: var(--stale-bg); color: var(--stale); }
+table.strips tr.st-offline td:first-child { box-shadow: inset 6px 0 0 var(--offline); background: var(--offline-bg); color: var(--offline); }
+table.strips tr.st-disabled td:first-child, table.strips tr.st-bare td:first-child {
+  box-shadow: inset 6px 0 0 var(--disabled);
+  background-color: var(--disabled-bg); color: var(--disabled);
+  background-image: repeating-linear-gradient(-45deg, transparent, transparent 3px, var(--hatch) 3px, var(--hatch) 4px);
+}
+table.strips tr.st-online .naaf-line { stroke: var(--online); }
+table.strips tr.st-stale .naaf-line { stroke: var(--stale); }
+table.strips tr.st-offline .naaf-line { stroke: var(--offline); }
+table.strips tr.st-disabled .naaf-line, table.strips tr.st-bare .naaf-line { stroke: var(--disabled); }
+article.strip.st-online .naaf-line { stroke: var(--online); }
+article.strip.st-stale .naaf-line { stroke: var(--stale); }
+article.strip.st-offline .naaf-line { stroke: var(--offline); }
+article.strip.st-disabled .naaf-line { stroke: var(--disabled); }
 
-/* Flat. A hairline separates a tile from the page; a drop shadow only pretends
- * the tile is floating above it, and twenty of them on one screen reads as
- * clutter. The border is also what the state colours below have to work with. */
-.box {
+.sheet, .box, .notification {
+  background: var(--paper); border: 1px solid var(--line); padding: 12px 14px; margin: 0 0 12px;
   box-shadow: none;
-  border: 1px solid var(--bulma-border-weak);
 }
+.box.naaf-warn, .naaf-warn { border-color: var(--stale); }
+.box.naaf-alert, .naaf-alert { border-color: var(--offline); }
+.banner { border: 1px solid var(--stale); background: var(--stale-bg); color: var(--stale); padding: 10px 12px; margin: 0 0 12px; }
+.banner strong { letter-spacing: 0.06em; }
+.banner.fault { border-color: var(--offline); background: var(--offline-bg); color: var(--offline); }
 
-/* A tile whose contents are in a warning or fault state colours its edge.
- *
- * The colour is never the only signal — the tile already says what is wrong in
- * words and numbers (the meter reads 92%, the tag says "reconcile failing").
- * This just lets you find that tile without reading the whole page.
- */
-.box.naaf-warn {
-  border-color: var(--naaf-warning);
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 700; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--ink); }
+td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.level, .level-left, .level-right { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.level { justify-content: space-between; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+
+.instruments { display: grid; grid-template-columns: 1.4fr repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.well { background: var(--paper); border: 1px solid var(--line); padding: 8px 10px; }
+.big, .naaf-hero, .naaf-value { font-family: var(--mono); font-size: 1.6rem; letter-spacing: -0.03em; line-height: 1.1; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
+.qr { background: #fff; border: 1px solid var(--ink); padding: 8px; width: max-content; }
+.qr img, .qr svg { display: block; width: 168px; height: 168px; }
+.qr figcaption { color: #1c1b18; font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 6px; }
+pre, pre.naaf-log, pre.conf {
+  font-family: var(--mono); font-size: 0.85rem; background: var(--bay);
+  border: 1px solid var(--line); padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 24rem; overflow: auto;
 }
+details.confirm { display: inline-block; }
+details.confirm summary { list-style: none; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stack > * + * { margin-top: 8px; }
+.empty { color: var(--muted); border: 1px dashed var(--line); padding: 12px; background: var(--paper); }
 
-.box.naaf-alert {
-  border-color: var(--naaf-critical);
-}
-
-/* --- the live indicator ------------------------------------------------- */
-
-.tag.naaf-live {
-  border-color: var(--naaf-good);
-}
-
+.naaf-spark { display: block; width: 100%; overflow: visible; }
+.naaf-line { fill: none; stroke: var(--naaf-in); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.naaf-area { fill: var(--naaf-in); fill-opacity: 0.12; stroke: none; }
+.naaf-out.naaf-line { stroke: var(--naaf-out); stroke-dasharray: 4 3; }
+.naaf-out.naaf-area { fill: var(--naaf-out); }
+.naaf-baseline { stroke: var(--naaf-grid); stroke-width: 1; }
 .naaf-dot {
-  display: inline-block;
-  width: 0.5rem;
-  height: 0.5rem;
-  margin-right: 0.45rem;
-  border-radius: 50%;
-  background-color: var(--naaf-good);
+  width: 8px; height: 8px; border-radius: 50%; background: var(--naaf-good); display: inline-block;
   animation: naaf-pulse 2.4s ease-out infinite;
 }
-
-/* The ring expands and fades rather than the dot itself blinking: a dot that
- * disappears looks like a rendering fault on a page full of live numbers. */
 @keyframes naaf-pulse {
   0% { box-shadow: 0 0 0 0 var(--naaf-good-glow); }
-  70% { box-shadow: 0 0 0 0.5rem transparent; }
+  70% { box-shadow: 0 0 0 6px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
-
-/* Anything that pulses forever needs an opt-out; the dot still reads as "live"
- * standing still, because it is green and captioned. */
-@media (prefers-reduced-motion: reduce) {
-  .naaf-dot {
-    animation: none;
-  }
-}
-
-/* --- figures ------------------------------------------------------------ */
-
-/* Proportional figures: tabular-nums gives every digit the width of a zero,
- * which makes a number like 121 look loose at display sizes. */
-.naaf-value {
-  font-size: 1.9rem;
-  font-weight: 600;
-  line-height: 1.15;
-}
-
-.naaf-hero {
-  font-size: 2.6rem;
-  font-weight: 600;
-  line-height: 1.1;
-}
-
-/* Columns of numbers do want to line up. */
-.naaf-num { font-variant-numeric: tabular-nums; }
-
-.naaf-tile { height: 100%; }
-
-/* A wide table stays inside its card instead of scrolling the whole page. */
-.naaf-scroll { overflow-x: auto; }
-
-/* Diagnostic output: remote text, sometimes wide, always long. Wrapping beats a
-   horizontal scrollbar for a traceroute, and a height cap keeps the page usable
-   when curl -v echoes a certificate chain. */
-pre.naaf-log {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 24rem;
-  overflow-y: auto;
-}
-
-/* htmx sets .htmx-request on the element that issued the request for as long as
-   it is in flight. This is the whole of the busy indicator -- no script, and no
-   spinner that keeps spinning after a failure. */
+@media (prefers-reduced-motion: reduce) { .naaf-dot { animation: none; } }
 .naaf-busy { visibility: hidden; }
-.htmx-request .naaf-busy,
-.htmx-request.naaf-busy { visibility: visible; }
+.htmx-request .naaf-busy, .htmx-request.naaf-busy { visibility: visible; }
+progress { appearance: none; width: 100%; height: 6px; border: 0; background: var(--line); }
+progress::-webkit-progress-bar { background: var(--line); }
+progress::-webkit-progress-value { background: var(--accent); }
+progress::-moz-progress-bar { background: var(--accent); }
+dialog { border: 1px solid var(--ink); background: var(--paper); color: var(--ink); padding: 16px 18px; max-width: 28rem; }
+dialog::backdrop { background: rgba(20, 19, 17, 0.4); }
+.foot { color: var(--muted); font-size: 0.85rem; padding: 0 22px 24px; }
+.login { max-width: 22rem; margin: 8vh auto; background: var(--paper); border: 1px solid var(--ink); padding: 22px; }
+@media (max-width: 900px) {
+  .instruments, .pair, article.strip { grid-template-columns: 1fr; }
+  main, .plate { padding-left: 14px; padding-right: 14px; }
+}

@@ -1,59 +1,88 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"<% if session["theme"] %> data-theme="<%= h(session["theme"]) %>"<% end %>>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Naaf — WireGuard control plane</title>
-  <link rel="stylesheet" href="/bulma.min.css">
   <link rel="stylesheet" href="/naaf.css">
   <%# Core first, extension second, both deferred. Never async: that discards
       ordering and the extension would run before htmx.defineExtension exists. %>
   <script src="/htmx.min.js" defer></script>
   <script src="/htmx-ext-sse.min.js" defer></script>
+  <script src="/naaf.js" defer></script>
 </head>
 <body>
-  <nav class="navbar is-dark" role="navigation" aria-label="main navigation">
-    <div class="navbar-brand">
-      <a class="navbar-item has-text-weight-bold" href="/">Naaf</a>
-    </div>
-    <div class="navbar-menu is-active">
-      <% if session["admin"] %>
-        <div class="navbar-start">
-          <a class="navbar-item" href="/">Dashboard</a>
-          <a class="navbar-item" href="/clients">Clients</a>
-          <a class="navbar-item" href="/exposed-ports">Exposed ports</a>
-          <a class="navbar-item" href="/port-forwards">Port forwards</a>
-          <a class="navbar-item" href="/sites">Sites</a>
-          <a class="navbar-item" href="/exit">Internet exit</a>
-          <a class="navbar-item" href="/extra-routes">Routes</a>
-          <a class="navbar-item" href="/dns-records">DNS</a>
-          <a class="navbar-item" href="/troubleshoot">Troubleshoot</a>
-          <a class="navbar-item" href="/settings">Settings</a>
-        </div>
-      <% end %>
-      <div class="navbar-end">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="plate">
+    <div class="mast">
+      <a class="word" href="/">Naaf</a>
+      <div class="muted">
         <% if session["admin"] %>
-          <div class="navbar-item">
-            <form method="post" action="/apply">
-              <%= csrf_tag("/apply") %>
-              <button class="button is-small is-link" type="submit">Re-apply state</button>
-            </form>
-          </div>
+          <form method="post" action="/theme" style="display:inline">
+            <%= csrf_tag("/theme") %>
+            <input type="hidden" name="return" value="<%= h(request.path) %>">
+            <% if session["theme"] == "dark" %>
+              <input type="hidden" name="theme" value="light">
+              <button type="submit" class="btn-quiet">Light</button>
+            <% else %>
+              <input type="hidden" name="theme" value="dark">
+              <button type="submit" class="btn-quiet">Dark</button>
+            <% end %>
+          </form>
         <% end %>
       </div>
     </div>
-  </nav>
+    <% if session["admin"] %>
+      <nav class="nav" aria-label="Tasks">
+        <div class="links">
+          <% [
+            ["/", "Dashboard"],
+            ["/clients", "Clients"],
+            ["/sites", "Sites"],
+            ["/dns-records", "DNS"],
+            ["/exit", "Exit"],
+            ["/troubleshoot", "Troubleshoot"],
+            ["/settings", "Settings"]
+          ].each do |href, label| %>
+            <a href="<%= href %>"<%= %( aria-current="page") if request.path == href || (href != "/" && request.path.start_with?(href)) %>><%= label %></a>
+          <% end %>
+        </div>
+        <form method="post" action="/apply">
+          <%= csrf_tag("/apply") %>
+          <button class="btn-primary" type="submit">Re-apply</button>
+        </form>
+      </nav>
+      <div class="policy" aria-label="Policy">
+        <span>Policy</span>
+        <a href="/exposed-ports">Exposed ports</a>
+        <a href="/port-forwards">Port forwards</a>
+        <a href="/extra-routes">Routes</a>
+      </div>
+    <% end %>
+  </header>
 
-  <section class="section">
-    <div class="container">
-      <% if flash["error"] %>
-        <div class="notification is-danger"><%= flash["error"] %></div>
-      <% end %>
-      <% if flash["notice"] %>
-        <div class="notification is-success"><%= flash["notice"] %></div>
-      <% end %>
-      <%= yield %>
-    </div>
-  </section>
+  <main id="main">
+    <% if flash["error"] %>
+      <div class="flash" role="alert"><%= flash["error"] %></div>
+    <% end %>
+    <% if flash["notice"] %>
+      <div class="flash ok" role="status"><%= flash["notice"] %></div>
+    <% end %>
+    <%= yield %>
+  </main>
+
+  <% if session["admin"] %>
+    <footer class="foot">
+      <details>
+        <summary>Keyboard</summary>
+        <p><kbd>/</kbd> search · <kbd>?</kbd> this list · <kbd>g</kbd> then <kbd>d</kbd> dashboard, <kbd>c</kbd> clients, <kbd>s</kbd> sites, <kbd>n</kbd> DNS, <kbd>e</kbd> exit, <kbd>t</kbd> troubleshoot, <kbd>,</kbd> settings.</p>
+      </details>
+    </footer>
+    <dialog id="shortcuts">
+      <h2>Keyboard</h2>
+      <p><kbd>/</kbd> focuses search. <kbd>g</kbd> then a letter moves: d dashboard, c clients, s sites, n DNS, e exit, t troubleshoot, comma settings.</p>
+      <form method="dialog"><button type="submit">Close</button></form>
+    </dialog>
+  <% end %>
 </body>
 </html>

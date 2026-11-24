@@ -1,0 +1,238 @@
+<% c = @client %>
+<% state = Naaf::Format.peer_state(enabled: c[:enabled], handshake: c[:last_handshake_at]) %>
+<% key = peek_oneshot_privkey(c[:id]) %>
+
+<div hx-ext="sse" sse-connect="/events">
+  <div sse-swap="health"><%= render("metrics/health", locals: {s: snapshot}) %></div>
+  <div hx-get="/metrics/health" hx-trigger="every 60s" hx-swap="none"></div>
+</div>
+
+<p class="muted"><a href="/clients">Clients</a> / <%= h(c[:name]) %></p>
+
+<article class="strip st-<%= state %>" id="peer-head">
+  <div class="badge">
+    <span class="mark" aria-hidden="true"></span>
+    <span><%= Naaf::Format::CODES[state] %></span>
+    <span class="word"><%= Naaf::Format::WORDS[state] %></span>
+  </div>
+  <div class="cell">
+    <span class="name"><%= h(c[:name]) %></span>
+    <span class="mono"><%= h(c[:hostname]) %>.<%= h(@settings[:dns_domain]) %></span>
+  </div>
+  <div class="cell"><span class="k">Address</span><span class="mono"><%= h(c[:wg_ip]) %></span></div>
+  <div class="cell"><span class="k">Handshake</span><span class="mono"><%= Naaf::Format.ago(c[:last_handshake_at]) %></span></div>
+  <div class="cell"><span class="k">Endpoint</span><span class="mono"><%= h(c[:endpoint].to_s.empty? ? "—" : c[:endpoint]) %></span></div>
+  <div class="cell">
+    <span class="k">Public key</span>
+    <span class="mono" title="<%= h(c[:pubkey]) %>"><%= h(c[:pubkey]) %></span>
+  </div>
+</article>
+
+<% if key %>
+  <section class="banner">
+    <strong>Shown once. Not stored.</strong>
+    <p>This is the only chance to take the generated private key. The QR peeks at it. The first config download spends it. After that, delete the client and add it again.</p>
+  </section>
+  <div class="pair">
+    <figure class="qr">
+      <img src="/clients/<%= c[:id] %>/qr/split" width="168" height="168" alt="QR of the split config for <%= h(c[:name]) %>">
+      <figcaption>split · one scan</figcaption>
+    </figure>
+    <div>
+      <h2>Download</h2>
+      <div class="buttons are-small has-addons">
+        <% @flavors.each do |f| %>
+          <% label = {"split-nodns" => "split·nodns", "split-ws" => "split·ws", "split-ws-nodns" => "split·ws·nodns"}.fetch(f, f) %>
+          <a class="button<%= " is-link is-light" if f == "split" %>" href="/clients/<%= c[:id] %>/config/<%= f %>"><%= h(label) %></a>
+        <% end %>
+      </div>
+      <p class="help">QR is split only. full sets AllowedIPs to 0.0.0.0/0. The ws flavors are wg-quick hooks and have no QR.</p>
+    </div>
+  </div>
+<% else %>
+  <p class="muted">Config downloads no longer include a generated private key. Paste your own on the client, or delete and add the client to issue another.</p>
+  <div class="buttons">
+    <% @flavors.each do |f| %>
+      <% label = {"split-nodns" => "split·nodns", "split-ws" => "split·ws", "split-ws-nodns" => "split·ws·nodns"}.fetch(f, f) %>
+      <a class="button" href="/clients/<%= c[:id] %>/config/<%= f %>"><%= h(label) %></a>
+    <% end %>
+    <a class="button is-link is-light" href="/clients/<%= c[:id] %>/qr/split" target="_blank" rel="noopener">QR</a>
+  </div>
+<% end %>
+
+<div class="pair">
+  <section class="sheet">
+    <h2>Exposed ports</h2>
+    <p class="muted">What other spokes may open on this client. Everything else between spokes is denied.</p>
+    <% if @ports.empty? %>
+      <p class="empty">No ports exposed. Other spokes cannot reach this client.</p>
+    <% else %>
+      <table>
+        <thead><tr><th>Proto</th><th>Ports</th><th>Description</th><th></th></tr></thead>
+        <tbody>
+          <% @ports.each do |row| %>
+            <% last = row[:port_end] || row[:port] %>
+            <tr>
+              <td><%= h(row[:proto]) %></td>
+              <td class="mono"><%= (last == row[:port]) ? row[:port] : "#{row[:port]}-#{last}" %></td>
+              <td><%= h(row[:description].to_s) %></td>
+              <td>
+                <form method="post" action="/exposed-ports/<%= row[:id] %>/delete">
+                  <%= csrf_tag("/exposed-ports/#{row[:id]}/delete") %>
+                  <input type="hidden" name="next" value="/clients/<%= c[:id] %>">
+                  <button class="btn-quiet" type="submit">Remove</button>
+                </form>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% end %>
+    <form method="post" action="/exposed-ports">
+      <%= csrf_tag("/exposed-ports") %>
+      <input type="hidden" name="client_id" value="<%= c[:id] %>">
+      <input type="hidden" name="next" value="/clients/<%= c[:id] %>">
+      <div class="row">
+        <div>
+          <label for="proto">Protocol</label>
+          <select id="proto" name="proto"><option value="tcp">tcp</option><option value="udp">udp</option></select>
+        </div>
+        <div>
+          <label for="port">Port or range</label>
+          <input id="port" type="text" name="port" placeholder="22 or 8000-8100" required>
+        </div>
+        <div>
+          <label for="description">Description</label>
+          <input id="description" type="text" name="description" placeholder="ssh">
+        </div>
+        <button class="btn-primary" type="submit">Expose and apply</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="sheet">
+    <h2>Port forwards</h2>
+    <p class="muted">Inbound DNAT from the public interface to this client.</p>
+    <% if @forwards.empty? %>
+      <p class="empty">No forwards to this client.</p>
+    <% else %>
+      <table>
+        <thead><tr><th>Public</th><th>Proto</th><th>Target</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <% @forwards.each do |row| %>
+            <tr>
+              <td class="mono"><%= row[:public_port] %></td>
+              <td><%= h(row[:proto]) %></td>
+              <td class="mono"><%= h(c[:wg_ip]) %>:<%= row[:target_port] %></td>
+              <td><%= row[:enabled] ? "enabled" : "disabled" %></td>
+              <td>
+                <form method="post" action="/port-forwards/<%= row[:id] %>/toggle">
+                  <%= csrf_tag("/port-forwards/#{row[:id]}/toggle") %>
+                  <input type="hidden" name="next" value="/clients/<%= c[:id] %>">
+                  <button class="btn-quiet" type="submit"><%= row[:enabled] ? "Disable" : "Enable" %></button>
+                </form>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% end %>
+    <form method="post" action="/port-forwards">
+      <%= csrf_tag("/port-forwards") %>
+      <input type="hidden" name="client_id" value="<%= c[:id] %>">
+      <input type="hidden" name="next" value="/clients/<%= c[:id] %>">
+      <div class="row">
+        <div>
+          <label for="public_port">Public port</label>
+          <input id="public_port" type="number" name="public_port" min="1" max="65535" required>
+        </div>
+        <div>
+          <label for="fproto">Protocol</label>
+          <select id="fproto" name="proto"><option value="tcp">tcp</option><option value="udp">udp</option></select>
+        </div>
+        <div>
+          <label for="target_port">Target port</label>
+          <input id="target_port" type="number" name="target_port" min="1" max="65535" required>
+        </div>
+        <button class="btn-primary" type="submit">Forward and apply</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<div class="pair">
+  <section class="sheet">
+    <h2>Routes</h2>
+    <p class="muted">Extra CIDRs folded into this client's split AllowedIPs. Global routes live on <a href="/extra-routes">Routes</a>.</p>
+    <% if @routes.empty? %>
+      <p class="empty">No routes for this client alone.</p>
+    <% else %>
+      <table>
+        <tbody>
+          <% @routes.each do |row| %>
+            <tr>
+              <td class="mono"><%= h(row[:cidr]) %></td>
+              <td>
+                <form method="post" action="/extra-routes/<%= row[:id] %>/delete">
+                  <%= csrf_tag("/extra-routes/#{row[:id]}/delete") %>
+                  <input type="hidden" name="next" value="/clients/<%= c[:id] %>">
+                  <button class="btn-quiet" type="submit">Remove</button>
+                </form>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% end %>
+    <form method="post" action="/extra-routes">
+      <%= csrf_tag("/extra-routes") %>
+      <input type="hidden" name="client_id" value="<%= c[:id] %>">
+      <input type="hidden" name="next" value="/clients/<%= c[:id] %>">
+      <div class="row">
+        <div>
+          <label for="cidr">CIDR</label>
+          <input id="cidr" type="text" name="cidr" placeholder="192.168.9.0/24" required>
+        </div>
+        <button class="btn-primary" type="submit">Add route and apply</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="sheet">
+    <h2>DNS</h2>
+    <p>Automatic name <span class="mono"><%= h(c[:hostname]) %>.<%= h(@settings[:dns_domain]) %></span> → <span class="mono"><%= h(c[:wg_ip]) %></span>.</p>
+    <% if @dns.empty? %>
+      <p class="empty">No static A record points at this address. <a href="/dns-records">Add one in the zone</a>.</p>
+    <% else %>
+      <table>
+        <tbody>
+          <% @dns.each do |row| %>
+            <tr>
+              <td class="mono"><%= h(row[:name]) %></td>
+              <td class="mono"><%= h(row[:value]) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% end %>
+    <p><a href="/dns-records">Open the DNS zone</a></p>
+  </section>
+</div>
+
+<section class="sheet">
+  <h2>Peer</h2>
+  <form method="post" action="/clients/<%= c[:id] %>/toggle" style="display:inline">
+    <%= csrf_tag("/clients/#{c[:id]}/toggle") %>
+    <input type="hidden" name="next" value="/clients/<%= c[:id] %>">
+    <button type="submit"><%= c[:enabled] ? "Disable" : "Enable" %> <%= h(c[:name]) %></button>
+  </form>
+  <details class="confirm">
+    <summary class="btn-danger">Delete <%= h(c[:name]) %></summary>
+    <form method="post" action="/clients/<%= c[:id] %>/delete">
+      <%= csrf_tag("/clients/#{c[:id]}/delete") %>
+      <input type="hidden" name="next" value="/clients">
+      <p>Delete <%= h(c[:name]) %> (<%= h(c[:wg_ip]) %>) and free the address. This cannot be undone.</p>
+      <button class="btn-danger" type="submit">Confirm delete</button>
+    </form>
+  </details>
+</section>

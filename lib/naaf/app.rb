@@ -109,13 +109,21 @@ module Naaf
     def submit(path)
       yield
       reconciler.apply!
-      request.redirect(path)
+      request.redirect(safe_next(path))
     rescue ValidationError => e
       flash["error"] = e.message
-      request.redirect(path)
+      request.redirect(safe_next(path))
     rescue Sequel::UniqueConstraintViolation
       flash["error"] = "That entry already exists."
-      request.redirect(path)
+      request.redirect(safe_next(path))
+    end
+
+    # Where a form returns after it writes. Only a same-origin path we would
+    # render ourselves — a hidden `next` from a peer page, never an open redirect.
+    def safe_next(fallback)
+      raw = request.params["next"].to_s
+      return fallback unless raw.match?(%r{\A/[a-z0-9][a-z0-9/_-]*\z})
+      raw
     end
 
     def param_client_id(raw)
@@ -914,7 +922,29 @@ module Naaf
         # argument it matches ANY get and would swallow /clients/5/config/split
         # and /clients/5/qr/split before they ever reached their handlers.
         r.get true do
-          @clients = Naaf.db[:clients].order(:wg_ip).all
+          @q = r.params["q"].to_s.strip
+          @status = r.params["status"].to_s
+          @sort = r.params["sort"].to_s
+          rows = Naaf.db[:clients].all
+          unless @q.empty?
+            needle = @q.downcase
+            rows.select! { |c|
+              [c[:name], c[:hostname], c[:wg_ip], c[:pubkey]].any? { |v| v.to_s.downcase.include?(needle) }
+            }
+          end
+          if %w[online stale offline disabled].include?(@status)
+            rows.select! { |c|
+              Naaf::Format.peer_state(enabled: c[:enabled], handshake: c[:last_handshake_at]).to_s == @status
+            }
+          end
+          rows.sort_by! do |c|
+            case @sort
+            when "name" then c[:name].to_s
+            when "handshake" then -(c[:last_handshake_at] ? c[:last_handshake_at].to_time.to_i : 0)
+            else c[:wg_ip].to_s
+            end
+          end
+          @clients = rows
           @settings = Naaf.settings
           # Methods, not constants: Config[] re-reads ENV on every call, so a
           # `--step 65-wstunnel` that writes /etc/naaf/wstunnel.env and restarts
@@ -949,7 +979,7 @@ module Naaf
           if supplied.empty?
             session["oneshot_privkey"] = {"id" => id.to_s, "key" => keys[:private_key]}
           end
-          r.redirect "/clients"
+          r.redirect "/clients/#{id}"
         rescue ValidationError => e
           flash["error"] = e.message
           r.redirect "/clients"
@@ -964,21 +994,21 @@ module Naaf
           r.post("delete") do
             if exit_carried_by(client)
               flash["error"] = "#{client[:wg_ip]} carries the internet exit. Repoint or delete the exit first."
-              r.redirect "/clients"
+              r.redirect safe_next("/clients")
             end
             Naaf.db[:clients].where(id: id).delete
             reconciler.apply!
-            r.redirect "/clients"
+            r.redirect safe_next("/clients")
           end
 
           r.post("toggle") do
             if client[:enabled] && exit_carried_by(client)&.fetch(:enabled)
               flash["error"] = "#{client[:wg_ip]} carries the internet exit. Disable the exit first."
-              r.redirect "/clients"
+              r.redirect safe_next("/clients")
             end
             Naaf.db[:clients].where(id: id).update(enabled: !client[:enabled])
             reconciler.apply!
-            r.redirect "/clients"
+            r.redirect safe_next("/clients")
           end
 
           r.get "config", String do |flavor|
@@ -1013,6 +1043,17 @@ module Naaf
               .render(flavor, private_key: peek_oneshot_privkey(id))
             response["Content-Type"] = "image/svg+xml"
             RQRCode::QRCode.new(conf, level: :l).as_svg(use_path: true, viewbox: true)
+          end
+
+          r.get true do
+            @client = client
+            @settings = Naaf.settings
+            @flavors = ConfigBuilder.available_flavors
+            @ports = Naaf.db[:exposed_ports].where(client_id: id).order(:proto, :port).all
+            @forwards = Naaf.db[:port_forwards].where(client_id: id).order(:public_port).all
+            @routes = Naaf.db[:extra_routes].where(client_id: id).order(:cidr).all
+            @dns = Naaf.db[:dns_records].where(value: client[:wg_ip]).order(:name).all
+            view("client")
           end
         end
       end
@@ -1185,6 +1226,15 @@ module Naaf
 
         r.on Integer do |id|
           site = Naaf.db[:sites][id: id] || r.halt(404)
+
+          r.get true do
+            @sites = [site]
+            @networks = Naaf.db[:site_networks].where(site_id: id).order(:cidr).all.group_by { |n| n[:site_id] }
+            @forwarders = Naaf.db[:dns_forwarders].where(site_id: id).order(:suffix).all.group_by { |f| f[:site_id] }
+            @settings = Naaf.settings
+            @detail = true
+            view("sites")
+          end
 
           r.post true do
             submit("/sites") do
@@ -1443,6 +1493,15 @@ module Naaf
             )
           end
         end
+      end
+
+      r.post "theme" do
+        theme = r.params["theme"].to_s
+        session["theme"] = theme if %w[light dark].include?(theme)
+        session.delete("theme") unless %w[light dark].include?(theme)
+        back = r.params["return"].to_s
+        back = "/" unless back.match?(%r{\A/[a-z0-9][a-z0-9/_-]*\z})
+        r.redirect back
       end
 
       r.post "apply" do
