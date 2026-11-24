@@ -22,8 +22,8 @@ a small root helper.
   firewall in `/etc/nftables.conf` is off-limits — that is what keeps SSH alive.
 - **Structural key custody.** Client private keys are generated server-side, shown
   **once** in the download/QR, and never stored — `clients` has no private-key column.
-- **No Node.** ERB + vendored Bulma + vendored htmx and its official SSE
-  extension; those two scripts are the only client-side JavaScript.
+- **No Node.** ERB + one vendored stylesheet + vendored htmx and its official
+  SSE extension; those two scripts are the only client-side JavaScript.
 
 ## Quick start
 
@@ -103,10 +103,10 @@ lib/naaf/metrics/       ring buffers, /proc samplers, DNS counters, SSE hub,
 db/schema.rb            idempotent SQLite schema (settings, clients, exposed_ports,
                         port_forwards, dns_records, dns_forwarders, extra_routes,
                         sites, site_networks), run on boot
-views/                  ERB templates (Bulma markup; plain form POST + redirect)
+views/                  ERB templates (plain form POST + redirect; see docs/DESIGN.md)
 views/metrics/          dashboard fragments (also served as GET /metrics/<name>)
-vendor/                 bulma.min.css, htmx.min.js, htmx-ext-sse.min.js,
-                        naaf.css (served by Roda :public; digests pinned by bin/ci)
+vendor/                 naaf.css, htmx.min.js, htmx-ext-sse.min.js
+                        (served by Roda :public; script digests pinned by bin/ci)
 test/                   sus tests (renderers, ipam, reconciler, helper, zone, app,
                         config, backup, bootstrap, metrics)
 deploy.sh               the one deploy command (create, provision, update, verify)

@@ -416,7 +416,7 @@ describe "Naaf::App integration" do
     def chips_by_name(body)
       body.scan(%r{<tr>(.*?)</tr>}m).flatten.filter_map { |row|
         name = row[%r{<td>([^<]*)</td>}, 1]
-        chip = row[%r{<span class="tag(?: naaf-chip[^"]*| is-warning)">([a-z]+)</span>}, 1]
+        chip = row[%r{<span class="status status-[a-z]+">([a-z]+)</span>}, 1]
         name && chip && [name.strip, chip]
       }.to_h
     end
@@ -435,8 +435,8 @@ describe "Naaf::App integration" do
       expect(health).to be(:include?, "clients up")
       expect(health).to be(:include?, "sites up")
       expect(health).not.to be(:include?, "peers up")
-      expect(health).to be(:include?, %(<strong class="mr-1">1/2</strong> clients up))
-      expect(health).to be(:include?, %(<strong class="mr-1">2/3</strong> sites up))
+      expect(health).to be(:include?, %(<strong class="count">1/2</strong> clients up))
+      expect(health).to be(:include?, %(<strong class="count">2/3</strong> sites up))
 
       kpis = get("/metrics/kpis").body
       expect(kpis).to be(:include?, "1 of 2 clients up")
@@ -521,7 +521,7 @@ describe "Naaf::App integration" do
 
       # Anchored to the total cell: a bare "1 MB" would also match the In or Out
       # column if a later fixture gave this peer a rate.
-      expect(body).to be(:match?, %r{has-text-grey">\s*1 MB\s*</td>}) # 1_000_000 + 48_576 is exactly 1 MiB
+      expect(body).to be(:match?, %r{num muted">\s*1 MB\s*</td>}) # 1_000_000 + 48_576 is exactly 1 MiB
       expect(body.include?("976.6 KB")).to be == false
     end
 
@@ -570,7 +570,7 @@ describe "Naaf::App integration" do
       expect(body).to be(:include?, ">tunnel</span>")
       # An interface with no role gets no chip at all, rather than being called
       # a tunnel because the ternary only ever asked "is it the wan".
-      expect(body.scan(%r{<span class="tag naaf-chip ml-1">}).length).to be == 2
+      expect(body.scan(%r{<span class="status status-role">}).length).to be == 2
       expect(body).to be(:include?, "1 MB/s")
       expect(body).not.to be(:match?, /NaN|Infinity/)
       expect(body.include?("is not readable here")).to be == false
@@ -586,7 +586,7 @@ describe "Naaf::App integration" do
       body = get("/metrics/interfaces").body
 
       expect(body).to be(:match?, %r{title="since boot">\s*1,234\s*</td>})
-      expect(body).to be(:match?, %r{has-text-grey">\s*11\s*</td>})
+      expect(body).to be(:match?, %r{num muted">\s*11\s*</td>})
     end
 
     it "lists the busiest names and clients once the resolver has answered anything" do
@@ -606,8 +606,8 @@ describe "Naaf::App integration" do
       # Both columns populated means neither "nothing yet" arm may show — a
       # single shared guard would blank one of them.
       expect(body.include?("nothing yet")).to be == false
-      expect(body).to be(:match?, /is-danger">\s*failed /)
-      expect(body).to be(:match?, /is-danger">\s*servfail /)
+      expect(body).to be(:match?, /status-bad">\s*failed /)
+      expect(body).to be(:match?, /status-bad">\s*servfail /)
       expect(body).to be(:include?, "AAAA suppressed")
       expect(body).not.to be(:match?, /NaN|Infinity/)
     end
@@ -740,7 +740,9 @@ describe "Naaf::App integration" do
   end
 
   it "leaves the vendored assets cacheable" do
-    expect(get("/bulma.min.css").headers["cache-control"]).to be_nil
+    expect(get("/htmx.min.js").headers["cache-control"]).to be_nil
+    login!
+    expect(get("/").body).not.to be(:include?, "bulma")
   end
 
   it "sends an already-authenticated admin away from the login form" do
@@ -964,12 +966,11 @@ describe "Naaf::App integration" do
       expect(body).to be(:include?, "/config/split-ws")
       expect(body).to be(:include?, "/config/split-ws-nodns")
       expect(body).to be(:include?, "split·ws·nodns") # U+00B7, as for split·nodns
-      # are-small sizes every button in the group; losing it changes the row
-      # height of the whole table.
-      expect(body).to be(:include?, "buttons are-small has-addons")
+      # One compact row of flavour buttons; losing the group changes the row.
+      expect(body).to be(:include?, "btn-row")
       # Exactly one QR link per row, and it stays outside the flavour loop.
       expect(body.scan("/qr/split").length).to be == 1
-      expect(body).to be(:match?, /class="button is-link is-light"[^>]*rel="noopener"/)
+      expect(body).to be(:match?, /class="btn btn-quiet"[^>]*rel="noopener"/)
     end
   end
 
@@ -982,10 +983,12 @@ describe "Naaf::App integration" do
     with_wstunnel("NAAF_WSTUNNEL_PATH_PREFIX" => nil) do
       body = get("/clients").body
       expect(body).to be(:include?, "65-wstunnel")
-      # The one-shot-key banner is already is-warning; a second yellow banner
-      # would stack into one indistinguishable block.
-      expect(body).to be(:include?, "is-warning")
-      expect(body.scan("is-warning").length).to be == 1
+      # The one-shot-key banner and this failure must not share a tone, or they
+      # stack into one indistinguishable block.
+      expect(body).to be(:include?, "callout-once")
+      expect(body).to be(:include?, "callout-bad")
+      expect(body.scan("callout-once").length).to be == 1
+      expect(body.scan("callout-bad").length).to be == 1
     end
 
     with_wstunnel do
@@ -1149,7 +1152,7 @@ describe "Naaf::App integration" do
     # of the base64 CSRF tokens the delete forms carry, and String#index with an
     # offset returns an ABSOLUTE index — so `index(x, at) > at` can only fail by
     # raising on nil, which makes it a presence check wearing an ordering hat.
-    heading = ->(name) { body.index(%(<h2 class="title is-5 mb-0">#{name}</h2>)) }
+    heading = ->(name) { body.index(%(<h2 class="panel-title">#{name}</h2>)) }
     port_cell = ->(text) { body.index("<td><code>#{text}</code></td>") }
     idle_at, nas_at, pi_at = heading["idle"], heading["nas"], heading["pi"]
     expect([idle_at, nas_at, pi_at]).not.to be(:include?, nil)
@@ -1179,8 +1182,8 @@ describe "Naaf::App integration" do
 
     body = get("/exposed-ports").body
     expect(body).to be(:include?, "No exposed ports. Spoke-to-spoke traffic is fully denied.")
-    expect(body).to be(:include?, %(<h2 class="title is-5 mb-0">nas</h2>))
-    expect(body).to be(:include?, %(<h2 class="title is-5 mb-0">pi</h2>))
+    expect(body).to be(:include?, %(<h2 class="panel-title">nas</h2>))
+    expect(body).to be(:include?, %(<h2 class="panel-title">pi</h2>))
     expect(body).to be(:include?, "No ports exposed. Other spokes cannot reach this client.")
   end
 
@@ -1200,7 +1203,7 @@ describe "Naaf::App integration" do
 
     body = get("/exposed-ports").body
     expect(body).to be(:include?, "Orphaned ports")
-    expect(body).to be(:include?, "box naaf-warn")
+    expect(body).to be(:include?, "panel naaf-warn")
     expect(body).to be(:include?, "<td><code>22</code></td>")
   end
 
@@ -1466,7 +1469,7 @@ describe "Naaf::App integration" do
     expect(body).to be(:include?, "also routed by site room")
     expect(body).not.to be(:include?, "also routed by site off")
     room_net = Naaf.db[:site_networks].where(cidr: "192.168.1.0/24").first
-    expect(body).to be(:include?, %(<span class="tag naaf-chip">disabled</span>))
+    expect(body).to be(:include?, %(<span class="status status-disabled">disabled</span>))
     # The read-only contract, asserted against the URL a Remove button would
     # really carry (/site_networks/ is a shape this app has never emitted, so
     # the assertion it replaces could not fail).
@@ -1585,16 +1588,15 @@ describe "Naaf::App integration" do
     expect(body).to be(:include?, "Sites")
   end
 
-  # Bulma's .level-item is flex-shrink: 0, so a wide panel inside the header row
-  # widens the row rather than wrapping, and the box runs off the right of the
-  # screen -- taking Delete and half the fields with it. The edit panel has to
-  # sit outside the level, below the summary line whose values it edits.
-  it "keeps the site edit panel out of the header level row" do
+  # A wide edit form inside the header row widens the row rather than wrapping,
+  # and the card runs off the right of the screen -- taking Delete with it. The
+  # edit panel sits below the summary line whose values it edits.
+  it "keeps the site edit panel out of the header row" do
     login!
     add_site
     id = Naaf.db[:sites].first[:id]
     body = get("/sites").body
-    header = body[/<div class="level mb-2.*?<p class="is-size-7 mb-3">/m]
+    header = body[/<div class="record-head">.*?<p class="record-meta">/m]
     expect(header).not.to be(:nil?)
     # The row keeps only the two narrow controls.
     expect(header).to be(:include?, %(action="/sites/#{id}/toggle"))

@@ -1,9 +1,9 @@
 <%# The strip that answers "is anything wrong" without reading a number. Every
     status colour is paired with a word, so state never rides on hue alone. %>
-<div class="level is-mobile is-flex-wrap-wrap mb-4">
-  <div class="level-left is-flex-wrap-wrap">
-    <span class="level-item tag <%= (s.wg[:online]).positive? ? "is-success" : "naaf-chip" %>">
-      <strong class="mr-1"><%= s.wg[:online] %>/<%= s.wg[:enabled] %></strong> clients up
+<div class="strip">
+  <div class="strip-group">
+    <span class="status <%= (s.wg[:online]).positive? ? "status-ok" : "" %>">
+      <strong class="count"><%= s.wg[:online] %>/<%= s.wg[:enabled] %></strong> clients up
     </span>
 
     <%# Counted apart from clients on purpose: Collector#judge reads wg[:online]
@@ -11,35 +11,32 @@
         outage — the exact case it exists to catch. Kept visible here so this
         strip cannot contradict the Peers panel below it, which lists both. %>
     <% if s.wg[:sites_total].to_i.positive? %>
-      <span class="level-item tag <%= s.wg[:sites_online].to_i.positive? ? "is-success" : "naaf-chip" %>">
-        <strong class="mr-1"><%= s.wg[:sites_online] %>/<%= s.wg[:sites_enabled] %></strong> sites up
+      <span class="status <%= s.wg[:sites_online].to_i.positive? ? "status-ok" : "" %>">
+        <strong class="count"><%= s.wg[:sites_online] %>/<%= s.wg[:sites_enabled] %></strong> sites up
       </span>
     <% end %>
 
-    <span class="level-item tag naaf-chip">
-      DNS <span class="naaf-num ml-1"><%= fmt.per_sec(s.dns[:qps]) %></span>
+    <span class="status">
+      DNS <span class="num"><%= fmt.per_sec(s.dns[:qps]) %></span>
     </span>
 
     <% if s.app[:reconcile_failing] %>
-      <span class="level-item tag is-danger">reconcile failing</span>
+      <span class="status status-bad">reconcile failing</span>
     <% else %>
-      <span class="level-item tag naaf-chip">reconciled <%= fmt.ago(s.app[:reconcile_at]) %></span>
+      <span class="status">reconciled <%= fmt.ago(s.app[:reconcile_at]) %></span>
     <% end %>
 
     <% if s.app[:backups_enabled] %>
-      <span class="level-item tag naaf-chip">backup <%= fmt.ago(s.app[:backup_at]) %></span>
+      <span class="status">backup <%= fmt.ago(s.app[:backup_at]) %></span>
     <% else %>
-      <span class="level-item tag is-warning">backups off</span>
+      <span class="status status-warn">backups off</span>
     <% end %>
 
     <% if (s.app[:drift]).positive? %>
-      <a class="level-item tag is-warning" href="/settings"><%= s.app[:drift] %> config drift</a>
+      <a class="status status-warn" href="/settings"><%= s.app[:drift] %> config drift</a>
     <% end %>
   </div>
-
-  <div class="level-right">
-    <%# The only way to notice a stream that has silently stopped. There is no
-        client-side way to detect a dead EventSource without JavaScript. %>
-    <span class="level-item has-text-grey is-size-7">as of <%= fmt.clock(s.at) %></span>
-  </div>
+  <%# The only way to notice a stream that has silently stopped. There is no
+      client-side way to detect a dead EventSource without JavaScript. %>
+  <span class="small muted">as of <%= fmt.clock(s.at) %></span>
 </div>

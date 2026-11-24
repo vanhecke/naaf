@@ -1,10 +1,8 @@
-<div class="level">
-  <div class="level-left">
-    <h1 class="title level-item">DNS</h1>
-  </div>
-</div>
+<header class="page-head">
+  <h1>DNS</h1>
+</header>
 
-<p class="content">
+<p class="lede">
   The internal resolver answers <code>A</code> records for your clients. The
   automatic per-client records appear below; add a static <code>A</code> record
   further down to layer extra names on top — a static record overrides an auto
@@ -14,15 +12,15 @@
   <a href="#conditional-forwarding">Conditional forwarding</a>.
 </p>
 
-<h2 class="title is-5">Automatic records</h2>
-<p class="content is-small has-text-grey">
+<h2 class="section">Automatic records</h2>
+<p class="small muted">
   Managed by the tool from your clients — one per client
   (<code>&lt;hostname&gt;.<%= @settings[:dns_domain] %></code>), plus the gateway and
   the <code><%= @settings[:dns_domain] %></code> apex. The bare
   <code>&lt;hostname&gt;</code> and reverse DNS also resolve. Add a static
   <code>A</code> record with the same name below to override one.
 </p>
-<table class="table is-fullwidth is-striped is-hoverable">
+<table class="table">
   <thead>
     <tr>
       <th>Name</th>
@@ -38,13 +36,13 @@
       <% overridden = @shadowed.include?(Naaf::Zone.normalize(row[:name])) %>
       <tr>
         <td><code><%= row[:name] %></code></td>
-        <td><span class="tag"><%= row[:rtype] %></span></td>
-        <td><code class="<%= "has-text-grey-light" if overridden %>"><%= row[:value] %></code></td>
+        <td><span class="kind"><%= row[:rtype] %></span></td>
+        <td><code class="<%= "muted" if overridden %>"><%= row[:value] %></code></td>
         <td>60</td>
-        <td><span class="tag is-light"><%= row[:source] %></span></td>
+        <td><span class="kind"><%= row[:source] %></span></td>
         <td>
           <% if overridden %>
-            <span class="tag is-warning is-light">overridden by static</span>
+            <span class="status status-warn">overridden by static</span>
           <% end %>
         </td>
       </tr>
@@ -52,14 +50,14 @@
   </tbody>
 </table>
 
-<hr>
+<hr class="rule">
 
-<h2 class="title is-5">Static records</h2>
+<h2 class="section">Static records</h2>
 
 <% if @rows.empty? %>
-  <div class="notification">No static records. Client hostnames still resolve automatically.</div>
+  <p class="empty">No static records. Client hostnames still resolve automatically.</p>
 <% else %>
-  <table class="table is-fullwidth is-striped is-hoverable">
+  <table class="table">
     <thead>
       <tr>
         <th>Name</th>
@@ -73,14 +71,17 @@
       <% @rows.each do |row| %>
         <tr>
           <td><code><%= row[:name] %></code></td>
-          <td><span class="tag"><%= row[:rtype] %></span></td>
+          <td><span class="kind"><%= row[:rtype] %></span></td>
           <td><code><%= row[:value] %></code></td>
           <td><%= row[:ttl] %></td>
           <td>
-            <form method="post" action="/dns-records/<%= row[:id] %>/delete">
-              <%= csrf_tag("/dns-records/#{row[:id]}/delete") %>
-              <button class="button is-small is-danger is-light" type="submit">Delete</button>
-            </form>
+            <details class="confirm">
+              <summary>Delete</summary>
+              <form method="post" action="/dns-records/<%= row[:id] %>/delete">
+                <%= csrf_tag("/dns-records/#{row[:id]}/delete") %>
+                <button class="btn btn-danger-solid" type="submit">Confirm delete</button>
+              </form>
+            </details>
           </td>
         </tr>
       <% end %>
@@ -88,36 +89,32 @@
   </table>
 <% end %>
 
-<hr>
+<hr class="rule">
 
-<h2 class="title is-5">Add an A record</h2>
+<h2 class="section">Add an A record</h2>
 <form method="post" action="/dns-records">
   <%= csrf_tag("/dns-records") %>
-  <div class="field is-grouped is-grouped-multiline">
-    <div class="control is-expanded">
-      <label class="label">Name</label>
+  <div class="fields">
+    <label class="field grow">
+      <span class="label">Name</span>
       <input class="input" type="text" name="name" placeholder="service.<%= @settings[:dns_domain] %>" required>
-    </div>
-    <div class="control">
-      <label class="label">IPv4 address</label>
+    </label>
+    <label class="field">
+      <span class="label">IPv4 address</span>
       <input class="input" type="text" name="value" placeholder="10.8.0.10" required>
-    </div>
-    <div class="control">
-      <label class="label">TTL</label>
+    </label>
+    <label class="field">
+      <span class="label">TTL</span>
       <input class="input" type="number" name="ttl" min="0" value="60">
-    </div>
+    </label>
   </div>
-  <div class="field">
-    <div class="control">
-      <button class="button is-primary" type="submit">Add &amp; apply</button>
-    </div>
-  </div>
+  <button class="btn btn-primary" type="submit">Add &amp; apply</button>
 </form>
 
-<hr>
+<hr class="rule">
 
-<h2 class="title is-5" id="conditional-forwarding">Conditional forwarding</h2>
-<p class="content is-small has-text-grey">
+<h2 class="section" id="conditional-forwarding">Conditional forwarding</h2>
+<p class="small muted">
   Send one domain to a different resolver — a site's own DNS server, or a
   public one. The match is a suffix, dnsmasq-style and not an RFC 1034 wildcard:
   <code>example.com</code> matches <code>example.com</code> and
@@ -131,12 +128,12 @@
 </p>
 
 <% if @forwarders.empty? %>
-  <div class="notification">
+  <p class="empty">
     No conditional forwarding. Every name this zone does not answer goes to
     <code><%= h(@settings[:dns_upstream]) %></code>.
-  </div>
+  </p>
 <% else %>
-  <table class="table is-fullwidth is-striped is-hoverable">
+  <table class="table">
     <thead>
       <tr>
         <th>Domain</th>
@@ -155,9 +152,9 @@
           </td>
           <td>
             <% if row[:site_id] %>
-              <a href="/sites"><span class="tag is-light">site <%= h(row[:site_name]) %></span></a>
+              <a href="/sites"><span class="kind">site <%= h(row[:site_name]) %></span></a>
             <% else %>
-              <span class="tag is-light">manual</span>
+              <span class="kind">manual</span>
             <% end %>
           </td>
           <td><%= h(row[:notes].to_s) %></td>
@@ -169,10 +166,13 @@
             <% if row[:site_id] %>
               <a href="/sites">managed on Sites →</a>
             <% else %>
-              <form method="post" action="/dns-forwarders/<%= row[:id] %>/delete">
-                <%= csrf_tag("/dns-forwarders/#{row[:id]}/delete") %>
-                <button class="button is-small is-danger is-light" type="submit">Delete</button>
-              </form>
+              <details class="confirm">
+                <summary>Delete</summary>
+                <form method="post" action="/dns-forwarders/<%= row[:id] %>/delete">
+                  <%= csrf_tag("/dns-forwarders/#{row[:id]}/delete") %>
+                  <button class="btn btn-danger-solid" type="submit">Confirm delete</button>
+                </form>
+              </details>
             <% end %>
           </td>
         </tr>
@@ -181,31 +181,27 @@
   </table>
 <% end %>
 
-<h2 class="title is-6">Forward a domain</h2>
+<h2 class="section">Forward a domain</h2>
 <form method="post" action="/dns-forwarders">
   <%= csrf_tag("/dns-forwarders") %>
-  <div class="field is-grouped is-grouped-multiline">
-    <div class="control is-expanded">
-      <label class="label">Domain</label>
+  <div class="fields">
+    <label class="field grow">
+      <span class="label">Domain</span>
       <input class="input" type="text" name="suffix" placeholder="example.com" required>
-      <p class="help">A leading <code>*.</code> is accepted and stripped.</p>
-    </div>
-    <div class="control">
-      <label class="label">Resolver</label>
-      <input class="input" type="text" name="server" placeholder="9.9.9.9" required>
-    </div>
-    <div class="control">
-      <label class="label">Port</label>
+      <span class="help">A leading <code>*.</code> is accepted and stripped.</span>
+    </label>
+    <label class="field">
+      <span class="label">Resolver</span>
+      <input class="input" type="text" name="server" placeholder="192.0.2.53" required>
+    </label>
+    <label class="field">
+      <span class="label">Port</span>
       <input class="input" type="number" name="port" value="53" min="1" max="65535">
-    </div>
-    <div class="control is-expanded">
-      <label class="label">Notes <span class="has-text-grey">(optional)</span></label>
+    </label>
+    <label class="field grow">
+      <span class="label">Notes <span class="hint">(optional)</span></span>
       <input class="input" type="text" name="notes" placeholder="corporate split-horizon">
-    </div>
+    </label>
   </div>
-  <div class="field">
-    <div class="control">
-      <button class="button is-primary" type="submit">Forward &amp; apply</button>
-    </div>
-  </div>
+  <button class="btn btn-primary" type="submit">Forward &amp; apply</button>
 </form>

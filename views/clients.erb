@@ -1,34 +1,38 @@
 <% if session["oneshot_privkey"] %>
-  <div class="notification is-warning">
-    <strong>A generated private key is waiting for a one-time download.</strong>
-    Download the <code>.conf</code> (or scan the QR) for the client you just added —
-    the key is injected once and never stored. After the first download it is gone;
-    to reissue, delete and re-add the client.
+  <div class="callout callout-once" role="status">
+    <p class="kicker">Shown once</p>
+    <p>
+      <strong>A generated private key is waiting for a one-time download.</strong>
+      Download the <code>.conf</code> (or scan the QR) for the client you just added —
+      the key is injected once and never stored. After the first download it is gone;
+      to reissue, delete and re-add the client.
+    </p>
   </div>
 <% end %>
 
 <% if @wstunnel_unprovisioned %>
-  <%# Deliberately not is-warning: the one-shot-key banner above already is, and %>
-  <%# two identical yellow banners stack into one indistinguishable block. %>
-  <div class="notification is-danger is-light">
-    <strong>wstunnel is enabled but not provisioned.</strong>
-    No path prefix has reached this process, so every <code>split·ws</code> config
-    it could hand out would dial a path the server rejects. Run
-    <code>./deploy.sh --step 65-wstunnel</code> — it writes the prefix to
-    <code>/etc/naaf/wstunnel.env</code> and restarts naaf.
+  <%# A different callout from the one-shot key above: two banners of the same
+      tone stack into one indistinguishable block. %>
+  <div class="callout callout-bad" role="alert">
+    <p class="kicker">Not provisioned</p>
+    <p>
+      <strong>wstunnel is enabled but not provisioned.</strong>
+      No path prefix has reached this process, so every <code>split·ws</code> config
+      it could hand out would dial a path the server rejects. Run
+      <code>./deploy.sh --step 65-wstunnel</code> — it writes the prefix to
+      <code>/etc/naaf/wstunnel.env</code> and restarts naaf.
+    </p>
   </div>
 <% end %>
 
-<div class="level">
-  <div class="level-left">
-    <h1 class="title level-item">Clients</h1>
-  </div>
-  <div class="level-right">
-    <span class="tag naaf-chip level-item">
-      subnet <%= @settings[:wg_subnet] %> · gateway <%= @settings[:server_ip] %><% if @proxy %> · SOCKS5 <%= @proxy %><% end %>
-    </span>
-  </div>
-</div>
+<header class="page-head">
+  <h1>Clients</h1>
+  <p class="small muted">
+    subnet <code><%= @settings[:wg_subnet] %></code>
+    · gateway <code><%= @settings[:server_ip] %></code>
+    <% if @proxy %>· SOCKS5 <code><%= @proxy %></code><% end %>
+  </p>
+</header>
 
 <%# A literal hash rather than a constant: Roda compiles this template into a %>
 <%# method on the app, where a Naaf::-nested constant does not resolve %>
@@ -39,91 +43,106 @@
      "split-ws" => "split·ws",
      "split-ws-nodns" => "split·ws·nodns"
    } %>
+<% once_id = session["oneshot_privkey"].is_a?(Hash) ? session["oneshot_privkey"]["id"].to_s : nil %>
 
 <% if @clients.empty? %>
-  <div class="notification">No clients yet. Add your first one below.</div>
+  <p class="empty">No clients yet. Add your first one below.</p>
 <% else %>
-  <table class="table is-fullwidth is-striped is-hoverable">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Hostname</th>
-        <th>VPN IP</th>
-        <th>Status</th>
-        <th>Last handshake</th>
-        <th>Public key</th>
-        <th>Config</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      <% @clients.each do |c| %>
+  <div class="naaf-scroll">
+    <table class="table">
+      <thead>
         <tr>
-          <td><%= h(c[:name]) %></td>
-          <td><code><%= h(c[:hostname]) %>.<%= h(@settings[:dns_domain]) %></code></td>
-          <td><code><%= h(c[:wg_ip]) %></code></td>
-          <td>
-            <% if c[:enabled] %>
-              <span class="tag is-success">enabled</span>
-            <% else %>
-              <span class="tag naaf-chip">disabled</span>
-            <% end %>
-          </td>
-          <td><%= Naaf::Format.ago(c[:last_handshake_at]) %></td>
-          <td><code title="<%= h(c[:pubkey]) %>"><%= h(c[:pubkey][0, 12]) %>…</code></td>
-          <td>
-            <div class="buttons are-small has-addons">
-              <% @flavors.each do |f| %>
-                <a class="button" href="/clients/<%= c[:id] %>/config/<%= f %>"><%= h(flavor_labels.fetch(f, f)) %></a>
-              <% end %>
-              <%# Outside the loop on purpose: there is exactly one QR and it is %>
-              <%# always for `split`. The ws flavors have none — their [Interface] %>
-              <%# hooks make wireguard-apple/-android throw %>
-              <%# interfaceHasUnrecognizedKey — and /qr refuses them. %>
-              <a class="button is-link is-light" href="/clients/<%= c[:id] %>/qr/split" target="_blank" rel="noopener">QR</a>
-            </div>
-          </td>
-          <td>
-            <form method="post" action="/clients/<%= c[:id] %>/toggle" class="mb-2">
-              <%= csrf_tag("/clients/#{c[:id]}/toggle") %>
-              <button class="button is-small" type="submit"><%= c[:enabled] ? "Disable" : "Enable" %></button>
-            </form>
-            <details>
-              <summary class="button is-small is-danger is-light">Delete</summary>
-              <form method="post" action="/clients/<%= c[:id] %>/delete" class="mt-2">
-                <%= csrf_tag("/clients/#{c[:id]}/delete") %>
-                <button class="button is-small is-danger" type="submit">Confirm delete</button>
-              </form>
-            </details>
-          </td>
+          <th>Name</th>
+          <th>Hostname</th>
+          <th>VPN IP</th>
+          <th>Status</th>
+          <th>Last handshake</th>
+          <th>Public key</th>
+          <th>Config</th>
+          <th></th>
         </tr>
-      <% end %>
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        <% @clients.each do |c| %>
+          <% once = once_id == c[:id].to_s %>
+          <tr class="<%= "row-once" if once %>">
+            <td><%= h(c[:name]) %></td>
+            <td><code><%= h(c[:hostname]) %>.<%= h(@settings[:dns_domain]) %></code></td>
+            <td><code><%= h(c[:wg_ip]) %></code></td>
+            <td>
+              <% if c[:enabled] %>
+                <span class="status status-ok">enabled</span>
+              <% else %>
+                <span class="status status-disabled">disabled</span>
+              <% end %>
+              <% if once %>
+                <span class="status status-warn">shown once</span>
+              <% end %>
+            </td>
+            <td><%= Naaf::Format.ago(c[:last_handshake_at]) %></td>
+            <td><code title="<%= h(c[:pubkey]) %>"><%= h(c[:pubkey][0, 12]) %>…</code></td>
+            <td>
+              <div class="btn-row">
+                <% @flavors.each do |f| %>
+                  <a class="btn" href="/clients/<%= c[:id] %>/config/<%= f %>"><%= h(flavor_labels.fetch(f, f)) %></a>
+                <% end %>
+                <%# Outside the loop on purpose: there is exactly one QR and it is %>
+                <%# always for `split`. The ws flavors have none — their [Interface] %>
+                <%# hooks make wireguard-apple/-android throw %>
+                <%# interfaceHasUnrecognizedKey — and /qr refuses them. %>
+                <a class="btn btn-quiet" href="/clients/<%= c[:id] %>/qr/split" target="_blank" rel="noopener">QR</a>
+              </div>
+            </td>
+            <td>
+              <div class="actions">
+                <% if c[:enabled] %>
+                  <details class="confirm">
+                    <summary>Disable</summary>
+                    <form method="post" action="/clients/<%= c[:id] %>/toggle">
+                      <%= csrf_tag("/clients/#{c[:id]}/toggle") %>
+                      <button class="btn btn-danger-solid" type="submit">Confirm disable</button>
+                    </form>
+                  </details>
+                <% else %>
+                  <form method="post" action="/clients/<%= c[:id] %>/toggle">
+                    <%= csrf_tag("/clients/#{c[:id]}/toggle") %>
+                    <button class="btn" type="submit">Enable</button>
+                  </form>
+                <% end %>
+                <details class="confirm">
+                  <summary>Delete</summary>
+                  <form method="post" action="/clients/<%= c[:id] %>/delete">
+                    <%= csrf_tag("/clients/#{c[:id]}/delete") %>
+                    <button class="btn btn-danger-solid" type="submit">Confirm delete</button>
+                  </form>
+                </details>
+              </div>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
 <% end %>
 
-<hr>
+<hr class="rule">
 
-<h2 class="title is-5">Add client</h2>
+<h2 class="section">Add client</h2>
 <form method="post" action="/clients">
   <%= csrf_tag("/clients") %>
-  <div class="field is-grouped is-grouped-multiline">
-    <div class="control">
-      <label class="label">Name</label>
+  <div class="fields">
+    <label class="field">
+      <span class="label">Name</span>
       <input class="input" type="text" name="name" placeholder="laptop" required>
-    </div>
-    <div class="control">
-      <label class="label">Hostname</label>
+    </label>
+    <label class="field">
+      <span class="label">Hostname</span>
       <input class="input" type="text" name="hostname" placeholder="laptop" required>
-    </div>
-    <div class="control is-expanded">
-      <label class="label">Public key <span class="has-text-grey">(optional — paste to keep your key off the server)</span></label>
-      <input class="input" type="text" name="pubkey" placeholder="leave blank to generate server-side">
-    </div>
+    </label>
+    <label class="field grow">
+      <span class="label">Public key <span class="hint">(optional — paste to keep your key off the server)</span></span>
+      <input class="input" type="text" name="pubkey" placeholder="leave blank to generate server-side" autocomplete="off">
+    </label>
   </div>
-  <div class="field">
-    <div class="control">
-      <button class="button is-primary" type="submit">Add client &amp; apply</button>
-    </div>
-  </div>
+  <button class="btn btn-primary" type="submit">Add client &amp; apply</button>
 </form>

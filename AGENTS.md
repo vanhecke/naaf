@@ -8,7 +8,7 @@
 - Sequel + SQLite at /var/lib/naaf/naaf.db — the single source of truth
 - nftables table `inet naaf` (app-owned) + /etc/nftables.conf (static, off-limits)
 - Root helper daemon on /run/naaf/helper.sock — the ONLY privileged code
-- ERB + vendored Bulma + vendored htmx. NO Node, NO npm, NO asset pipeline
+- ERB + one vendored stylesheet (`vendor/naaf.css`) + vendored htmx. NO Node, NO npm, NO asset pipeline
 - Standard (standardrb) for style; sus + sus-fixtures-async for tests
 
 ## Commands
@@ -156,12 +156,13 @@
   vendored script is an "Ask first".
 - Interactivity is server-rendered fragments swapped via hx-* attributes.
   If something seems to need scripting, move the behaviour to the server.
-- Bulma is class-based: table.is-fullwidth, .field/.control, .button.is-danger,
-  .notification. Bulma ships no JS — do not add its optional JS snippets.
+- One stylesheet, `vendor/naaf.css`. No Bulma, no second CSS file, no CDN.
+  Class names, tokens, and status semantics are in `docs/DESIGN.md`. The file
+  also colours the inline SVG charts for light and dark; renderers name classes,
+  never colours.
 - Everything static is vendored in `vendor/` and served by Roda's `:public`
-  plugin: bulma.min.css, htmx.min.js, htmx-ext-sse.min.js, and naaf.css (ours —
-  it exists only to colour the inline SVG charts for light and dark). No CDN at
-  runtime. `bin/ci` pins both scripts by sha384.
+  plugin: naaf.css, htmx.min.js, and htmx-ext-sse.min.js. No CDN at runtime.
+  `bin/ci` pins both scripts by sha384.
 - The dashboard at `/` pushes fragments over ONE SSE stream (`GET /events`).
   Every fragment is also a plain `GET /metrics/<name>`, so the page degrades to
   `hx-trigger="every Ns"` polling with `NAAF_METRICS_SSE=0` and every panel is

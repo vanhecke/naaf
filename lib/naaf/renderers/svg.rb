@@ -11,10 +11,9 @@ module Naaf
     # so AGENTS.md's "every renderer change needs a test asserting the emitted
     # text" applies to it automatically.
     #
-    # Nothing here names a colour. Every mark carries a class and the stylesheet
-    # supplies the hue, which is what lets the same markup work on Bulma's light
-    # and dark themes with selected steps for each rather than an automatic
-    # flip. It is also what keeps this file testable as text.
+    # Nothing here names a colour. Every mark carries a class and vendor/naaf.css
+    # supplies the hue, with selected steps for light and dark rather than an
+    # automatic flip. It is also what keeps this file testable as text.
     module SVG
       PAD = 2.0
 

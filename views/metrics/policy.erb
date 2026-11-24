@@ -1,26 +1,26 @@
-<div class="box naaf-tile">
-  <h2 class="title is-6">Network &amp; policy</h2>
+<div class="panel">
+  <h2 class="panel-title">Network &amp; policy</h2>
 
-  <table class="table is-fullwidth is-narrow is-size-7">
+  <table class="table kv compact">
     <tbody>
-      <tr><th>Subnet</th><td class="naaf-num"><code><%= h(fmt.dash(s.policy[:subnet])) %></code></td></tr>
-      <tr><th>Gateway</th><td class="naaf-num"><code><%= h(fmt.dash(s.policy[:server_ip])) %></code></td></tr>
+      <tr><th>Subnet</th><td class="num"><code><%= h(fmt.dash(s.policy[:subnet])) %></code></td></tr>
+      <tr><th>Gateway</th><td class="num"><code><%= h(fmt.dash(s.policy[:server_ip])) %></code></td></tr>
       <tr>
         <th>Endpoint</th>
-        <td class="naaf-num">
+        <td class="num">
           <code><%= h(fmt.dash(s.policy[:endpoint])) %>:<%= h(fmt.dash(s.policy[:listen_port])) %></code>
         </td>
       </tr>
       <tr>
         <th>DNS</th>
-        <td class="naaf-num">
+        <td class="num">
           <code>.<%= h(fmt.dash(s.policy[:dns_domain])) %></code>
           via <code><%= h(fmt.dash(s.policy[:dns_upstream])) %></code>
         </td>
       </tr>
       <tr>
         <th>Interfaces</th>
-        <td class="naaf-num">
+        <td class="num">
           <code><%= h(fmt.dash(s.policy[:wg_interface])) %></code> /
           <code><%= h(fmt.dash(s.policy[:wan_interface])) %></code>
         </td>
@@ -28,27 +28,27 @@
     </tbody>
   </table>
 
-  <div class="tags">
-    <a class="tag naaf-chip" href="/clients">
-      clients <span class="naaf-num ml-1"><%= s.policy[:enabled] %>/<%= s.policy[:clients] %></span>
+  <div class="strip-group">
+    <a class="status" href="/clients">
+      clients <span class="num"><%= s.policy[:enabled] %>/<%= s.policy[:clients] %></span>
     </a>
-    <a class="tag naaf-chip" href="/exposed-ports">
-      exposed ports <span class="naaf-num ml-1"><%= s.policy[:exposed_ports] %></span>
+    <a class="status" href="/exposed-ports">
+      exposed ports <span class="num"><%= s.policy[:exposed_ports] %></span>
     </a>
-    <a class="tag naaf-chip" href="/port-forwards">
-      forwards <span class="naaf-num ml-1"><%= s.policy[:port_forwards_enabled] %>/<%= s.policy[:port_forwards] %></span>
+    <a class="status" href="/port-forwards">
+      forwards <span class="num"><%= s.policy[:port_forwards_enabled] %>/<%= s.policy[:port_forwards] %></span>
     </a>
-    <a class="tag naaf-chip" href="/sites">
-      sites <span class="naaf-num ml-1"><%= s.policy[:sites] %></span>
+    <a class="status" href="/sites">
+      sites <span class="num"><%= s.policy[:sites] %></span>
     </a>
-    <a class="tag naaf-chip" href="/extra-routes">
-      routes <span class="naaf-num ml-1"><%= s.policy[:extra_routes] %></span>
+    <a class="status" href="/extra-routes">
+      routes <span class="num"><%= s.policy[:extra_routes] %></span>
     </a>
-    <a class="tag naaf-chip" href="/dns-records">
-      dns records <span class="naaf-num ml-1"><%= s.policy[:dns_records] %></span>
+    <a class="status" href="/dns-records">
+      dns records <span class="num"><%= s.policy[:dns_records] %></span>
     </a>
-    <a class="tag naaf-chip" href="/dns-records#conditional-forwarding">
-      dns forwarding <span class="naaf-num ml-1"><%= s.policy[:dns_forwarders] %></span>
+    <a class="status" href="/dns-records#conditional-forwarding">
+      dns forwarding <span class="num"><%= s.policy[:dns_forwarders] %></span>
     </a>
   </div>
 </div>

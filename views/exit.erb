@@ -1,15 +1,13 @@
-<div class="level">
-  <div class="level-left">
-    <h1 class="title level-item">Internet exit</h1>
-  </div>
-</div>
+<header class="page-head">
+  <h1>Internet exit</h1>
+</header>
 
-<div class="notification">
+<div class="callout">
   <p>Full-tunnel clients leave via this peer. Destinations see its address, not this box.</p>
-  <p class="mt-2">Split clients do not send internet here.</p>
-  <p class="mt-2">This box's own traffic (SSH, DNS passthrough, backups, Troubleshoot) stays on the VPS. The SOCKS5 proxy follows this exit when it is up.</p>
-  <p class="mt-2">A down peer blackholes client internet. Disable to restore WAN masquerade.</p>
-  <p class="mt-2 mb-0">
+  <p>Split clients do not send internet here.</p>
+  <p>This box's own traffic (SSH, DNS passthrough, backups, Troubleshoot) stays on the VPS. The SOCKS5 proxy follows this exit when it is up.</p>
+  <p>A down peer blackholes client internet. Disable to restore WAN masquerade.</p>
+  <p>
     Everything a full client sends that is not the VPN subnet, a site network
     or this box itself goes here — including the VPS's own network neighbours.
     Reaching this box's admin UI on its public address still works (the
@@ -18,27 +16,23 @@
 </div>
 
 <% if @exit.nil? %>
-  <div class="notification">No internet exit. Full-tunnel clients leave via WAN masquerade.</div>
+  <p class="empty">No internet exit. Full-tunnel clients leave via WAN masquerade.</p>
 
-  <h2 class="title is-5">Register with Cloudflare WARP</h2>
-  <p class="content">
+  <h2 class="section">Register with Cloudflare WARP</h2>
+  <p class="lede">
     Allocates a keypair on this box and asks Cloudflare for a WARP peer.
     The private key is stored and never shown. The Cloudflare client API is
     unofficial and can break — if it does, use the manual form below.
   </p>
   <form method="post" action="/exit/warp">
     <%= csrf_tag("/exit/warp") %>
-    <div class="field">
-      <div class="control">
-        <button class="button is-primary" type="submit">Register with Cloudflare WARP</button>
-      </div>
-    </div>
+    <button class="btn btn-primary" type="submit">Register with Cloudflare WARP</button>
   </form>
 
-  <hr>
+  <hr class="rule">
 
-  <h2 class="title is-5">Add manually</h2>
-  <p class="help mb-3">
+  <h2 class="section">Add manually</h2>
+  <p class="help">
     Paste a WireGuard client config's <code>PrivateKey</code>, peer
     <code>PublicKey</code>, <code>Endpoint</code> and <code>Address</code>.
     Leave the private key blank to generate a keypair — the private key is
@@ -46,97 +40,95 @@
   </p>
   <form method="post" action="/exit">
     <%= csrf_tag("/exit") %>
-    <div class="field is-grouped is-grouped-multiline">
-      <div class="control">
-        <label class="label">Name</label>
+    <div class="fields">
+      <label class="field">
+        <span class="label">Name</span>
         <input class="input" type="text" name="name" value="Internet exit" required>
-      </div>
-      <div class="control is-expanded">
-        <label class="label">Peer public key</label>
+      </label>
+      <label class="field grow">
+        <span class="label">Peer public key</span>
         <input class="input" type="text" name="pubkey" required autocomplete="off"
                placeholder="Remote WireGuard public key">
-      </div>
+      </label>
     </div>
-    <div class="field">
-      <label class="label">This box's private key <span class="has-text-grey">(optional; blank generates one)</span></label>
+    <label class="field grow">
+      <span class="label">This box's private key <span class="hint">(optional; blank generates one)</span></span>
       <input class="input" type="text" name="privkey" autocomplete="off">
-    </div>
-    <div class="field is-grouped is-grouped-multiline">
-      <div class="control is-expanded">
-        <label class="label">Endpoint host</label>
+    </label>
+    <div class="fields">
+      <label class="field grow">
+        <span class="label">Endpoint host</span>
         <input class="input" type="text" name="endpoint_host" required
                placeholder="engage.cloudflareclient.com">
-      </div>
-      <div class="control">
-        <label class="label">Port</label>
+      </label>
+      <label class="field">
+        <span class="label">Port</span>
         <input class="input" type="number" name="endpoint_port" value="2408" min="1" max="65535" required>
-      </div>
-      <div class="control">
-        <label class="label">Keepalive</label>
+      </label>
+      <label class="field">
+        <span class="label">Keepalive</span>
         <input class="input" type="number" name="keepalive" value="25" min="1" max="65535">
-      </div>
+      </label>
     </div>
-    <div class="field is-grouped is-grouped-multiline">
-      <div class="control">
-        <label class="label">Assigned IPv4 address</label>
+    <div class="fields">
+      <label class="field">
+        <span class="label">Assigned IPv4 address</span>
         <input class="input" type="text" name="address" placeholder="172.16.0.2" required>
-      </div>
-      <div class="control">
-        <label class="label">MTU</label>
+      </label>
+      <label class="field">
+        <span class="label">MTU</span>
         <input class="input" type="number" name="mtu" value="1280" min="1280" max="1500">
-      </div>
+      </label>
     </div>
-    <div class="field">
-      <label class="label">Preshared key <span class="has-text-grey">(optional)</span></label>
+    <label class="field grow">
+      <span class="label">Preshared key <span class="hint">(optional)</span></span>
       <input class="input" type="text" name="psk" autocomplete="off">
-    </div>
-    <div class="field">
-      <label class="label">Notes</label>
+    </label>
+    <label class="field grow">
+      <span class="label">Notes</span>
       <input class="input" type="text" name="notes">
-    </div>
-    <div class="field">
-      <div class="control">
-        <button class="button is-primary" type="submit">Add exit &amp; apply</button>
-      </div>
-    </div>
+    </label>
+    <p><button class="btn btn-primary" type="submit">Add exit &amp; apply</button></p>
   </form>
 <% else %>
   <% ep_host, _, ep_port = @exit[:endpoint].rpartition(":") %>
-  <div class="box">
-    <div class="level mb-2 is-align-items-flex-start">
-      <div class="level-left">
-        <div class="level-item">
-          <h2 class="title is-5 mb-0"><%= h(@exit[:name]) %></h2>
-        </div>
-        <div class="level-item">
-          <% if @exit[:enabled] %>
-            <span class="tag is-success">enabled</span>
-          <% else %>
-            <span class="tag naaf-chip">disabled</span>
-          <% end %>
-          <span class="tag naaf-chip ml-1"><%= h(@exit[:provider]) %></span>
-        </div>
+  <article class="panel">
+    <div class="record-head">
+      <div class="record-id">
+        <h2 class="panel-title"><%= h(@exit[:name]) %></h2>
+        <% if @exit[:enabled] %>
+          <span class="status status-ok">enabled</span>
+        <% else %>
+          <span class="status status-disabled">disabled</span>
+        <% end %>
+        <span class="kind"><%= h(@exit[:provider]) %></span>
       </div>
-      <div class="level-right">
-        <div class="level-item">
-          <form method="post" action="/exit/<%= @exit[:id] %>/toggle">
-            <%= csrf_tag("/exit/#{@exit[:id]}/toggle") %>
-            <button class="button is-small" type="submit"><%= @exit[:enabled] ? "Disable" : "Enable" %></button>
-          </form>
-        </div>
-        <div class="level-item">
-          <details>
-            <summary class="button is-small is-danger is-light">Delete</summary>
-            <form method="post" action="/exit/<%= @exit[:id] %>/delete" class="mt-2">
-              <%= csrf_tag("/exit/#{@exit[:id]}/delete") %>
-              <button class="button is-small is-danger" type="submit">Confirm delete</button>
+      <div class="record-actions">
+        <% if @exit[:enabled] %>
+          <details class="confirm">
+            <summary>Disable</summary>
+            <form method="post" action="/exit/<%= @exit[:id] %>/toggle">
+              <%= csrf_tag("/exit/#{@exit[:id]}/toggle") %>
+              <button class="btn btn-danger-solid" type="submit">Confirm disable</button>
             </form>
           </details>
-        </div>
+        <% else %>
+          <form method="post" action="/exit/<%= @exit[:id] %>/toggle">
+            <%= csrf_tag("/exit/#{@exit[:id]}/toggle") %>
+            <button class="btn" type="submit">Enable</button>
+          </form>
+        <% end %>
+        <details class="confirm">
+          <summary>Delete</summary>
+          <form method="post" action="/exit/<%= @exit[:id] %>/delete">
+            <%= csrf_tag("/exit/#{@exit[:id]}/delete") %>
+            <button class="btn btn-danger-solid" type="submit">Confirm delete</button>
+          </form>
+        </details>
       </div>
     </div>
 
-    <p class="is-size-7 mb-3">
+    <p class="record-meta">
       Endpoint <code><%= h(@exit[:endpoint]) %></code>
       · address <code><%= h(@exit[:address]) %></code>
       · MTU <%= @exit[:mtu] %>
@@ -149,12 +141,12 @@
         · seen <code><%= h(@exit[:observed_endpoint]) %></code>
       <% end %>
     </p>
-    <p class="is-size-7 has-text-grey mb-4">
+    <p class="small muted">
       Interface <code><%= h(@exit_if) %></code>
       — full-tunnel client internet leaves here when this row is enabled.
     </p>
     <% if @exit_via %>
-      <p class="is-size-7 mb-4">
+      <p class="small">
         Reached through VPN client <strong><%= h(@exit_via[:name]) %></strong>
         (<code><%= h(@exit_via[:wg_ip]) %></code>) — this box dials it inside wg0.
         If that machine sleeps or goes offline, every full-tunnel client loses
@@ -162,58 +154,54 @@
       </p>
     <% end %>
 
-    <details class="mb-2">
-      <summary class="button is-small">Edit</summary>
-      <form method="post" action="/exit/<%= @exit[:id] %>" class="mt-3">
+    <details class="fold">
+      <summary>Edit</summary>
+      <form method="post" action="/exit/<%= @exit[:id] %>" class="form">
         <%= csrf_tag("/exit/#{@exit[:id]}") %>
-        <div class="field is-grouped is-grouped-multiline">
-          <div class="control">
-            <label class="label">Name</label>
+        <div class="fields">
+          <label class="field">
+            <span class="label">Name</span>
             <input class="input" type="text" name="name" value="<%= h(@exit[:name]) %>" required>
-          </div>
-          <div class="control is-expanded">
-            <label class="label">Peer public key</label>
+          </label>
+          <label class="field grow">
+            <span class="label">Peer public key</span>
             <input class="input" type="text" name="pubkey" value="<%= h(@exit[:pubkey]) %>" required autocomplete="off">
-          </div>
+          </label>
         </div>
-        <div class="field is-grouped is-grouped-multiline">
-          <div class="control is-expanded">
-            <label class="label">Endpoint host</label>
+        <div class="fields">
+          <label class="field grow">
+            <span class="label">Endpoint host</span>
             <input class="input" type="text" name="endpoint_host" value="<%= h(ep_host) %>" required>
-          </div>
-          <div class="control">
-            <label class="label">Port</label>
+          </label>
+          <label class="field">
+            <span class="label">Port</span>
             <input class="input" type="number" name="endpoint_port" value="<%= h(ep_port) %>" min="1" max="65535" required>
-          </div>
-          <div class="control">
-            <label class="label">Keepalive</label>
+          </label>
+          <label class="field">
+            <span class="label">Keepalive</span>
             <input class="input" type="number" name="keepalive" value="<%= @exit[:keepalive] %>" min="1" max="65535">
-          </div>
+          </label>
         </div>
-        <div class="field is-grouped is-grouped-multiline">
-          <div class="control">
-            <label class="label">Assigned IPv4 address</label>
+        <div class="fields">
+          <label class="field">
+            <span class="label">Assigned IPv4 address</span>
             <input class="input" type="text" name="address" value="<%= h(@exit[:address]) %>" required>
-          </div>
-          <div class="control">
-            <label class="label">MTU</label>
+          </label>
+          <label class="field">
+            <span class="label">MTU</span>
             <input class="input" type="number" name="mtu" value="<%= @exit[:mtu] %>" min="1280" max="1500">
-          </div>
+          </label>
         </div>
-        <div class="field">
-          <label class="label">Preshared key <span class="has-text-grey">(optional; blank clears it)</span></label>
+        <label class="field grow">
+          <span class="label">Preshared key <span class="hint">(optional; blank clears it)</span></span>
           <input class="input" type="text" name="psk" value="<%= h(@exit[:psk].to_s) %>" autocomplete="off">
-        </div>
-        <div class="field">
-          <label class="label">Notes</label>
+        </label>
+        <label class="field grow">
+          <span class="label">Notes</span>
           <input class="input" type="text" name="notes" value="<%= h(@exit[:notes].to_s) %>">
-        </div>
-        <div class="field">
-          <div class="control">
-            <button class="button is-primary" type="submit">Save &amp; apply</button>
-          </div>
-        </div>
+        </label>
+        <p><button class="btn btn-primary" type="submit">Save &amp; apply</button></p>
       </form>
     </details>
-  </div>
+  </article>
 <% end %>

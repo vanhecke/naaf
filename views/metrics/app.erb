@@ -1,58 +1,58 @@
-<div class="box naaf-tile <%= s.app[:reconcile_failing] ? "naaf-alert" : (s.app[:backups_enabled] ? "" : "naaf-warn") %>">
-  <h2 class="title is-6">Naaf</h2>
+<div class="panel <%= s.app[:reconcile_failing] ? "naaf-alert" : (s.app[:backups_enabled] ? "" : "naaf-warn") %>">
+  <h2 class="panel-title">Naaf</h2>
 
-  <table class="table is-fullwidth is-narrow is-size-7">
+  <table class="table kv compact">
     <tbody>
       <tr>
         <th>Uptime</th>
-        <td class="naaf-num">
+        <td class="num">
           <%= fmt.duration(s.app[:uptime]) %>
-          <span class="has-text-grey">· host <%= fmt.duration(s.system[:uptime]) %></span>
+          <span class="muted">· host <%= fmt.duration(s.system[:uptime]) %></span>
         </td>
       </tr>
       <tr>
         <th>Process</th>
-        <td class="naaf-num">
+        <td class="num">
           <%= fmt.bytes(s.app[:rss]) %> RSS · <%= fmt.pct(s.app[:cpu_pct], places: 1) %> cpu
         </td>
       </tr>
       <tr>
         <th>Ruby</th>
-        <td class="naaf-num">
+        <td class="num">
           <%= h(s.app[:ruby]) %>
-          <% if s.app[:yjit] %><span class="tag naaf-chip has-text-success-on-scheme ml-1">YJIT</span><% end %>
-          <span class="has-text-grey">· <%= fmt.compact(s.app[:gc_count]) %> GCs</span>
+          <% if s.app[:yjit] %><span class="status status-ok">YJIT</span><% end %>
+          <span class="muted">· <%= fmt.compact(s.app[:gc_count]) %> GCs</span>
         </td>
       </tr>
       <tr>
         <th>Database</th>
-        <td class="naaf-num">
+        <td class="num">
           <%= fmt.bytes(s.app[:db_bytes]) %>
-          <span class="has-text-grey">+ <%= fmt.bytes(s.app[:wal_bytes]) %> WAL</span>
+          <span class="muted">+ <%= fmt.bytes(s.app[:wal_bytes]) %> WAL</span>
         </td>
       </tr>
       <tr>
         <th>Backup</th>
-        <td class="naaf-num">
+        <td class="num">
           <% if s.app[:backups_enabled] %>
             <%= fmt.ago(s.app[:backup_at]) %>
-            <span class="has-text-grey">· <%= fmt.bytes(s.app[:backup_bytes]) %></span>
+            <span class="muted">· <%= fmt.bytes(s.app[:backup_bytes]) %></span>
           <% else %>
-            <span class="tag is-warning">disabled</span>
+            <span class="status status-warn">disabled</span>
           <% end %>
         </td>
       </tr>
       <tr>
         <th>Reconcile</th>
-        <td class="naaf-num">
+        <td class="num">
           <% if s.app[:reconcile_failing] %>
-            <span class="tag is-danger">failing</span>
+            <span class="status status-bad">failing</span>
             <%# Deliberately no detail: the helper's message can carry key
                 material. `journalctl -u naaf` has the whole thing. %>
-            <span class="has-text-grey">see <code>journalctl -u naaf</code></span>
+            <span class="muted">see <code>journalctl -u naaf</code></span>
           <% else %>
             <%= fmt.ago(s.app[:reconcile_at]) %>
-            <span class="has-text-grey">· applied <%= fmt.ago(s.app[:apply_at]) %></span>
+            <span class="muted">· applied <%= fmt.ago(s.app[:apply_at]) %></span>
           <% end %>
         </td>
       </tr>

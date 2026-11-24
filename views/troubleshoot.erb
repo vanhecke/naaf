@@ -1,112 +1,108 @@
-<div class="level">
-  <div class="level-left">
-    <h1 class="title level-item">Troubleshoot</h1>
-  </div>
-</div>
+<header class="page-head">
+  <h1>Troubleshoot</h1>
+</header>
 
-<p class="content">
+<p class="lede">
   The first steps of <code>docs/TROUBLESHOOTING.md</code>, without the
   <code>ssh</code>. The flow tester answers <em>should this work</em> from the
   configuration; it does not send a packet.
 </p>
 
 <% if Naaf::Diagnostics.enabled? %>
-  <h2 class="title is-5">Reachability</h2>
-  <p class="content is-small has-text-grey">
+  <h2 class="section">Reachability</h2>
+  <p class="small muted">
     The first three steps of the playbook, run from this box as the
     <code>naaf</code> user. They put real packets on the wire, so they answer a
     different question from the flow tester below: what the kernel does, not
     what the configuration says it should.
   </p>
 
-  <div class="columns is-multiline">
-    <div class="column is-one-third">
-      <div class="box naaf-tile">
-        <h3 class="title is-6">Ping</h3>
-        <p class="is-size-7 has-text-grey mb-3">Three echoes, 8-second deadline.</p>
-        <form method="post" action="/troubleshoot/ping"
-              hx-post="/troubleshoot/ping" hx-target="#diag-result" hx-swap="innerHTML"
-              hx-disabled-elt="find button">
-          <%= csrf_tag("/troubleshoot/ping") %>
-          <div class="field">
-            <input class="input is-small" type="text" name="host" placeholder="192.168.1.1" required>
-          </div>
-          <button class="button is-small is-primary" type="submit">Ping</button>
-          <span class="naaf-busy ml-2 is-size-7 has-text-grey">running…</span>
-        </form>
-      </div>
+  <div class="tools">
+    <div class="panel">
+      <h3 class="panel-title">Ping</h3>
+      <p class="small muted">Three echoes, 8-second deadline.</p>
+      <form method="post" action="/troubleshoot/ping"
+            hx-post="/troubleshoot/ping" hx-target="#diag-result" hx-swap="innerHTML"
+            hx-disabled-elt="find button">
+        <%= csrf_tag("/troubleshoot/ping") %>
+        <label class="field">
+          <span class="label">Host</span>
+          <input class="input" type="text" name="host" placeholder="192.168.1.1" required>
+        </label>
+        <button class="btn btn-primary" type="submit">Ping</button>
+        <span class="naaf-busy small muted">running…</span>
+      </form>
     </div>
 
-    <div class="column is-one-third">
-      <div class="box naaf-tile">
-        <h3 class="title is-6">Traceroute</h3>
-        <p class="is-size-7 has-text-grey mb-3">One probe per hop, 12 hops.</p>
-        <form method="post" action="/troubleshoot/traceroute"
-              hx-post="/troubleshoot/traceroute" hx-target="#diag-result" hx-swap="innerHTML"
-              hx-disabled-elt="find button">
-          <%= csrf_tag("/troubleshoot/traceroute") %>
-          <div class="field">
-            <input class="input is-small" type="text" name="host" placeholder="1.1.1.1" required>
-          </div>
-          <button class="button is-small is-primary" type="submit">Trace</button>
-          <span class="naaf-busy ml-2 is-size-7 has-text-grey">running…</span>
-        </form>
-      </div>
+    <div class="panel">
+      <h3 class="panel-title">Traceroute</h3>
+      <p class="small muted">One probe per hop, 12 hops.</p>
+      <form method="post" action="/troubleshoot/traceroute"
+            hx-post="/troubleshoot/traceroute" hx-target="#diag-result" hx-swap="innerHTML"
+            hx-disabled-elt="find button">
+        <%= csrf_tag("/troubleshoot/traceroute") %>
+        <label class="field">
+          <span class="label">Host</span>
+          <input class="input" type="text" name="host" placeholder="192.0.2.1" required>
+        </label>
+        <button class="btn btn-primary" type="submit">Trace</button>
+        <span class="naaf-busy small muted">running…</span>
+      </form>
     </div>
 
-    <div class="column is-one-third">
-      <div class="box naaf-tile">
-        <h3 class="title is-6">Curl</h3>
-        <p class="is-size-7 has-text-grey mb-3">
-          <code>tcp</code> is a bare connect — use it to ask whether a port
-          answers at all.
+    <div class="panel">
+      <h3 class="panel-title">Curl</h3>
+      <p class="small muted">
+        <code>tcp</code> is a bare connect — use it to ask whether a port
+        answers at all.
+      </p>
+      <form method="post" action="/troubleshoot/curl"
+            hx-post="/troubleshoot/curl" hx-target="#diag-result" hx-swap="innerHTML"
+            hx-disabled-elt="find button">
+        <%= csrf_tag("/troubleshoot/curl") %>
+        <div class="fields">
+          <label class="field grow">
+            <span class="label">Host</span>
+            <input class="input" type="text" name="host" placeholder="192.168.1.10" required>
+          </label>
+          <label class="field">
+            <span class="label">Scheme</span>
+            <select class="input" name="scheme">
+              <option value="tcp">tcp</option>
+              <option value="http">http</option>
+              <option value="https">https</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Port</span>
+            <input class="input input-port" type="number" name="port" min="1" max="65535" placeholder="443">
+          </label>
+        </div>
+        <label class="field">
+          <span class="label">Path</span>
+          <input class="input" type="text" name="path" placeholder="/">
+        </label>
+        <p>
+          <label class="choice">
+            <input type="checkbox" name="insecure"> Skip TLS verification (https only)
+          </label>
         </p>
-        <form method="post" action="/troubleshoot/curl"
-              hx-post="/troubleshoot/curl" hx-target="#diag-result" hx-swap="innerHTML"
-              hx-disabled-elt="find button">
-          <%= csrf_tag("/troubleshoot/curl") %>
-          <div class="field is-grouped">
-            <div class="control is-expanded">
-              <input class="input is-small" type="text" name="host" placeholder="192.168.1.10" required>
-            </div>
-            <div class="control">
-              <div class="select is-small">
-                <select name="scheme">
-                  <option value="tcp">tcp</option>
-                  <option value="http">http</option>
-                  <option value="https">https</option>
-                </select>
-              </div>
-            </div>
-            <div class="control">
-              <input class="input is-small" type="number" name="port" min="1" max="65535" placeholder="443" style="width: 6rem">
-            </div>
-          </div>
-          <div class="field">
-            <input class="input is-small" type="text" name="path" placeholder="/">
-          </div>
-          <div class="field">
-            <label class="checkbox is-size-7">
-              <input type="checkbox" name="insecure"> Skip TLS verification (https only)
-            </label>
-          </div>
-          <button class="button is-small is-primary" type="submit">Request</button>
-          <span class="naaf-busy ml-2 is-size-7 has-text-grey">running…</span>
-        </form>
-      </div>
+        <button class="btn btn-primary" type="submit">Request</button>
+        <span class="naaf-busy small muted">running…</span>
+      </form>
     </div>
   </div>
 
-  <div id="diag-result" class="mb-5">
+  <div id="diag-result">
     <%= render("troubleshoot/output",
                locals: {tool: @diag_tool, result: @diag_result, error: @diag_error}) %>
   </div>
 
-  <hr>
+  <hr class="rule">
 <% end %>
 
-<h2 class="title is-5">Flow tester</h2>
-<p class="content is-small has-text-grey">
+<h2 class="section">Flow tester</h2>
+<p class="small muted">
   Walks a packet through the same rules the renderers emit — client
   <code>AllowedIPs</code>, cryptokey routing, the proto-158 routes, and the
   <code>inet naaf</code> forward chain — and reports which line decided it.
@@ -115,42 +111,36 @@
 <form method="get" action="/troubleshoot/flow"
       hx-get="/troubleshoot/flow" hx-target="#flow-result" hx-swap="innerHTML"
       hx-disabled-elt="find button">
-  <div class="field is-grouped is-grouped-multiline">
-    <div class="control">
-      <label class="label">From</label>
+  <div class="fields">
+    <label class="field">
+      <span class="label">From</span>
       <input class="input" type="text" name="src" value="<%= h(request.params["src"].to_s) %>"
              placeholder="<%= h(@settings[:server_ip].to_s.sub(/\.1\z/, ".2")) %>" required>
-    </div>
-    <div class="control">
-      <label class="label">To</label>
+    </label>
+    <label class="field">
+      <span class="label">To</span>
       <input class="input" type="text" name="dst" value="<%= h(request.params["dst"].to_s) %>"
              placeholder="192.168.1.10" required>
-    </div>
-    <div class="control">
-      <label class="label">Protocol</label>
-      <div class="select">
-        <select name="proto">
-          <% Naaf::App::FLOW_PROTOS.each do |proto| %>
-            <option value="<%= proto %>"<%= " selected" if request.params["proto"] == proto %>><%= proto %></option>
-          <% end %>
-        </select>
-      </div>
-    </div>
-    <div class="control">
-      <label class="label">Port</label>
+    </label>
+    <label class="field">
+      <span class="label">Protocol</span>
+      <select class="input" name="proto">
+        <% Naaf::App::FLOW_PROTOS.each do |proto| %>
+          <option value="<%= proto %>"<%= " selected" if request.params["proto"] == proto %>><%= proto %></option>
+        <% end %>
+      </select>
+    </label>
+    <label class="field">
+      <span class="label">Port</span>
       <input class="input" type="number" name="dport" min="1" max="65535"
              value="<%= h(request.params["dport"].to_s) %>" placeholder="443">
-      <p class="help">Ignored for ICMP.</p>
-    </div>
+      <span class="help">Ignored for ICMP.</span>
+    </label>
   </div>
-  <div class="field">
-    <div class="control">
-      <button class="button is-primary" type="submit">Trace</button>
-      <span class="naaf-busy ml-2 is-size-7 has-text-grey">working…</span>
-    </div>
-  </div>
+  <button class="btn btn-primary" type="submit">Trace</button>
+  <span class="naaf-busy small muted">working…</span>
 </form>
 
-<div id="flow-result" class="mt-4">
+<div id="flow-result">
   <%= render("troubleshoot/flow", locals: {report: @report, error: @flow_error}) %>
 </div>

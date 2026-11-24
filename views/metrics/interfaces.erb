@@ -1,18 +1,18 @@
-<div class="box naaf-tile <%= s.udp[:in_errors].to_i.positive? ? "naaf-warn" : "" %>">
-  <h2 class="title is-6">Interfaces</h2>
+<div class="panel <%= s.udp[:in_errors].to_i.positive? ? "naaf-warn" : "" %>">
+  <h2 class="panel-title">Interfaces</h2>
 
   <% if s.interfaces.empty? %>
-    <p class="has-text-grey is-size-7">
+    <p class="muted small">
       No interface counters — <code>/proc/net/dev</code> is not readable here.
     </p>
   <% else %>
     <div class="naaf-scroll">
-      <table class="table is-fullwidth is-narrow is-size-7">
+      <table class="table compact">
         <thead>
           <tr>
-            <th>Interface</th><th class="has-text-right">In</th><th class="has-text-right">Out</th>
-            <th class="has-text-right">In pkt/s</th><th class="has-text-right" title="since boot">Errors</th>
-            <th class="has-text-right">Dropped</th><th title="inbound throughput, recent">Recent</th>
+            <th>Interface</th><th class="num">In</th><th class="num">Out</th>
+            <th class="num">In pkt/s</th><th class="num" title="since boot">Errors</th>
+            <th class="num">Dropped</th><th title="inbound throughput, recent">Recent</th>
           </tr>
         </thead>
         <tbody>
@@ -21,19 +21,19 @@
               <td>
                 <code><%= h(i[:name]) %></code>
                 <% if i[:role] %>
-                  <span class="tag naaf-chip ml-1"><%= {wan: "wan", wg: "tunnel", exit: "exit"}[i[:role]] %></span>
+                  <span class="status status-role"><%= {wan: "wan", wg: "tunnel", exit: "exit"}[i[:role]] %></span>
                 <% end %>
               </td>
-              <td class="has-text-right naaf-num"><%= fmt.bps(i[:rx_bps]) %></td>
-              <td class="has-text-right naaf-num"><%= fmt.bps(i[:tx_bps]) %></td>
-              <td class="has-text-right naaf-num"><%= fmt.per_sec(i[:rx_pps], unit: "") %></td>
-              <td class="has-text-right naaf-num has-text-grey" title="since boot">
+              <td class="num"><%= fmt.bps(i[:rx_bps]) %></td>
+              <td class="num"><%= fmt.bps(i[:tx_bps]) %></td>
+              <td class="num"><%= fmt.per_sec(i[:rx_pps], unit: "") %></td>
+              <td class="num muted" title="since boot">
                 <%= fmt.count(i[:rx_errs].to_i + i[:tx_errs].to_i) %>
               </td>
-              <td class="has-text-right naaf-num has-text-grey">
+              <td class="num muted">
                 <%= fmt.count(i[:rx_drop].to_i + i[:tx_drop].to_i) %>
               </td>
-              <td style="width: 7rem">
+              <td class="col-spark-sm">
                 <%= svg.sparkline(i[:rx_series], height: 20, label: "#{i[:name]} inbound") %>
               </td>
             </tr>
@@ -43,21 +43,21 @@
     </div>
   <% end %>
 
-  <p class="heading has-text-grey mt-3">UDP sockets (IPv4, host-wide)</p>
-  <div class="tags">
-    <span class="tag naaf-chip">
-      delivered <span class="naaf-num ml-1"><%= fmt.per_sec(s.udp[:in_dps]) %></span>
+  <p class="eyebrow">UDP sockets (IPv4, host-wide)</p>
+  <div class="strip-group">
+    <span class="status">
+      delivered <span class="num"><%= fmt.per_sec(s.udp[:in_dps]) %></span>
     </span>
     <%# Rate, not the since-boot total: on a public IP the total is nonzero
         within minutes and a permanently yellow tag teaches people to ignore it. %>
-    <span class="tag <%= s.udp[:no_ports_ps].to_f.positive? ? "is-warning" : "naaf-chip" %>">
-      no port <span class="naaf-num ml-1"><%= fmt.per_sec(s.udp[:no_ports_ps]) %></span>
+    <span class="status <%= s.udp[:no_ports_ps].to_f.positive? ? "status-warn" : "" %>">
+      no port <span class="num"><%= fmt.per_sec(s.udp[:no_ports_ps]) %></span>
     </span>
-    <span class="tag <%= s.udp[:in_errors].to_i.positive? ? "is-danger" : "naaf-chip" %>">
-      errors <span class="naaf-num ml-1"><%= fmt.count(s.udp[:in_errors]) %></span>
+    <span class="status <%= s.udp[:in_errors].to_i.positive? ? "status-bad" : "" %>">
+      errors <span class="num"><%= fmt.count(s.udp[:in_errors]) %></span>
     </span>
-    <span class="tag naaf-chip">
-      buffer overruns <span class="naaf-num ml-1"><%= fmt.count(s.udp[:rcvbuf_errors]) %></span>
+    <span class="status">
+      buffer overruns <span class="num"><%= fmt.count(s.udp[:rcvbuf_errors]) %></span>
     </span>
   </div>
 </div>

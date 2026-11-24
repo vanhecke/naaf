@@ -1,16 +1,14 @@
-<div class="level">
-  <div class="level-left">
-    <h1 class="title level-item">Sites</h1>
-  </div>
-</div>
+<header class="page-head">
+  <h1>Sites</h1>
+</header>
 
-<p class="content">
+<p class="lede">
   A site is a remote WireGuard <em>server</em> this hub dials — a UniFi gateway,
   another VPN, a home UDM. Clients stay on Naaf; Naaf holds the remote session
   and routes the listed networks to that peer.
 </p>
 
-<div class="notification">
+<div class="callout">
   <p>
     On the remote, add this box as a client whose
     <strong>public key</strong> is <code><%= h(@settings[:server_pubkey]) %></code>
@@ -19,7 +17,7 @@
     Do <strong>not</strong> reuse a laptop's existing client config — that key is a
     different identity.
   </p>
-  <p class="mt-2 mb-0">
+  <p>
     Leave <em>Masquerade</em> off unless the remote side will only accept its
     assigned <code>/32</code>. Masquerade hides laptop addresses behind this
     box and stops hosts behind the site from initiating connections back.
@@ -27,49 +25,51 @@
 </div>
 
 <% if @sites.empty? %>
-  <div class="notification">No sites. Clients can only reach the VPN subnet and extra routes.</div>
+  <p class="empty">No sites. Clients can only reach the VPN subnet and extra routes.</p>
 <% else %>
   <% @sites.each do |site| %>
     <% nets = @networks[site[:id]] || [] %>
     <% fwds = @forwarders[site[:id]] || [] %>
     <% dns = fwds.first %>
-    <div class="box">
-      <div class="level mb-2 is-align-items-flex-start">
-        <div class="level-left">
-          <div class="level-item">
-            <h2 class="title is-5 mb-0"><%= h(site[:name]) %></h2>
-          </div>
-          <div class="level-item">
-            <% if site[:enabled] %>
-              <span class="tag is-success">enabled</span>
-            <% else %>
-              <span class="tag naaf-chip">disabled</span>
-            <% end %>
-            <% if site[:masquerade] %>
-              <span class="tag is-warning is-light ml-1">masquerade</span>
-            <% end %>
-          </div>
+    <article class="panel">
+      <div class="record-head">
+        <div class="record-id">
+          <h2 class="panel-title"><%= h(site[:name]) %></h2>
+          <% if site[:enabled] %>
+            <span class="status status-ok">enabled</span>
+          <% else %>
+            <span class="status status-disabled">disabled</span>
+          <% end %>
+          <% if site[:masquerade] %>
+            <span class="status status-warn">masquerade</span>
+          <% end %>
         </div>
-        <div class="level-right">
-          <div class="level-item">
-            <form method="post" action="/sites/<%= site[:id] %>/toggle">
-              <%= csrf_tag("/sites/#{site[:id]}/toggle") %>
-              <button class="button is-small" type="submit"><%= site[:enabled] ? "Disable" : "Enable" %></button>
-            </form>
-          </div>
-          <div class="level-item">
-            <details>
-              <summary class="button is-small is-danger is-light">Delete</summary>
-              <form method="post" action="/sites/<%= site[:id] %>/delete" class="mt-2">
-                <%= csrf_tag("/sites/#{site[:id]}/delete") %>
-                <button class="button is-small is-danger" type="submit">Confirm delete</button>
+        <div class="record-actions">
+          <% if site[:enabled] %>
+            <details class="confirm">
+              <summary>Disable</summary>
+              <form method="post" action="/sites/<%= site[:id] %>/toggle">
+                <%= csrf_tag("/sites/#{site[:id]}/toggle") %>
+                <button class="btn btn-danger-solid" type="submit">Confirm disable</button>
               </form>
             </details>
-          </div>
+          <% else %>
+            <form method="post" action="/sites/<%= site[:id] %>/toggle">
+              <%= csrf_tag("/sites/#{site[:id]}/toggle") %>
+              <button class="btn" type="submit">Enable</button>
+            </form>
+          <% end %>
+          <details class="confirm">
+            <summary>Delete</summary>
+            <form method="post" action="/sites/<%= site[:id] %>/delete">
+              <%= csrf_tag("/sites/#{site[:id]}/delete") %>
+              <button class="btn btn-danger-solid" type="submit">Confirm delete</button>
+            </form>
+          </details>
         </div>
       </div>
 
-      <p class="is-size-7 mb-3">
+      <p class="record-meta">
         Endpoint <code><%= h(site[:endpoint]) %></code>
         · keepalive <%= site[:keepalive] %>s
         <% if site[:address] %>
@@ -79,77 +79,71 @@
         · <code title="<%= h(site[:pubkey]) %>"><%= h(site[:pubkey][0, 12]) %>…</code>
       </p>
 
-      <%# Outside the header row on purpose: a .level-item is flex-shrink: 0, so
-          a panel this wide inside one widens the whole row and pushes the page
-          past the viewport instead of wrapping. Here it edits the line above
-          it and gets the full width of the box. %>
+      <%# The edit form stays outside the header. A wide panel inside the header
+          row used to widen the whole row and push Delete off the viewport. %>
       <% ep_host, _, ep_port = site[:endpoint].rpartition(":") %>
-      <details class="mb-4">
-        <summary class="button is-small">Edit</summary>
-        <form method="post" action="/sites/<%= site[:id] %>" class="mt-3">
+      <details class="fold">
+        <summary>Edit</summary>
+        <form method="post" action="/sites/<%= site[:id] %>" class="form">
           <%= csrf_tag("/sites/#{site[:id]}") %>
-          <div class="field is-grouped is-grouped-multiline">
-            <div class="control">
-              <label class="label">Name</label>
+          <div class="fields">
+            <label class="field">
+              <span class="label">Name</span>
               <input class="input" type="text" name="name" value="<%= h(site[:name]) %>" required>
-            </div>
-            <div class="control is-expanded">
-              <label class="label">Remote public key</label>
+            </label>
+            <label class="field grow">
+              <span class="label">Remote public key</span>
               <input class="input" type="text" name="pubkey" value="<%= h(site[:pubkey]) %>" required autocomplete="off">
-            </div>
+            </label>
           </div>
-          <div class="field is-grouped is-grouped-multiline">
-            <div class="control is-expanded">
-              <label class="label">Endpoint host</label>
+          <div class="fields">
+            <label class="field grow">
+              <span class="label">Endpoint host</span>
               <input class="input" type="text" name="endpoint_host" value="<%= h(ep_host) %>" required>
-            </div>
-            <div class="control">
-              <label class="label">Port</label>
+            </label>
+            <label class="field">
+              <span class="label">Port</span>
               <input class="input" type="number" name="endpoint_port" value="<%= h(ep_port) %>" min="1" max="65535" required>
-            </div>
-            <div class="control">
-              <label class="label">Keepalive</label>
+            </label>
+            <label class="field">
+              <span class="label">Keepalive</span>
               <input class="input" type="number" name="keepalive" value="<%= site[:keepalive] %>" min="1" max="65535">
-            </div>
+            </label>
           </div>
-          <div class="field is-grouped is-grouped-multiline">
-            <div class="control">
-              <label class="label">Assigned address <span class="has-text-grey">(optional)</span></label>
+          <div class="fields">
+            <label class="field">
+              <span class="label">Assigned address <span class="hint">(optional)</span></span>
               <input class="input" type="text" name="address" value="<%= h(site[:address].to_s) %>" placeholder="192.168.2.2">
-            </div>
+            </label>
           </div>
-          <div class="field">
-            <label class="label">Preshared key <span class="has-text-grey">(optional; blank clears it)</span></label>
+          <label class="field grow">
+            <span class="label">Preshared key <span class="hint">(optional; blank clears it)</span></span>
             <input class="input" type="text" name="psk" value="<%= h(site[:psk].to_s) %>" autocomplete="off">
-          </div>
-          <div class="field">
-            <label class="checkbox">
+          </label>
+          <p>
+            <label class="choice">
               <input type="checkbox" name="masquerade"<% if site[:masquerade] %> checked<% end %>>
               Masquerade traffic to this site (only if the remote AllowedIPs is the assigned /32)
             </label>
-          </div>
-          <div class="field is-grouped is-grouped-multiline">
-            <div class="control">
-              <label class="label">DNS server <span class="has-text-grey">(optional)</span></label>
+          </p>
+          <div class="fields">
+            <label class="field">
+              <span class="label">DNS server <span class="hint">(optional)</span></span>
               <input class="input" type="text" name="dns_server"
                      value="<%= h(dns ? dns[:server] : "") %>" placeholder="192.168.1.1">
-            </div>
-            <div class="control">
-              <label class="label">Port</label>
+            </label>
+            <label class="field">
+              <span class="label">Port</span>
               <input class="input" type="number" name="dns_port"
                      value="<%= dns ? dns[:port] : 53 %>" min="1" max="65535">
-            </div>
-            <div class="control is-expanded">
-              <label class="label">Add domains <span class="has-text-grey">(one per line)</span></label>
-              <textarea class="textarea" name="dns_domains" rows="2"
-                        placeholder="roomkoetje.be"></textarea>
-              <p class="help">
-                Existing domains are listed below with a Remove button —
-                this box only adds.
-              </p>
-            </div>
+            </label>
+            <label class="field grow">
+              <span class="label">Add domains <span class="hint">(one per line)</span></span>
+              <textarea class="input" name="dns_domains" rows="2" placeholder="home.example.test"></textarea>
+              <span class="help">Existing domains are listed below with a Remove button — this box only adds.</span>
+            </label>
           </div>
-          <p class="help mb-3">
+          <p class="help">
             A forwarded query is sent by this hub, from
             <code><%= h(@settings[:server_ip]) %></code>, over the site
             tunnel. It works only if the remote lists
@@ -160,27 +154,26 @@
             all. <code>split·nodns</code> clients never use this resolver
             and are unaffected.
           </p>
-          <div class="field">
-            <div class="control">
-              <button class="button is-primary" type="submit">Save &amp; apply</button>
-            </div>
-          </div>
+          <button class="btn btn-primary" type="submit">Save &amp; apply</button>
         </form>
       </details>
 
       <% if nets.empty? %>
-        <p class="has-text-grey is-size-7">No networks — this peer is not installed until one is added.</p>
+        <p class="small muted">No networks — this peer is not installed until one is added.</p>
       <% else %>
-        <table class="table is-fullwidth is-narrow">
+        <table class="table compact">
           <tbody>
             <% nets.each do |n| %>
               <tr>
                 <td><code><%= h(n[:cidr]) %></code></td>
-                <td class="has-text-right">
-                  <form method="post" action="/sites/<%= site[:id] %>/networks/<%= n[:id] %>/delete">
-                    <%= csrf_tag("/sites/#{site[:id]}/networks/#{n[:id]}/delete") %>
-                    <button class="button is-small is-danger is-light" type="submit">Remove</button>
-                  </form>
+                <td class="num">
+                  <details class="confirm">
+                    <summary>Remove</summary>
+                    <form method="post" action="/sites/<%= site[:id] %>/networks/<%= n[:id] %>/delete">
+                      <%= csrf_tag("/sites/#{site[:id]}/networks/#{n[:id]}/delete") %>
+                      <button class="btn btn-danger-solid" type="submit">Confirm remove</button>
+                    </form>
+                  </details>
                 </td>
               </tr>
             <% end %>
@@ -189,22 +182,25 @@
       <% end %>
 
       <% unless fwds.empty? %>
-        <p class="is-size-7 has-text-grey mt-3 mb-1">
+        <p class="small muted">
           Forwarded to <code><%= h(dns[:server]) %><%= (dns[:port] == 53) ? "" : ":#{dns[:port]}" %></code>
           <% unless site[:enabled] %>
-            <span class="tag is-warning is-light">not active while this site is disabled</span>
+            <span class="status status-warn">not active while this site is disabled</span>
           <% end %>
         </p>
-        <table class="table is-fullwidth is-narrow">
+        <table class="table compact">
           <tbody>
             <% fwds.each do |f| %>
               <tr>
                 <td><code>*.<%= h(f[:suffix]) %></code></td>
-                <td class="has-text-right">
-                  <form method="post" action="/sites/<%= site[:id] %>/forwarders/<%= f[:id] %>/delete">
-                    <%= csrf_tag("/sites/#{site[:id]}/forwarders/#{f[:id]}/delete") %>
-                    <button class="button is-small is-danger is-light" type="submit">Remove</button>
-                  </form>
+                <td class="num">
+                  <details class="confirm">
+                    <summary>Remove</summary>
+                    <form method="post" action="/sites/<%= site[:id] %>/forwarders/<%= f[:id] %>/delete">
+                      <%= csrf_tag("/sites/#{site[:id]}/forwarders/#{f[:id]}/delete") %>
+                      <button class="btn btn-danger-solid" type="submit">Confirm remove</button>
+                    </form>
+                  </details>
                 </td>
               </tr>
             <% end %>
@@ -214,87 +210,82 @@
 
       <form method="post" action="/sites/<%= site[:id] %>/networks">
         <%= csrf_tag("/sites/#{site[:id]}/networks") %>
-        <div class="field is-grouped">
-          <div class="control is-expanded">
-            <input class="input is-small" type="text" name="cidr" placeholder="192.168.1.0/24" required>
-          </div>
-          <div class="control">
-            <button class="button is-small" type="submit">Add network</button>
-          </div>
+        <div class="fields">
+          <label class="field grow">
+            <span class="label">Network</span>
+            <input class="input" type="text" name="cidr" placeholder="192.168.1.0/24" required>
+          </label>
+          <button class="btn" type="submit">Add network</button>
         </div>
       </form>
-    </div>
+    </article>
   <% end %>
 <% end %>
 
-<hr>
+<hr class="rule">
 
-<h2 class="title is-5">Add a site</h2>
+<h2 class="section">Add a site</h2>
 <form method="post" action="/sites">
   <%= csrf_tag("/sites") %>
-  <div class="field is-grouped is-grouped-multiline">
-    <div class="control">
-      <label class="label">Name</label>
+  <div class="fields">
+    <label class="field">
+      <span class="label">Name</span>
       <input class="input" type="text" name="name" placeholder="unifi" required>
-    </div>
-    <div class="control is-expanded">
-      <label class="label">Remote public key</label>
+    </label>
+    <label class="field grow">
+      <span class="label">Remote public key</span>
       <input class="input" type="text" name="pubkey" placeholder="WireGuard public key of the remote server" required autocomplete="off">
-    </div>
+    </label>
   </div>
-  <div class="field is-grouped is-grouped-multiline">
-    <div class="control is-expanded">
-      <label class="label">Endpoint host</label>
-      <input class="input" type="text" name="endpoint_host" placeholder="unifi.example.com or 203.0.113.9" required>
-    </div>
-    <div class="control">
-      <label class="label">Port</label>
+  <div class="fields">
+    <label class="field grow">
+      <span class="label">Endpoint host</span>
+      <input class="input" type="text" name="endpoint_host" placeholder="gw.example.test or 203.0.113.9" required>
+    </label>
+    <label class="field">
+      <span class="label">Port</span>
       <input class="input" type="number" name="endpoint_port" value="51820" min="1" max="65535" required>
-    </div>
-    <div class="control">
-      <label class="label">Keepalive</label>
+    </label>
+    <label class="field">
+      <span class="label">Keepalive</span>
       <input class="input" type="number" name="keepalive" value="25" min="1" max="65535">
-    </div>
+    </label>
   </div>
-  <div class="field is-grouped is-grouped-multiline">
-    <div class="control is-expanded">
-      <label class="label">First network</label>
+  <div class="fields">
+    <label class="field grow">
+      <span class="label">First network</span>
       <input class="input" type="text" name="cidr" placeholder="192.168.1.0/24" required>
-    </div>
-    <div class="control">
-      <label class="label">Assigned address <span class="has-text-grey">(optional)</span></label>
+    </label>
+    <label class="field">
+      <span class="label">Assigned address <span class="hint">(optional)</span></span>
       <input class="input" type="text" name="address" placeholder="192.168.2.2">
-    </div>
+    </label>
   </div>
-  <div class="field">
-    <label class="label">Preshared key <span class="has-text-grey">(optional)</span></label>
+  <label class="field grow">
+    <span class="label">Preshared key <span class="hint">(optional)</span></span>
     <input class="input" type="text" name="psk" autocomplete="off">
-  </div>
-  <div class="field">
-    <label class="checkbox">
+  </label>
+  <p>
+    <label class="choice">
       <input type="checkbox" name="masquerade">
       Masquerade traffic to this site (only if the remote AllowedIPs is the assigned /32)
     </label>
-  </div>
-  <div class="field is-grouped is-grouped-multiline">
-    <div class="control">
-      <label class="label">DNS server <span class="has-text-grey">(optional)</span></label>
+  </p>
+  <div class="fields">
+    <label class="field">
+      <span class="label">DNS server <span class="hint">(optional)</span></span>
       <input class="input" type="text" name="dns_server" placeholder="192.168.1.1">
-      <p class="help">Must sit inside the first network above.</p>
-    </div>
-    <div class="control">
-      <label class="label">Port</label>
+      <span class="help">Must sit inside the first network above.</span>
+    </label>
+    <label class="field">
+      <span class="label">Port</span>
       <input class="input" type="number" name="dns_port" value="53" min="1" max="65535">
-    </div>
-    <div class="control is-expanded">
-      <label class="label">Domains it answers <span class="has-text-grey">(one per line)</span></label>
-      <textarea class="textarea" name="dns_domains" rows="2" placeholder="roomkoetje.be"></textarea>
-      <p class="help">Required if a DNS server is set — the resolver is stored per domain.</p>
-    </div>
+    </label>
+    <label class="field grow">
+      <span class="label">Domains it answers <span class="hint">(one per line)</span></span>
+      <textarea class="input" name="dns_domains" rows="2" placeholder="home.example.test"></textarea>
+      <span class="help">Required if a DNS server is set — the resolver is stored per domain.</span>
+    </label>
   </div>
-  <div class="field">
-    <div class="control">
-      <button class="button is-primary" type="submit">Add site &amp; apply</button>
-    </div>
-  </div>
+  <button class="btn btn-primary" type="submit">Add site &amp; apply</button>
 </form>

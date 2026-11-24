@@ -1,45 +1,35 @@
-<div class="level">
-  <div class="level-left">
-    <h1 class="title level-item">Exposed ports</h1>
-  </div>
-</div>
+<header class="page-head">
+  <h1>Exposed ports</h1>
+</header>
 
-<p class="content">
+<p class="lede">
   Ports a spoke is allowed to accept <em>from other spokes</em>. Everything else
   between spokes is denied (ICMP echo aside). Each change regenerates
   <code>inet naaf</code> and applies it atomically.
 </p>
 
 <% if @groups.all? { |g| g[:rows].empty? } && @orphans.empty? %>
-  <div class="notification">
+  <p class="empty">
     No exposed ports. Spoke-to-spoke traffic is fully denied.
-  </div>
+  </p>
 <% end %>
 
-<%# Every client gets a box, empty ones included. The page is opened to answer
+<%# Every client gets a panel, empty ones included. The page is opened to answer
     "what can reach this machine", and an absent client reads as "I have not
     looked yet" rather than as "nothing". %>
 <% @groups.each do |group| %>
   <% c = group[:client] %>
   <% rows = group[:rows] %>
-  <div class="box">
-    <div class="level mb-2 is-align-items-flex-start">
-      <div class="level-left">
-        <div class="level-item">
-          <h2 class="title is-5 mb-0"><%= h(c[:name]) %></h2>
-        </div>
-        <div class="level-item">
-          <code><%= h(c[:wg_ip]) %></code>
-        </div>
-        <div class="level-item">
-          <span class="tag"><%= rows.size %></span>
-        </div>
-      </div>
+  <section class="panel">
+    <div class="record-head">
+      <h2 class="panel-title"><%= h(c[:name]) %></h2>
+      <code><%= h(c[:wg_ip]) %></code>
+      <span class="kind"><%= rows.size %></span>
     </div>
     <% if rows.empty? %>
-      <p class="has-text-grey">No ports exposed. Other spokes cannot reach this client.</p>
+      <p class="muted">No ports exposed. Other spokes cannot reach this client.</p>
     <% else %>
-      <table class="table is-fullwidth is-narrow is-striped is-hoverable">
+      <table class="table compact">
         <thead>
           <tr>
             <th>Proto</th>
@@ -51,29 +41,32 @@
         <tbody>
           <% rows.each do |row| %>
             <tr>
-              <td><span class="tag"><%= row[:proto] %></span></td>
+              <td><span class="kind"><%= row[:proto] %></span></td>
               <% last = row[:port_end] || row[:port] %>
               <td><code><%= (last == row[:port]) ? row[:port] : "#{row[:port]}-#{last}" %></code></td>
               <td><%= row[:description] %></td>
               <td>
-                <form method="post" action="/exposed-ports/<%= row[:id] %>/delete">
-                  <%= csrf_tag("/exposed-ports/#{row[:id]}/delete") %>
-                  <button class="button is-small is-danger is-light" type="submit">Delete</button>
-                </form>
+                <details class="confirm">
+                  <summary>Delete</summary>
+                  <form method="post" action="/exposed-ports/<%= row[:id] %>/delete">
+                    <%= csrf_tag("/exposed-ports/#{row[:id]}/delete") %>
+                    <button class="btn btn-danger-solid" type="submit">Confirm delete</button>
+                  </form>
+                </details>
               </td>
             </tr>
           <% end %>
         </tbody>
       </table>
     <% end %>
-  </div>
+  </section>
 <% end %>
 
 <% unless @orphans.empty? %>
-  <div class="box naaf-warn">
-    <h2 class="title is-5">Orphaned ports</h2>
-    <p class="content">These rows have no matching client. The foreign key should have prevented this.</p>
-    <table class="table is-fullwidth is-narrow is-striped">
+  <div class="panel naaf-warn">
+    <h2 class="panel-title">Orphaned ports</h2>
+    <p>These rows have no matching client. The foreign key should have prevented this.</p>
+    <table class="table compact">
       <thead>
         <tr>
           <th>Proto</th>
@@ -85,15 +78,18 @@
       <tbody>
         <% @orphans.each do |row| %>
           <tr>
-            <td><span class="tag"><%= row[:proto] %></span></td>
+            <td><span class="kind"><%= row[:proto] %></span></td>
             <% last = row[:port_end] || row[:port] %>
             <td><code><%= (last == row[:port]) ? row[:port] : "#{row[:port]}-#{last}" %></code></td>
             <td><%= row[:description] %></td>
             <td>
-              <form method="post" action="/exposed-ports/<%= row[:id] %>/delete">
-                <%= csrf_tag("/exposed-ports/#{row[:id]}/delete") %>
-                <button class="button is-small is-danger is-light" type="submit">Delete</button>
-              </form>
+              <details class="confirm">
+                <summary>Delete</summary>
+                <form method="post" action="/exposed-ports/<%= row[:id] %>/delete">
+                  <%= csrf_tag("/exposed-ports/#{row[:id]}/delete") %>
+                  <button class="btn btn-danger-solid" type="submit">Confirm delete</button>
+                </form>
+              </details>
             </td>
           </tr>
         <% end %>
@@ -102,49 +98,41 @@
   </div>
 <% end %>
 
-<hr>
+<hr class="rule">
 
-<h2 class="title is-5">Expose a port</h2>
+<h2 class="section">Expose a port</h2>
 <% if @clients.empty? %>
-  <div class="notification is-warning">Add a client first.</div>
+  <p class="callout callout-once">Add a client first.</p>
 <% else %>
   <form method="post" action="/exposed-ports">
     <%= csrf_tag("/exposed-ports") %>
-    <div class="field is-grouped is-grouped-multiline">
-      <div class="control">
-        <label class="label">Client</label>
-        <div class="select">
-          <select name="client_id" required>
-            <% @clients.each do |c| %>
-              <option value="<%= c[:id] %>"><%= c[:name] %> (<%= c[:wg_ip] %>)</option>
-            <% end %>
-          </select>
-        </div>
-      </div>
-      <div class="control">
-        <label class="label">Protocol</label>
-        <div class="select">
-          <select name="proto">
-            <option value="tcp">tcp</option>
-            <option value="udp">udp</option>
-          </select>
-        </div>
-      </div>
-      <div class="control">
-        <label class="label">Port(s)</label>
+    <div class="fields">
+      <label class="field">
+        <span class="label">Client</span>
+        <select class="input" name="client_id" required>
+          <% @clients.each do |c| %>
+            <option value="<%= c[:id] %>"><%= c[:name] %> (<%= c[:wg_ip] %>)</option>
+          <% end %>
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">Protocol</span>
+        <select class="input" name="proto">
+          <option value="tcp">tcp</option>
+          <option value="udp">udp</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">Port(s)</span>
         <input class="input" type="text" name="port" pattern="\d{1,5}(-\d{1,5})?"
                placeholder="22 or 8000-8100" required>
-        <p class="help">A single port, or an inclusive range.</p>
-      </div>
-      <div class="control is-expanded">
-        <label class="label">Description <span class="has-text-grey">(optional)</span></label>
+        <span class="help">A single port, or an inclusive range.</span>
+      </label>
+      <label class="field grow">
+        <span class="label">Description <span class="hint">(optional)</span></span>
         <input class="input" type="text" name="description" placeholder="ssh">
-      </div>
+      </label>
     </div>
-    <div class="field">
-      <div class="control">
-        <button class="button is-primary" type="submit">Expose &amp; apply</button>
-      </div>
-    </div>
+    <button class="btn btn-primary" type="submit">Expose &amp; apply</button>
   </form>
 <% end %>

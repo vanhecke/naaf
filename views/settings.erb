@@ -1,10 +1,8 @@
-<div class="level">
-  <div class="level-left">
-    <h1 class="title level-item">Settings</h1>
-  </div>
-</div>
+<header class="page-head">
+  <h1>Settings</h1>
+</header>
 
-<p class="content">
+<p class="lede">
   Server configuration. Editable fields below take effect on the next apply.
   Structural values (VPN subnet, gateway IP, listen port, interface) are set at
   provisioning time in <code>naaf.conf</code> and shown read-only — changing them
@@ -12,59 +10,53 @@
   re-provision rather than an edit here.
 </p>
 
-<h2 class="title is-5">Endpoint &amp; DNS</h2>
+<h2 class="section">Endpoint &amp; DNS</h2>
 <form method="post" action="/settings">
   <%= csrf_tag("/settings") %>
 
-  <div class="field">
-    <label class="label">Endpoint host <span class="has-text-grey">(FQDN clients dial; blank = use the raw IP below)</span></label>
-    <div class="control">
-      <input class="input" type="text" name="endpoint_host" value="<%= @settings[:endpoint_host] %>" placeholder="sg.example.com">
-    </div>
-    <p class="help">When set, client configs use <code>&lt;host&gt;:<%= @settings[:listen_port] %></code> — move the box by repointing DNS, no config reissue.</p>
-  </div>
+  <label class="field grow">
+    <span class="label">Endpoint host <span class="hint">(FQDN clients dial; blank = use the raw IP below)</span></span>
+    <input class="input" type="text" name="endpoint_host" value="<%= @settings[:endpoint_host] %>" placeholder="hub.example.test">
+    <span class="help">When set, client configs use <code>&lt;host&gt;:<%= @settings[:listen_port] %></code> — move the box by repointing DNS, no config reissue.</span>
+  </label>
 
-  <div class="field is-grouped is-grouped-multiline">
-    <div class="control">
-      <label class="label">Endpoint IPv4</label>
-      <input class="input" type="text" name="endpoint_v4" value="<%= @settings[:endpoint_v4] %>" placeholder="203.0.113.5" required>
-    </div>
-    <div class="control">
-      <label class="label">Endpoint IPv6 <span class="has-text-grey">(optional)</span></label>
+  <div class="fields">
+    <label class="field">
+      <span class="label">Endpoint IPv4</span>
+      <input class="input" type="text" name="endpoint_v4" value="<%= @settings[:endpoint_v4] %>" placeholder="203.0.113.10" required>
+    </label>
+    <label class="field">
+      <span class="label">Endpoint IPv6 <span class="hint">(optional)</span></span>
       <input class="input" type="text" name="endpoint_v6" value="<%= @settings[:endpoint_v6] %>" placeholder="2001:db8::5">
-    </div>
-    <div class="control">
-      <label class="label">MTU</label>
+    </label>
+    <label class="field">
+      <span class="label">MTU</span>
       <input class="input" type="number" name="mtu" value="<%= @settings[:mtu] %>" min="1280" max="1500" required>
-    </div>
+    </label>
   </div>
 
-  <div class="field is-grouped is-grouped-multiline">
-    <div class="control">
-      <label class="label">DNS upstream</label>
-      <input class="input" type="text" name="dns_upstream" value="<%= @settings[:dns_upstream] %>" placeholder="1.1.1.1" required>
-    </div>
-    <div class="control">
-      <label class="label">Internal DNS domain</label>
+  <div class="fields">
+    <label class="field">
+      <span class="label">DNS upstream</span>
+      <input class="input" type="text" name="dns_upstream" value="<%= @settings[:dns_upstream] %>" placeholder="192.0.2.53" required>
+    </label>
+    <label class="field">
+      <span class="label">Internal DNS domain</span>
       <input class="input" type="text" name="dns_domain" value="<%= @settings[:dns_domain] %>" placeholder="vpn" required>
-    </div>
-    <div class="control">
-      <label class="label">WAN interface</label>
+    </label>
+    <label class="field">
+      <span class="label">WAN interface</span>
       <input class="input" type="text" name="wan_interface" value="<%= @settings[:wan_interface] %>" placeholder="eth0" required>
-    </div>
+    </label>
   </div>
 
-  <div class="field">
-    <div class="control">
-      <button class="button is-primary" type="submit">Save &amp; apply</button>
-    </div>
-  </div>
+  <button class="btn btn-primary" type="submit">Save &amp; apply</button>
 </form>
 
-<hr>
+<hr class="rule">
 
-<h2 class="title is-5">Read-only</h2>
-<table class="table is-fullwidth">
+<h2 class="section">Read-only</h2>
+<table class="table kv">
   <tbody>
     <tr><th>VPN subnet</th><td><code><%= @settings[:wg_subnet] %></code></td></tr>
     <tr><th>Gateway IP</th><td><code><%= @settings[:server_ip] %></code></td></tr>
@@ -73,8 +65,9 @@
       <td>
         <% if @proxy %>
           <code><%= h(@proxy) %></code>
+          <span class="small muted">tunnel-only listen; follows the internet exit when one is up</span>
         <% else %>
-          <span class="has-text-grey">disabled</span>
+          <span class="muted">disabled</span>
         <% end %>
       </td>
     </tr>
@@ -86,34 +79,41 @@
       <td>
         <% if @last_backup %>
           <code><%= @last_backup[:name] %></code>
-          <span class="has-text-grey">(<%= @last_backup[:bytes] / 1024 %> KB)</span>
+          <span class="muted">(<%= @last_backup[:bytes] / 1024 %> KB)</span>
         <% elsif @backups_enabled %>
-          <span class="has-text-grey">none yet</span>
+          <span class="muted">none yet</span>
         <% else %>
-          <span class="has-text-grey">disabled</span>
+          <span class="muted">disabled</span>
         <% end %>
       </td>
     </tr>
   </tbody>
 </table>
 
-<p class="content is-size-7 has-text-grey">
+<p class="small muted">
   Snapshots live in <code><%= @backup_dir %></code> on the server and contain the
   server private key — they are mode 0600 and are deliberately not downloadable
   from here. Copy one with <code>scp</code>. See <code>docs/BACKUP.md</code>.
 </p>
 
-<hr>
+<p class="small muted">
+  Certificates are not edited here. The store under <code>/etc/naaf/certs</code>
+  is owned by provisioning (<code>deploy/provision/60-certs.sh</code>, DNS-01 only).
+  See <code>docs/CERTS.md</code>. wstunnel, when enabled in <code>naaf.conf</code>,
+  shows up as the <code>split·ws</code> config flavors on Clients.
+</p>
 
-<h2 class="title is-5">Change admin password</h2>
+<hr class="rule">
+
+<h2 class="section">Change admin password</h2>
+<p class="small muted">Replaces the only admin password. There is no second factor and no reset link.</p>
 <form method="post" action="/settings/password">
   <%= csrf_tag("/settings/password") %>
-  <div class="field is-grouped">
-    <div class="control">
-      <input class="input" type="password" name="password" placeholder="new password (min 8 chars)" required>
-    </div>
-    <div class="control">
-      <button class="button is-warning" type="submit">Update password</button>
-    </div>
+  <div class="fields">
+    <label class="field">
+      <span class="label">New password</span>
+      <input class="input" type="password" name="password" placeholder="new password (min 8 chars)" autocomplete="new-password" required>
+    </label>
+    <button class="btn btn-warn" type="submit">Update password</button>
   </div>
 </form>

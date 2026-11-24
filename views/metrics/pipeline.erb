@@ -1,47 +1,43 @@
 <%# docs/TROUBLESHOOTING.md step 3, as a row instead of a shell session.
     tcpdump sees traffic BEFORE netfilter, so a firewall quietly eating
     WireGuard shows up as a healthy first number and a flat second one. %>
-<div class="box mb-4 <%= (s.pipeline[:verdict] == :stalled) ? "naaf-alert" : "" %>">
-  <div class="level is-mobile is-flex-wrap-wrap mb-2">
-    <div class="level-left">
-      <h2 class="title is-6 level-item mb-0">Packet pipeline</h2>
-    </div>
-    <div class="level-right">
-      <% case s.pipeline[:verdict] %>
-      <% when :stalled %>
-        <span class="level-item tag is-danger">✕ no client connected</span>
-      <% when :ok %>
-        <span class="level-item tag naaf-chip has-text-success-on-scheme">✓ <%= s.wg[:online] %> clients connected</span>
-      <% when :idle %>
-        <span class="level-item tag naaf-chip">no clients configured</span>
-      <% else %>
-        <span class="level-item tag naaf-chip">— no reading yet</span>
-      <% end %>
-    </div>
+<div class="panel <%= (s.pipeline[:verdict] == :stalled) ? "naaf-alert" : "" %>">
+  <div class="record-head">
+    <h2 class="panel-title">Packet pipeline</h2>
+    <% case s.pipeline[:verdict] %>
+    <% when :stalled %>
+      <span class="status status-bad">no client connected</span>
+    <% when :ok %>
+      <span class="status status-ok"><%= s.wg[:online] %> clients connected</span>
+    <% when :idle %>
+      <span class="status">no clients configured</span>
+    <% else %>
+      <span class="status">no reading yet</span>
+    <% end %>
   </div>
 
-  <div class="columns is-mobile is-vcentered has-text-centered is-flex-wrap-wrap">
-    <div class="column">
-      <p class="heading has-text-grey"><%= fmt.dash(s.pipeline[:wan]) %> received</p>
-      <p class="is-size-4 naaf-num"><%= fmt.per_sec(s.pipeline[:wan_pps], unit: " pkt/s") %></p>
-      <p class="is-size-7 has-text-grey">at the interface, before netfilter</p>
+  <div class="pipeline-steps">
+    <div>
+      <p class="eyebrow"><%= fmt.dash(s.pipeline[:wan]) %> received</p>
+      <p class="figure num"><%= fmt.per_sec(s.pipeline[:wan_pps], unit: " pkt/s") %></p>
+      <p class="small muted">at the interface, before netfilter</p>
     </div>
-    <div class="column is-narrow has-text-grey is-size-4">→</div>
-    <div class="column">
-      <p class="heading has-text-grey">UDP delivered</p>
-      <p class="is-size-4 naaf-num"><%= fmt.per_sec(s.pipeline[:udp_dps], unit: " dg/s") %></p>
-      <p class="is-size-7 has-text-grey">reached a socket</p>
+    <div class="pipeline-arrow" aria-hidden="true">→</div>
+    <div>
+      <p class="eyebrow">UDP delivered</p>
+      <p class="figure num"><%= fmt.per_sec(s.pipeline[:udp_dps], unit: " dg/s") %></p>
+      <p class="small muted">reached a socket</p>
     </div>
-    <div class="column is-narrow has-text-grey is-size-4">→</div>
-    <div class="column">
-      <p class="heading has-text-grey"><%= fmt.dash(s.pipeline[:wg]) %> decrypted</p>
-      <p class="is-size-4 naaf-num"><%= fmt.per_sec(s.pipeline[:wg_pps], unit: " pkt/s") %></p>
-      <p class="is-size-7 has-text-grey">out of the tunnel</p>
+    <div class="pipeline-arrow" aria-hidden="true">→</div>
+    <div>
+      <p class="eyebrow"><%= fmt.dash(s.pipeline[:wg]) %> decrypted</p>
+      <p class="figure num"><%= fmt.per_sec(s.pipeline[:wg_pps], unit: " pkt/s") %></p>
+      <p class="small muted">out of the tunnel</p>
     </div>
   </div>
 
   <% if s.pipeline[:message] %>
-    <div class="notification is-danger is-light mt-2 mb-0 py-2">
+    <div class="callout callout-bad" role="alert">
       <%= h(s.pipeline[:message]) %>
       See <code>docs/TROUBLESHOOTING.md</code>.
     </div>

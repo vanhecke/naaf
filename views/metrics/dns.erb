@@ -1,82 +1,76 @@
-<div class="box naaf-tile">
-  <h2 class="title is-6">DNS</h2>
+<div class="panel">
+  <h2 class="panel-title">DNS</h2>
 
-  <div class="level is-mobile mb-2">
-    <div class="level-item has-text-centered">
-      <div>
-        <p class="heading has-text-grey">Rate</p>
-        <p class="is-size-5 naaf-num"><%= fmt.per_sec(s.dns[:qps]) %></p>
-      </div>
+  <div class="stat-row">
+    <div>
+      <p class="eyebrow">Rate</p>
+      <p class="figure num"><%= fmt.per_sec(s.dns[:qps]) %></p>
     </div>
-    <div class="level-item has-text-centered">
-      <div>
-        <p class="heading has-text-grey">Answered here</p>
-        <p class="is-size-5 naaf-num"><%= fmt.pct(s.dns[:local_pct]) %></p>
-      </div>
+    <div>
+      <p class="eyebrow">Answered here</p>
+      <p class="figure num"><%= fmt.pct(s.dns[:local_pct]) %></p>
     </div>
-    <div class="level-item has-text-centered">
-      <div>
-        <p class="heading has-text-grey">Upstream p50 / p95</p>
-        <p class="is-size-5 naaf-num">
-          <%= (s.dns[:p50_ms] == :over) ? "&gt;1000" : fmt.dash(s.dns[:p50_ms]) %> /
-          <%= (s.dns[:p95_ms] == :over) ? "&gt;1000" : fmt.dash(s.dns[:p95_ms]) %> ms
-        </p>
-      </div>
+    <div>
+      <p class="eyebrow">Upstream p50 / p95</p>
+      <p class="figure num">
+        <%= (s.dns[:p50_ms] == :over) ? "&gt;1000" : fmt.dash(s.dns[:p50_ms]) %> /
+        <%= (s.dns[:p95_ms] == :over) ? "&gt;1000" : fmt.dash(s.dns[:p95_ms]) %> ms
+      </p>
     </div>
   </div>
 
   <%= svg.sparkline(s.dns[:series], height: 30, label: "DNS queries per second") %>
 
-  <div class="tags mt-3 mb-2">
-    <span class="tag naaf-chip">local <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:local]) %></span></span>
-    <span class="tag naaf-chip">upstream <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:upstream]) %></span></span>
+  <div class="strip-group">
+    <span class="status">local <span class="num"><%= fmt.compact(s.dns[:local]) %></span></span>
+    <span class="status">upstream <span class="num"><%= fmt.compact(s.dns[:upstream]) %></span></span>
     <% if s.dns[:outcomes][:upstream_fail].to_i.positive? %>
-      <span class="tag is-danger">
-        failed <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:outcomes][:upstream_fail]) %></span>
+      <span class="status status-bad">
+        failed <span class="num"><%= fmt.compact(s.dns[:outcomes][:upstream_fail]) %></span>
       </span>
     <% end %>
     <% if s.dns[:outcomes][:servfail].to_i.positive? %>
-      <span class="tag is-danger">
-        servfail <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:outcomes][:servfail]) %></span>
+      <span class="status status-bad">
+        servfail <span class="num"><%= fmt.compact(s.dns[:outcomes][:servfail]) %></span>
       </span>
     <% end %>
     <% if s.dns[:outcomes][:aaaa_suppressed].to_i.positive? %>
-      <span class="tag naaf-chip">
-        AAAA suppressed <span class="naaf-num ml-1"><%= fmt.compact(s.dns[:outcomes][:aaaa_suppressed]) %></span>
+      <span class="status">
+        AAAA suppressed <span class="num"><%= fmt.compact(s.dns[:outcomes][:aaaa_suppressed]) %></span>
       </span>
     <% end %>
   </div>
 
   <% if s.dns[:names] %>
-    <div class="columns is-mobile">
-      <div class="column">
-        <p class="heading has-text-grey">Top names</p>
+    <div class="pair">
+      <div>
+        <p class="eyebrow">Top names</p>
         <% if s.dns[:top_domains].empty? %>
-          <p class="is-size-7 has-text-grey">nothing yet</p>
+          <p class="small muted">nothing yet</p>
         <% else %>
-          <table class="table is-narrow is-fullwidth is-size-7">
+          <table class="table compact">
             <tbody>
               <% s.dns[:top_domains].each do |name, n| %>
                 <tr>
-                  <td class="has-text-weight-normal"><%= h(name) %></td>
-                  <td class="has-text-right naaf-num"><%= fmt.count(n) %></td>
+                  <td><%= h(name) %></td>
+                  <td class="num"><%= fmt.count(n) %></td>
                 </tr>
               <% end %>
             </tbody>
           </table>
         <% end %>
       </div>
-      <div class="column">
-        <p class="heading has-text-grey">Top clients</p>
+      <div>
+        <p class="eyebrow">Top clients</p>
         <% if s.dns[:top_clients].empty? %>
-          <p class="is-size-7 has-text-grey">nothing yet</p>
+          <p class="small muted">nothing yet</p>
         <% else %>
-          <table class="table is-narrow is-fullwidth is-size-7">
+          <table class="table compact">
             <tbody>
               <% s.dns[:top_clients].each do |who, n| %>
                 <tr>
                   <td><%= h(who) %></td>
-                  <td class="has-text-right naaf-num"><%= fmt.count(n) %></td>
+                  <td class="num"><%= fmt.count(n) %></td>
                 </tr>
               <% end %>
             </tbody>

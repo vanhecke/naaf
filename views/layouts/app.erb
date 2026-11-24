@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Naaf — WireGuard control plane</title>
-  <link rel="stylesheet" href="/bulma.min.css">
   <link rel="stylesheet" href="/naaf.css">
   <%# Core first, extension second, both deferred. Never async: that discards
       ordering and the extension would run before htmx.defineExtension exists. %>
@@ -12,48 +11,58 @@
   <script src="/htmx-ext-sse.min.js" defer></script>
 </head>
 <body>
-  <nav class="navbar is-dark" role="navigation" aria-label="main navigation">
-    <div class="navbar-brand">
-      <a class="navbar-item has-text-weight-bold" href="/">Naaf</a>
-    </div>
-    <div class="navbar-menu is-active">
-      <% if session["admin"] %>
-        <div class="navbar-start">
-          <a class="navbar-item" href="/">Dashboard</a>
-          <a class="navbar-item" href="/clients">Clients</a>
-          <a class="navbar-item" href="/exposed-ports">Exposed ports</a>
-          <a class="navbar-item" href="/port-forwards">Port forwards</a>
-          <a class="navbar-item" href="/sites">Sites</a>
-          <a class="navbar-item" href="/exit">Internet exit</a>
-          <a class="navbar-item" href="/extra-routes">Routes</a>
-          <a class="navbar-item" href="/dns-records">DNS</a>
-          <a class="navbar-item" href="/troubleshoot">Troubleshoot</a>
-          <a class="navbar-item" href="/settings">Settings</a>
+  <a class="skip" href="#content">Skip to content</a>
+  <% if session["admin"] %>
+    <% nav = [
+         ["/", "Dashboard"],
+         ["/clients", "Clients"],
+         ["/exposed-ports", "Exposed ports"],
+         ["/port-forwards", "Port forwards"],
+         ["/sites", "Sites"],
+         ["/exit", "Internet exit"],
+         ["/extra-routes", "Routes"],
+         ["/dns-records", "DNS"],
+         ["/troubleshoot", "Troubleshoot"],
+         ["/settings", "Settings"]
+       ] %>
+    <div class="shell">
+      <nav class="rail" aria-label="Sections">
+        <a class="brand" href="/">Naaf<small>control plane</small></a>
+        <div class="rail-links">
+          <% nav.each do |href, label| %>
+            <a href="<%= href %>"<% if request.path == href %> aria-current="page"<% end %>><%= label %></a>
+          <% end %>
         </div>
-      <% end %>
-      <div class="navbar-end">
-        <% if session["admin"] %>
-          <div class="navbar-item">
-            <form method="post" action="/apply">
-              <%= csrf_tag("/apply") %>
-              <button class="button is-small is-link" type="submit">Re-apply state</button>
-            </form>
-          </div>
+        <form class="rail-apply" method="post" action="/apply">
+          <%= csrf_tag("/apply") %>
+          <button class="btn btn-primary" type="submit">Re-apply state</button>
+        </form>
+      </nav>
+      <div class="workspace">
+        <% if flash["error"] %>
+          <div class="callout callout-bad" role="alert"><%= flash["error"] %></div>
         <% end %>
+        <% if flash["notice"] %>
+          <div class="callout callout-ok" role="status"><%= flash["notice"] %></div>
+        <% end %>
+        <main id="content">
+          <%= yield %>
+        </main>
       </div>
     </div>
-  </nav>
-
-  <section class="section">
-    <div class="container">
-      <% if flash["error"] %>
-        <div class="notification is-danger"><%= flash["error"] %></div>
-      <% end %>
-      <% if flash["notice"] %>
-        <div class="notification is-success"><%= flash["notice"] %></div>
-      <% end %>
-      <%= yield %>
-    </div>
-  </section>
+  <% else %>
+    <main id="content" class="gate">
+      <div class="gate-card">
+        <a class="brand" href="/">Naaf<small>control plane</small></a>
+        <% if flash["error"] %>
+          <div class="callout callout-bad" role="alert"><%= flash["error"] %></div>
+        <% end %>
+        <% if flash["notice"] %>
+          <div class="callout callout-ok" role="status"><%= flash["notice"] %></div>
+        <% end %>
+        <%= yield %>
+      </div>
+    </main>
+  <% end %>
 </body>
 </html>

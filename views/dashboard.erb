@@ -21,23 +21,17 @@
     is leaked with no handle left to close it (htmx-extensions#190). %>
 <div <%= sse ? %{hx-ext="sse" sse-connect="/events"} : "" %>>
 
-  <div class="level mb-3">
-    <div class="level-left">
-      <h1 class="title level-item mb-0">Dashboard</h1>
-    </div>
-    <div class="level-right">
-      <% if sse %>
-        <%# The dot carries the colour and the word carries the meaning: green
-            text on the light surface sits under 4.5:1, and a status hue on body
-            text is the thing the rest of this page is careful not to do. %>
-        <span class="tag naaf-chip naaf-live level-item">
-          <span class="naaf-dot" aria-hidden="true"></span> live
-        </span>
-      <% else %>
-        <span class="tag naaf-chip level-item">polling every <%= poll %>s</span>
-      <% end %>
-    </div>
-  </div>
+  <header class="page-head">
+    <h1>Dashboard</h1>
+    <% if sse %>
+      <%# The dot carries the colour and the word carries the meaning. %>
+      <span class="status naaf-live">
+        <span class="naaf-dot" aria-hidden="true"></span> live
+      </span>
+    <% else %>
+      <span class="status">polling every <%= poll %>s</span>
+    <% end %>
+  </header>
 
   <div id="m-health" <%= panel.call("health") %>>
     <%# Every panel is rendered server-side for the first paint, so the page is
@@ -57,26 +51,20 @@
     <%= render("metrics/clients", locals: {s: s}) %>
   </div>
 
-  <div class="columns">
-    <div class="column is-half">
-      <div id="m-dns" <%= panel.call("dns") %>>
-        <%= render("metrics/dns", locals: {s: s}) %>
-      </div>
+  <div class="split">
+    <div id="m-dns" <%= panel.call("dns") %>>
+      <%= render("metrics/dns", locals: {s: s}) %>
     </div>
-    <div class="column is-half">
-      <div id="m-talkers" <%= panel.call("talkers") %>>
-        <%= render("metrics/talkers", locals: {s: s}) %>
-      </div>
+    <div id="m-talkers" <%= panel.call("talkers") %>>
+      <%= render("metrics/talkers", locals: {s: s}) %>
     </div>
   </div>
 
-  <div class="columns">
-    <div class="column is-half">
-      <div id="m-interfaces" <%= panel.call("interfaces") %>>
-        <%= render("metrics/interfaces", locals: {s: s}) %>
-      </div>
+  <div class="split">
+    <div id="m-interfaces" <%= panel.call("interfaces") %>>
+      <%= render("metrics/interfaces", locals: {s: s}) %>
     </div>
-    <div class="column is-half">
+    <div>
       <%# Configuration, not telemetry: rendered once, never swapped. %>
       <div id="m-policy" <%= sse ? "" : panel.call("policy") %>>
         <%= render("metrics/policy", locals: {s: s}) %>
